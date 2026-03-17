@@ -57,6 +57,7 @@ def create_app() -> FastAPI:
     from app.routers.mediaplan import router as mediaplan_router
     from app.routers.history import router as history_router
     from app.routers.analytics import router as analytics_router
+    from app.routers.topvisor import router as topvisor_router
 
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
     app.include_router(mediaplan_router, prefix="/api", tags=["mediaplan"])
     app.include_router(history_router, prefix="/api", tags=["history"])
     app.include_router(analytics_router, prefix="/api", tags=["analytics"])
+    app.include_router(topvisor_router, prefix="/api", tags=["topvisor"])
 
     @app.get("/api/health")
     def health():
