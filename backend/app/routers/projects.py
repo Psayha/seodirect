@@ -1,9 +1,8 @@
 import uuid
-from datetime import datetime, timezone
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from sqlalchemy import select, or_
 from sqlalchemy.orm import Session
 
@@ -15,10 +14,8 @@ from app.models.user import User, UserRole
 
 router = APIRouter()
 
-AdminDep = require_roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 
-
-# ── Schemas ──────────────────────────────────────────────────
+# ─── Schemas ──────────────────────────────────────────────────────────────────
 
 class ProjectCreate(BaseModel):
     name: str
@@ -48,8 +45,8 @@ class ProjectResponse(BaseModel):
     budget: float | None
     status: str
     notes: str | None
-    created_at: datetime
-    updated_at: datetime
+    created_at: str
+    updated_at: str
 
 
 class BriefUpdate(BaseModel):
@@ -69,25 +66,7 @@ class BriefUpdate(BaseModel):
     raw_data: dict | None = None
 
 
-class BriefResponse(BaseModel):
-    id: str
-    project_id: str
-    niche: str | None
-    products: str | None
-    price_segment: str | None
-    geo: str | None
-    target_audience: str | None
-    pains: str | None
-    usp: str | None
-    competitors_urls: list | None
-    campaign_goal: str | None
-    ad_geo: list | None
-    excluded_geo: str | None
-    monthly_budget: str | None
-    restrictions: str | None
-
-
-def _project_to_response(p: Project) -> ProjectResponse:
+def _project_response(p: Project) -> ProjectResponse:
     return ProjectResponse(
         id=str(p.id),
         name=p.name,
@@ -97,44 +76,37 @@ def _project_to_response(p: Project) -> ProjectResponse:
         budget=float(p.budget) if p.budget else None,
         status=p.status.value,
         notes=p.notes,
-        created_at=p.created_at,
-        updated_at=p.updated_at,
+        created_at=p.created_at.isoformat(),
+        updated_at=p.updated_at.isoformat(),
     )
 
 
-def _check_project_access(project: Project, current_user: User) -> None:
-    """Viewer and specialist can only access their own/assigned projects."""
-    if current_user.role in (UserRole.SUPER_ADMIN, UserRole.ADMIN):
-        return
-    if current_user.role == UserRole.SPECIALIST:
-        if project.specialist_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Not your project")
-    else:
-        # viewer
-        if project.specialist_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-
-# ── Projects CRUD ────────────────────────────────────────────
+# ─── Projects CRUD ────────────────────────────────────────────────────────────
 
 @router.get("/", response_model=list[ProjectResponse])
 def list_projects(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
-    status_filter: ProjectStatus | None = Query(None, alias="status"),
-    specialist_id: uuid.UUID | None = Query(None),
+    status_filter: str | None = Query(None, alias="status"),
+    specialist_id: uuid.UUID | None = None,
 ):
     q = select(Project)
+
     # Specialists see only their projects
-    if current_user.role in (UserRole.SPECIALIST, UserRole.VIEWER):
+    if current_user.role == UserRole.SPECIALIST:
         q = q.where(Project.specialist_id == current_user.id)
-    if status_filter:
-        q = q.where(Project.status == status_filter)
-    if specialist_id:
+    elif specialist_id:
         q = q.where(Project.specialist_id == specialist_id)
+
+    if status_filter:
+        try:
+            q = q.where(Project.status == ProjectStatus(status_filter))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status_filter}")
+
     q = q.order_by(Project.created_at.desc())
     projects = db.scalars(q).all()
-    return [_project_to_response(p) for p in projects]
+    return [_project_response(p) for p in projects]
 
 
 @router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -143,23 +115,28 @@ def create_project(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    # Auto-assign to current specialist if not admin
+    specialist_id = body.specialist_id
+    if current_user.role == UserRole.SPECIALIST:
+        specialist_id = current_user.id
+
     project = Project(
         name=body.name,
         client_name=body.client_name,
         url=body.url,
-        specialist_id=body.specialist_id or current_user.id,
+        specialist_id=specialist_id,
         budget=body.budget,
         notes=body.notes,
     )
     db.add(project)
     db.flush()
 
-    # Auto-create empty brief
+    # Create empty brief
     brief = Brief(project_id=project.id)
     db.add(brief)
     db.commit()
     db.refresh(project)
-    return _project_to_response(project)
+    return _project_response(project)
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -168,11 +145,8 @@ def get_project(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
-    project = db.scalar(select(Project).where(Project.id == project_id))
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    _check_project_access(project, current_user)
-    return _project_to_response(project)
+    project = _get_project_or_404(project_id, current_user, db)
+    return _project_response(project)
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
@@ -182,24 +156,22 @@ def update_project(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
-    project = db.scalar(select(Project).where(Project.id == project_id))
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    _check_project_access(project, current_user)
-
+    project = _get_project_or_404(project_id, current_user, db)
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(project, field, value)
     db.commit()
     db.refresh(project)
-    return _project_to_response(project)
+    return _project_response(project)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(
     project_id: uuid.UUID,
-    _: Annotated[Any, AdminDep],
+    current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        raise HTTPException(status_code=403, detail="Admin required")
     project = db.scalar(select(Project).where(Project.id == project_id))
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -207,65 +179,71 @@ def delete_project(
     db.commit()
 
 
-# ── Brief ────────────────────────────────────────────────────
+# ─── Brief ────────────────────────────────────────────────────────────────────
 
-def _get_project_or_404(project_id: uuid.UUID, db: Session) -> Project:
-    project = db.scalar(select(Project).where(Project.id == project_id))
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
-
-
-def _brief_to_response(brief: Brief) -> BriefResponse:
-    return BriefResponse(
-        id=str(brief.id),
-        project_id=str(brief.project_id),
-        niche=brief.niche,
-        products=brief.products,
-        price_segment=brief.price_segment,
-        geo=brief.geo,
-        target_audience=brief.target_audience,
-        pains=brief.pains,
-        usp=brief.usp,
-        competitors_urls=brief.competitors_urls,
-        campaign_goal=brief.campaign_goal,
-        ad_geo=brief.ad_geo,
-        excluded_geo=brief.excluded_geo,
-        monthly_budget=brief.monthly_budget,
-        restrictions=brief.restrictions,
-    )
-
-
-@router.get("/{project_id}/brief", response_model=BriefResponse)
+@router.get("/{project_id}/brief")
 def get_brief(
     project_id: uuid.UUID,
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
-    project = _get_project_or_404(project_id, db)
-    _check_project_access(project, current_user)
+    _get_project_or_404(project_id, current_user, db)
     brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
     if not brief:
         raise HTTPException(status_code=404, detail="Brief not found")
-    return _brief_to_response(brief)
+    return _brief_to_dict(brief)
 
 
-@router.put("/{project_id}/brief", response_model=BriefResponse)
+@router.put("/{project_id}/brief")
 def update_brief(
     project_id: uuid.UUID,
     body: BriefUpdate,
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
-    project = _get_project_or_404(project_id, db)
-    _check_project_access(project, current_user)
+    _get_project_or_404(project_id, current_user, db)
     brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
     if not brief:
         brief = Brief(project_id=project_id)
         db.add(brief)
-
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(brief, field, value)
     db.commit()
     db.refresh(brief)
-    return _brief_to_response(brief)
+    return _brief_to_dict(brief)
+
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def _get_project_or_404(project_id: uuid.UUID, current_user: User, db: Session) -> Project:
+    project = db.scalar(select(Project).where(Project.id == project_id))
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if (
+        current_user.role == UserRole.SPECIALIST
+        and project.specialist_id != current_user.id
+    ):
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
+
+
+def _brief_to_dict(brief: Brief) -> dict:
+    return {
+        "id": str(brief.id),
+        "project_id": str(brief.project_id),
+        "niche": brief.niche,
+        "products": brief.products,
+        "price_segment": brief.price_segment,
+        "geo": brief.geo,
+        "target_audience": brief.target_audience,
+        "pains": brief.pains,
+        "usp": brief.usp,
+        "competitors_urls": brief.competitors_urls or [],
+        "campaign_goal": brief.campaign_goal,
+        "ad_geo": brief.ad_geo or [],
+        "excluded_geo": brief.excluded_geo,
+        "monthly_budget": brief.monthly_budget,
+        "restrictions": brief.restrictions,
+        "raw_data": brief.raw_data,
+        "updated_at": brief.updated_at.isoformat() if brief.updated_at else None,
+    }
