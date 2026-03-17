@@ -53,6 +53,10 @@ def create_app() -> FastAPI:
     from app.routers.users import router as users_router
     from app.routers.tasks import router as tasks_router
     from app.routers.seo import router as seo_router
+    from app.routers.og import router as og_router
+    from app.routers.mediaplan import router as mediaplan_router
+    from app.routers.history import router as history_router
+    from app.routers.analytics import router as analytics_router
 
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
@@ -63,6 +67,10 @@ def create_app() -> FastAPI:
     app.include_router(users_router, prefix="/api/users", tags=["users"])
     app.include_router(tasks_router, prefix="/api/tasks", tags=["tasks"])
     app.include_router(seo_router, prefix="/api", tags=["seo"])
+    app.include_router(og_router, prefix="/api", tags=["og"])
+    app.include_router(mediaplan_router, prefix="/api", tags=["mediaplan"])
+    app.include_router(history_router, prefix="/api", tags=["history"])
+    app.include_router(analytics_router, prefix="/api", tags=["analytics"])
 
     @app.get("/api/health")
     def health():

@@ -11,6 +11,8 @@ from app.models.direct import (
 )
 from app.models.settings import Setting, SystemPrompt
 from app.models.seo import SeoPageMeta
+from app.models.mediaplan import MediaPlan
+from app.models.history import ProjectEvent, EventType
 from app.models.task import Task, TaskType, TaskStatus
 
 __all__ = [
@@ -25,5 +27,7 @@ __all__ = [
     "Ad", "AdStatus",
     "Setting", "SystemPrompt",
     "SeoPageMeta",
+    "MediaPlan",
+    "ProjectEvent", "EventType",
     "Task", "TaskType", "TaskStatus",
 ]
