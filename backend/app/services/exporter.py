@@ -2,34 +2,193 @@
 from __future__ import annotations
 
 import io
+import zipfile
 from typing import TYPE_CHECKING
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
-from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font, PatternFill
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 
-def _header_row(ws, headers: list[str]) -> None:
-    """Write bold header row with light grey background."""
+# ── Column layout (66 cols) matching the official Direct Commander template ──
+# Row 10 — main headers (only named cols, others blank)
+_H1: dict[int, str] = {
+    1: "Доп. объявление группы", 2: "Тип объявления", 3: "ID группы",
+    4: "Название группы", 5: "Номер группы", 6: "ID фразы",
+    7: "Фраза (с минус-словами)", 8: "ID объявления",
+    9: "Заголовок 1", 10: "Заголовок 2", 11: "Текст",
+    12: "Длина",         # spans 12-14 (visual merge only)
+    15: "Комбинаторика", # spans 15-46
+    47: "Ссылка", 48: "Отображаемая ссылка", 49: "Регион",
+    50: "Организация Яндекс Бизнеса", 51: "Ставка", 52: "Ставка в сетях",
+    53: "Статус объявления ", 54: "Статус фразы",
+    55: "Заголовки быстрых ссылок", 56: "Описания быстрых ссылок",
+    57: "Адреса быстрых ссылок", 58: "Параметр 1", 59: "Параметр 2",
+    60: "Метки", 61: "Изображение", 62: "Креатив",
+    63: "Статус модерации креатива", 64: "Уточнения",
+    65: "Минус-фразы на группу", 66: "Возрастные ограничения",
+}
+
+# Row 11 — sub-headers under «Длина» (12-14) and «Комбинаторика» (15-46)
+_H2: dict[int, str] = {
+    12: "заголовок 1", 13: "заголовок 2", 14: "текст",
+    15: "Заголовок 1", 16: "Заголовок 2", 17: "Заголовок 3",
+    18: "Заголовок 4", 19: "Заголовок 5", 20: "Заголовок 6",
+    21: "Заголовок 7", 22: "Текст 1", 23: "Текст 2", 24: "Текст 3",
+    25: "Длина заголовка 1", 26: "Длина заголовка 2", 27: "Длина заголовка 3",
+    28: "Длина заголовка 4", 29: "Длина заголовка 5", 30: "Длина заголовка 6",
+    31: "Длина заголовка 7", 32: "Длина текста 1", 33: "Длина текста 2",
+    34: "Длина текста 3", 35: "Изображение 1", 36: "Изображение 2",
+    37: "Изображение 3", 38: "Изображение 4", 39: "Изображение 5",
+    40: "Вертикальное видео 1", 41: "Вертикальное видео 2",
+    42: "Квадратное видео 1", 43: "Квадратное видео 2",
+    44: "Горизонтальное видео 1", 45: "Горизонтальное видео 2",
+    46: "Причины отклонения",
+}
+
+
+def _format_geo(geo) -> str:
+    if not geo:
+        return ""
+    if isinstance(geo, str):
+        return geo
+    if isinstance(geo, list):
+        parts = [g.get("name", str(g)) if isinstance(g, dict) else str(g) for g in geo]
+        return ", ".join(parts)
+    if isinstance(geo, dict):
+        return geo.get("name", str(geo))
+    return str(geo)
+
+
+def _encode_keyword(phrase: str, match_type: str) -> str:
+    if match_type == "exact":
+        return f'"{phrase}"'
+    return phrase
+
+
+def _build_campaign_xls(campaign, groups, ads_by_group, keywords_by_group,
+                         neg_kws, project_url: str) -> bytes:
+    """Build one .xlsx file matching the official Yandex Direct Commander EPC template."""
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    ws = wb.create_sheet("Тексты")
+
+    # ── Campaign header block (rows 6-9) ────────────────────────────────────
+    ws.cell(6, 1, "Предложение текстовых блоков для кампании")
+    ws.cell(7, 4, "Тип кампании:")
+    ws.cell(7, 5, "Единая перфоманс-кампания")
+    ws.cell(8, 4, "№ заказа:")
+    ws.cell(8, 5, "")
+    ws.cell(8, 7, "Валюта:")
+    ws.cell(8, 8, "RUB")
+    ws.cell(9, 4, "Минус-фразы на кампанию:")
+    minus_parts = []
+    for nk in neg_kws:
+        p = nk.phrase.strip()
+        if p:
+            minus_parts.append(f"-{p}" if not p.startswith("-") else p)
+    ws.cell(9, 5, " ".join(minus_parts))
+
+    # ── Column headers (rows 10-11) ─────────────────────────────────────────
     fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
     bold = Font(bold=True)
-    for col, header in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col, value=header)
+    for col, val in _H1.items():
+        cell = ws.cell(10, col, val)
         cell.font = bold
         cell.fill = fill
-        cell.alignment = Alignment(horizontal="center")
-    ws.freeze_panes = "A2"
+    for col, val in _H2.items():
+        cell = ws.cell(11, col, val)
+        cell.font = bold
+        cell.fill = fill
+
+    ws.freeze_panes = "A12"
+
+    geo_str = _format_geo(campaign.geo)
+    current_row = 12
+
+    # ── Data rows ────────────────────────────────────────────────────────────
+    for group_idx, group in enumerate(groups, 1):
+        gid = str(group.id)
+        keywords = keywords_by_group.get(gid, [])
+        ads = ads_by_group.get(gid, [])
+
+        if not ads and not keywords:
+            continue
+
+        # Prefer "ready" ads; fall back to any ads
+        ready = [a for a in ads if a.status.value == "ready"] or ads
+        first_ad = ready[0] if ready else None
+        extra_ads = ready[1:] if len(ready) > 1 else []
+
+        h1  = (first_ad.headline1 or "") if first_ad else ""
+        h2  = (first_ad.headline2 or "") if first_ad else ""
+        txt = (first_ad.text or "")       if first_ad else ""
+        url = (first_ad.display_url or project_url) if first_ad else project_url
+
+        def _row(r, marker, phrase, rh1, rh2, rtxt, rurl):
+            ws.cell(r, 1, marker)
+            ws.cell(r, 2, "Текстово-графическое")
+            ws.cell(r, 4, group.name)
+            ws.cell(r, 5, group_idx)
+            ws.cell(r, 7, phrase)
+            ws.cell(r, 9,  rh1)
+            ws.cell(r, 10, rh2)
+            ws.cell(r, 11, rtxt)
+            ws.cell(r, 12, len(rh1))
+            ws.cell(r, 13, len(rh2))
+            ws.cell(r, 14, len(rtxt))
+            for c in range(15, 47):   # combinatorial slots — empty for text ads
+                ws.cell(r, c, "")
+            ws.cell(r, 47, rurl)
+            ws.cell(r, 49, geo_str)
+
+        # One "-" row per keyword (all share the primary ad creative)
+        phrases = [_encode_keyword(kw.phrase, kw.match_type) for kw in keywords]
+        if not phrases:
+            phrases = ["---autotargeting"]
+
+        for phrase in phrases:
+            _row(current_row, "-", phrase, h1, h2, txt, url)
+            current_row += 1
+
+        # Additional ad variants → "+" rows (no keyword)
+        for extra in extra_ads:
+            eh1  = extra.headline1 or ""
+            eh2  = extra.headline2 or ""
+            etxt = extra.text or ""
+            eurl = extra.display_url or project_url
+            _row(current_row, "+", "", eh1, eh2, etxt, eurl)
+            current_row += 1
+
+    # ── Reference sheets (minimal stubs) ────────────────────────────────────
+    ws_r = wb.create_sheet("Регионы")
+    ws_r.cell(3, 2, "Регионы")
+
+    ws_d = wb.create_sheet("Словарь значений полей")
+    ws_d.cell(2, 2, "Тип кампании")
+    ws_d.cell(3, 2, "Единая перфоманс-кампания")
+    ws_d.cell(5, 2, "Тип объявления")
+    ws_d.cell(6, 2, "Текстово-графическое")
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
 
 
-def export_direct_xls(project_id, db: "Session") -> bytes:
-    """Export campaigns, groups, ads, keywords, negative keywords to XLS."""
+def export_direct_xls(project_id, db: "Session") -> tuple[bytes, str]:
+    """Export Direct campaigns as Commander XLS files.
+
+    Returns ``(data, ext)`` where *ext* is ``"xlsx"`` for a single campaign
+    or ``"zip"`` when multiple campaigns are packed into an archive.
+    """
+    import uuid
     from sqlalchemy import select
     from app.models.direct import Campaign, AdGroup, Keyword, NegativeKeyword, Ad
     from app.models.project import Project
-    import uuid
 
     if not isinstance(project_id, uuid.UUID):
         project_id = uuid.UUID(str(project_id))
@@ -41,131 +200,68 @@ def export_direct_xls(project_id, db: "Session") -> bytes:
     campaigns = db.scalars(
         select(Campaign).where(Campaign.project_id == project_id).order_by(Campaign.priority)
     ).all()
+    if not campaigns:
+        raise ValueError("No campaigns to export")
 
     campaign_ids = [c.id for c in campaigns]
 
-    groups = db.scalars(
+    groups_all = db.scalars(
         select(AdGroup).where(AdGroup.campaign_id.in_(campaign_ids))
-    ).all() if campaign_ids else []
+    ).all()
+    group_ids = [g.id for g in groups_all]
 
-    group_ids = [g.id for g in groups]
-
-    keywords = db.scalars(
+    keywords_all = db.scalars(
         select(Keyword).where(Keyword.ad_group_id.in_(group_ids))
     ).all() if group_ids else []
 
-    ads = db.scalars(
+    ads_all = db.scalars(
         select(Ad).where(Ad.ad_group_id.in_(group_ids))
     ).all() if group_ids else []
 
-    neg_keywords = db.scalars(
+    neg_kws_all = db.scalars(
         select(NegativeKeyword).where(NegativeKeyword.project_id == project_id)
     ).all()
 
     # Build lookup maps
-    campaign_map = {c.id: c for c in campaigns}
-    group_map = {g.id: g for g in groups}
+    groups_by_campaign: dict[str, list] = {}
+    for g in groups_all:
+        groups_by_campaign.setdefault(str(g.campaign_id), []).append(g)
 
-    wb = Workbook()
-    wb.remove(wb.active)  # remove default sheet
+    ads_by_group: dict[str, list] = {}
+    for a in ads_all:
+        ads_by_group.setdefault(str(a.ad_group_id), []).append(a)
 
-    # ── Sheet: Campaigns ────────────────────────────────────────────────────
-    ws_c = wb.create_sheet("Campaigns")
-    c_headers = ["Campaign Name", "Type", "Status", "Budget", "Priority", "Geo", "Strategy Notes"]
-    _header_row(ws_c, c_headers)
-    for row, c in enumerate(campaigns, 2):
-        ws_c.cell(row, 1, c.name)
-        ws_c.cell(row, 2, c.type or "")
-        ws_c.cell(row, 3, c.status.value)
-        ws_c.cell(row, 4, float(c.budget_monthly) if c.budget_monthly else "")
-        ws_c.cell(row, 5, c.priority)
-        ws_c.cell(row, 6, str(c.geo) if c.geo else "")
-        # Truncate strategy text for cell
-        strategy = (c.strategy_text or "")[:1000]
-        ws_c.cell(row, 7, strategy)
+    keywords_by_group: dict[str, list] = {}
+    for kw in keywords_all:
+        keywords_by_group.setdefault(str(kw.ad_group_id), []).append(kw)
 
-    # ── Sheet: AdGroups ─────────────────────────────────────────────────────
-    ws_g = wb.create_sheet("AdGroups")
-    g_headers = ["Campaign Name", "Group Name", "Status"]
-    _header_row(ws_g, g_headers)
-    for row, g in enumerate(groups, 2):
-        campaign = campaign_map.get(g.campaign_id)
-        ws_g.cell(row, 1, campaign.name if campaign else "")
-        ws_g.cell(row, 2, g.name)
-        ws_g.cell(row, 3, g.status)
+    # Project-level negatives go into every campaign
+    project_neg_kws = [nk for nk in neg_kws_all if not nk.campaign_id]
 
-    # ── Sheet: Ads ──────────────────────────────────────────────────────────
-    ws_a = wb.create_sheet("Ads")
-    a_headers = [
-        "Campaign Name", "Group Name", "Headline 1", "Headline 2", "Headline 3",
-        "Text", "Display URL", "UTM", "Status", "Variant",
-        "H1 Len", "H2 Len", "H3 Len", "Text Len", "Valid"
-    ]
-    _header_row(ws_a, a_headers)
-    for row, ad in enumerate(ads, 2):
-        group = group_map.get(ad.ad_group_id)
-        campaign = campaign_map.get(group.campaign_id) if group else None
-        h1 = ad.headline1 or ""
-        h2 = ad.headline2 or ""
-        h3 = ad.headline3 or ""
-        txt = ad.text or ""
-        valid = len(h1) <= 56 and len(h2) <= 30 and len(h3) <= 30 and len(txt) <= 81
-        ws_a.cell(row, 1, campaign.name if campaign else "")
-        ws_a.cell(row, 2, group.name if group else "")
-        ws_a.cell(row, 3, h1)
-        ws_a.cell(row, 4, h2)
-        ws_a.cell(row, 5, h3)
-        ws_a.cell(row, 6, txt)
-        ws_a.cell(row, 7, ad.display_url or "")
-        ws_a.cell(row, 8, ad.utm or "")
-        ws_a.cell(row, 9, ad.status.value)
-        ws_a.cell(row, 10, ad.variant)
-        ws_a.cell(row, 11, len(h1))
-        ws_a.cell(row, 12, len(h2))
-        ws_a.cell(row, 13, len(h3))
-        ws_a.cell(row, 14, len(txt))
-        ws_a.cell(row, 15, "✅" if valid else "❌")
-        # Highlight invalid rows
-        if not valid:
-            red = PatternFill(start_color="FFB3B3", end_color="FFB3B3", fill_type="solid")
-            for col in range(1, 16):
-                ws_a.cell(row, col).fill = red
+    project_url = project.url or ""
 
-    # ── Sheet: Keywords ─────────────────────────────────────────────────────
-    ws_k = wb.create_sheet("Keywords")
-    k_headers = ["Campaign Name", "Group Name", "Phrase", "Match Type", "Temperature", "Frequency", "Status"]
-    _header_row(ws_k, k_headers)
-    for row, kw in enumerate(keywords, 2):
-        group = group_map.get(kw.ad_group_id)
-        campaign = campaign_map.get(group.campaign_id) if group else None
-        ws_k.cell(row, 1, campaign.name if campaign else "")
-        ws_k.cell(row, 2, group.name if group else "")
-        ws_k.cell(row, 3, kw.phrase)
-        ws_k.cell(row, 4, kw.match_type)
-        ws_k.cell(row, 5, kw.temperature.value if kw.temperature else "")
-        ws_k.cell(row, 6, kw.frequency or "")
-        ws_k.cell(row, 7, kw.status.value)
+    xls_files: list[tuple[str, bytes]] = []
+    for campaign in campaigns:
+        cid = str(campaign.id)
+        groups = groups_by_campaign.get(cid, [])
+        camp_neg_kws = [nk for nk in neg_kws_all if nk.campaign_id == campaign.id] + project_neg_kws
 
-    # ── Sheet: NegativeKeywords ─────────────────────────────────────────────
-    ws_n = wb.create_sheet("NegativeKeywords")
-    n_headers = ["Phrase", "Block", "Campaign (if campaign-level)"]
-    _header_row(ws_n, n_headers)
-    for row, nk in enumerate(neg_keywords, 2):
-        ws_n.cell(row, 1, nk.phrase)
-        ws_n.cell(row, 2, nk.block or "general")
-        campaign = campaign_map.get(nk.campaign_id) if nk.campaign_id else None
-        ws_n.cell(row, 3, campaign.name if campaign else "")
+        data = _build_campaign_xls(
+            campaign, groups, ads_by_group, keywords_by_group, camp_neg_kws, project_url
+        )
+        safe_name = campaign.name.replace("/", "-").replace("\\", "-")[:80]
+        xls_files.append((f"{safe_name}.xlsx", data))
 
-    # Auto-fit column widths (approximate)
-    for ws in wb.worksheets:
-        for col_cells in ws.columns:
-            max_len = max((len(str(cell.value or "")) for cell in col_cells), default=0)
-            ws.column_dimensions[get_column_letter(col_cells[0].column)].width = min(max_len + 4, 50)
+    if len(xls_files) == 1:
+        return xls_files[0][1], "xlsx"
 
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf.read()
+    # Multiple campaigns → ZIP archive
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in xls_files:
+            zf.writestr(name, data)
+    zip_buf.seek(0)
+    return zip_buf.read(), "zip"
 
 
 def export_strategy_md(project_id, db: "Session") -> str:

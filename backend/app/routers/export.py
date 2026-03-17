@@ -34,16 +34,21 @@ def download_direct_xls(
         raise HTTPException(status_code=404, detail="Project not found")
 
     try:
-        xls_bytes = export_direct_xls(project_id, db)
+        data, fmt = export_direct_xls(project_id, db)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
     safe_name = project.name.replace(" ", "_")[:50]
-    filename = f"direct_{safe_name}.xlsx"
+    if fmt == "zip":
+        media_type = "application/zip"
+        filename = f"direct_{safe_name}.zip"
+    else:
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = f"direct_{safe_name}.xlsx"
 
     return Response(
-        content=xls_bytes,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        content=data,
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
