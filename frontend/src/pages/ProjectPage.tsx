@@ -5,8 +5,11 @@ import { projectsApi, Brief } from '../api/projects'
 import { api } from '../api/client'
 import { directApi, type Campaign, type AdGroup, type Keyword, type Ad, type NegativeKeyword } from '../api/direct'
 import { seoApi, type SeoPage, type ChecklistItem } from '../api/seo'
+import { ogApi, type OgPage, type OgStats } from '../api/og'
+import { mediaplanApi, type MediaPlanRow } from '../api/mediaplan'
+import { analyticsApi, type TrafficSource, type DailyVisit } from '../api/analytics'
 
-type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'export'
+type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og' | 'mediaplan' | 'analytics' | 'history' | 'export'
 
 function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
@@ -979,6 +982,548 @@ function ExportTab({ projectId }: { projectId: string }) {
   )
 }
 
+// ─── MediaPlan Tab ────────────────────────────────────────────────────────────
+
+function MediaPlanTab({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ['mediaplan', projectId],
+    queryFn: () => mediaplanApi.get(projectId),
+  })
+  const [rows, setRows] = useState<MediaPlanRow[] | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  const saveMut = useMutation({
+    mutationFn: () => mediaplanApi.update(projectId, rows!),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['mediaplan', projectId] }); setSaved(true); setTimeout(() => setSaved(false), 2000); setRows(null) },
+  })
+  const resetMut = useMutation({
+    mutationFn: () => mediaplanApi.reset(projectId, new Date().getFullYear()),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['mediaplan', projectId] }); setRows(null) },
+  })
+
+  if (isLoading) return <div className="p-6 text-gray-500">Загрузка...</div>
+
+  const display = rows ?? (data?.rows || [])
+  const totalBudget = display.reduce((s, r) => s + (r.budget || 0), 0)
+  const totalClicks = display.reduce((s, r) => s + (r.forecast_clicks || 0), 0)
+  const totalLeads = display.reduce((s, r) => s + (r.forecast_leads || 0), 0)
+  const totalCPA = totalLeads > 0 ? Math.round(totalBudget / totalLeads) : 0
+
+  const updateRow = (i: number, field: keyof MediaPlanRow, value: number | null) => {
+    const updated = [...(rows ?? data?.rows ?? [])].map((r, idx) => idx === i ? { ...r, [field]: value } : r)
+    setRows(updated as MediaPlanRow[])
+  }
+
+  return (
+    <div className="p-6 max-w-5xl">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold">Медиаплан</h3>
+        <div className="flex gap-2 items-center">
+          {saved && <span className="text-green-600 text-sm">✅ Сохранено</span>}
+          {data?.total_frequency > 0 && (
+            <span className="text-xs text-gray-500">Суммарная частота ключей: {data.total_frequency.toLocaleString()}</span>
+          )}
+          <button onClick={() => resetMut.mutate()} disabled={resetMut.isPending}
+            className="border px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50">
+            ↺ Сброс
+          </button>
+          {rows && (
+            <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}
+              className="bg-primary-600 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+              {saveMut.isPending ? 'Сохранение...' : 'Сохранить'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-4 gap-3 mb-4">
+        {[
+          { label: 'Бюджет всего', value: totalBudget.toLocaleString() + ' ₽', color: 'text-primary-600' },
+          { label: 'Прогноз кликов', value: totalClicks > 0 ? totalClicks.toLocaleString() : '—', color: 'text-green-600' },
+          { label: 'Прогноз заявок', value: totalLeads > 0 ? totalLeads.toLocaleString() : '—', color: 'text-blue-600' },
+          { label: 'Средний CPA', value: totalCPA > 0 ? totalCPA.toLocaleString() + ' ₽' : '—', color: 'text-orange-600' },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="bg-white border rounded-lg p-3 text-center">
+            <p className="text-xs text-gray-500 mb-1">{label}</p>
+            <p className={cx('text-lg font-bold', color)}>{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="bg-white border rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              {['Месяц', '% бюджета', 'Бюджет (₽)', 'Прогноз кликов', 'Прогноз заявок', 'CPC (₽)', 'CPA (₽)'].map((h) => (
+                <th key={h} className="text-left px-3 py-2 text-xs text-gray-500 font-medium">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {display.map((row, i) => {
+              const cpc = row.budget && row.forecast_clicks ? Math.round(row.budget / row.forecast_clicks) : null
+              const cpa = row.budget && row.forecast_leads ? Math.round(row.budget / row.forecast_leads) : null
+              return (
+                <tr key={row.month} className="hover:bg-gray-50">
+                  <td className="px-3 py-2 font-medium text-gray-700">{row.month_name}</td>
+                  <td className="px-3 py-2 text-gray-500 tabular-nums">{row.pct}%</td>
+                  <td className="px-3 py-2">
+                    <input type="number" className="w-24 border rounded px-2 py-0.5 text-sm tabular-nums"
+                      value={row.budget || ''}
+                      onChange={(e) => updateRow(i, 'budget', e.target.value ? Number(e.target.value) : null)} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input type="number" className="w-24 border rounded px-2 py-0.5 text-sm tabular-nums"
+                      placeholder="—"
+                      value={row.forecast_clicks || ''}
+                      onChange={(e) => updateRow(i, 'forecast_clicks', e.target.value ? Number(e.target.value) : null)} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input type="number" className="w-20 border rounded px-2 py-0.5 text-sm tabular-nums"
+                      placeholder="—"
+                      value={row.forecast_leads || ''}
+                      onChange={(e) => updateRow(i, 'forecast_leads', e.target.value ? Number(e.target.value) : null)} />
+                  </td>
+                  <td className="px-3 py-2 text-gray-500 tabular-nums">{cpc ? cpc.toLocaleString() : '—'}</td>
+                  <td className="px-3 py-2 text-gray-500 tabular-nums">{cpa ? cpa.toLocaleString() : '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+          <tfoot className="bg-gray-50 border-t font-semibold">
+            <tr>
+              <td className="px-3 py-2 text-gray-700">Итого</td>
+              <td className="px-3 py-2 text-gray-500">100%</td>
+              <td className="px-3 py-2 tabular-nums">{totalBudget.toLocaleString()} ₽</td>
+              <td className="px-3 py-2 tabular-nums text-green-600">{totalClicks > 0 ? totalClicks.toLocaleString() : '—'}</td>
+              <td className="px-3 py-2 tabular-nums text-blue-600">{totalLeads > 0 ? totalLeads.toLocaleString() : '—'}</td>
+              <td className="px-3 py-2 text-gray-400">—</td>
+              <td className="px-3 py-2 tabular-nums text-orange-600">{totalCPA > 0 ? totalCPA.toLocaleString() + ' ₽' : '—'}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p className="text-xs text-gray-400 mt-2">Заполните «Бюджет» — % пересчитается автоматически. Клики и заявки — ваши прогнозы.</p>
+    </div>
+  )
+}
+
+// ─── OG Tab ───────────────────────────────────────────────────────────────────
+
+function OgTab({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
+  const [issuesOnly, setIssuesOnly] = useState(false)
+  const [taskId, setTaskId] = useState<string | null>(null)
+  const [expandedUrl, setExpandedUrl] = useState<string | null>(null)
+  const [editForms, setEditForms] = useState<Record<string, { rec_og_title: string; rec_og_description: string }>>({})
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['og-audit', projectId, issuesOnly],
+    queryFn: () => ogApi.getAudit(projectId, { issues_only: issuesOnly, limit: 100 }),
+  })
+
+  const { data: taskStatus } = useQuery({
+    queryKey: ['seo-task', taskId],
+    queryFn: () => seoApi.getTaskStatus(projectId, taskId!),
+    enabled: !!taskId,
+    refetchInterval: (q) => {
+      const s = (q.state.data as any)?.status
+      return s === 'running' || s === 'pending' ? 2000 : false
+    },
+  })
+
+  const genMut = useMutation({
+    mutationFn: () => ogApi.generate(projectId),
+    onSuccess: (d: any) => setTaskId(d.task_id),
+  })
+  const saveMut = useMutation({
+    mutationFn: ({ url, form }: { url: string; form: { rec_og_title: string; rec_og_description: string } }) =>
+      ogApi.updateMeta(projectId, url, form),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['og-audit', projectId] }); setExpandedUrl(null) },
+  })
+
+  const stats = data?.stats
+  const isRunning = taskStatus?.status === 'running' || taskStatus?.status === 'pending'
+  const isDone = taskStatus?.status === 'success'
+
+  return (
+    <div className="p-6 max-w-4xl">
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="font-semibold">OpenGraph теги</h3>
+        <button onClick={() => genMut.mutate()} disabled={genMut.isPending || isRunning}
+          className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          {genMut.isPending || isRunning ? '⏳ Генерация...' : '✨ Сгенерировать OG теги'}
+        </button>
+      </div>
+
+      {taskId && (
+        <div className={cx('rounded-lg p-3 mb-4 text-sm', isDone ? 'bg-green-50 border border-green-200 text-green-700' : isRunning ? 'bg-blue-50 border border-blue-200 text-blue-700' : 'bg-red-50 text-red-700')}>
+          {isRunning && `⏳ Генерация: ${taskStatus?.progress ?? 0}%`}
+          {isDone && `✅ Готово: ${(taskStatus?.result as any)?.pages_generated ?? 0} страниц`}
+          {isDone && <button onClick={() => refetch()} className="ml-3 underline">Обновить</button>}
+        </div>
+      )}
+
+      {/* Stats */}
+      {stats && stats.total > 0 && (
+        <div className="grid grid-cols-4 gap-3 mb-4">
+          {[
+            { label: 'Всего страниц', value: stats.total, color: 'text-gray-700' },
+            { label: 'Есть og:title', value: stats.has_og_title, color: 'text-green-600' },
+            { label: 'Есть og:description', value: stats.has_og_description, color: 'text-green-600' },
+            { label: 'Полностью OK', value: stats.fully_ok, color: stats.fully_ok === stats.total ? 'text-green-600' : 'text-orange-600' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="bg-white border rounded-lg p-3 text-center">
+              <p className="text-xs text-gray-500 mb-1">{label}</p>
+              <p className={cx('text-xl font-bold', color)}>{value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer mb-3">
+        <input type="checkbox" className="rounded" checked={issuesOnly} onChange={(e) => setIssuesOnly(e.target.checked)} />
+        Только страницы с проблемами
+      </label>
+
+      {isLoading ? <div className="text-gray-500">Загрузка...</div> :
+        data?.crawl_status === 'not_done' ? (
+          <div className="text-center py-16 text-gray-400">
+            <p className="text-4xl mb-3">📭</p>
+            <p className="font-medium">Нет данных парсинга</p>
+            <p className="text-sm mt-1">Запустите парсинг на вкладке «Парсинг»</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {(data?.pages ?? []).map((page: OgPage) => {
+              const isExpanded = expandedUrl === page.page_url
+              const form = editForms[page.page_url] || { rec_og_title: page.rec_og_title || '', rec_og_description: page.rec_og_description || '' }
+              return (
+                <div key={page.page_url} className={cx('border rounded-lg bg-white overflow-hidden',
+                  page.has_rec ? 'border-green-200' : (page.missing_title || page.missing_description) ? 'border-red-200' : '')}>
+                  <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 text-sm"
+                    onClick={() => setExpandedUrl(isExpanded ? null : page.page_url)}>
+                    <span className="text-gray-400 text-xs w-3">{isExpanded ? '▼' : '▶'}</span>
+                    <span className="flex-1 font-mono text-xs truncate" title={page.page_url}>{page.page_url}</span>
+                    <div className="flex gap-1 shrink-0">
+                      {page.missing_title && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded">title</span>}
+                      {page.missing_description && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded">desc</span>}
+                      {page.missing_image && <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded">image</span>}
+                      {page.has_rec && <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded">✓</span>}
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <div className="border-t p-3 bg-gray-50 space-y-3">
+                      {/* Current OG */}
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <p className="text-gray-500 font-medium mb-1">og:title</p>
+                          <p className={cx(page.missing_title ? 'text-red-500 italic' : 'text-gray-700')}>{page.og_title || 'нет'}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 font-medium mb-1">og:description</p>
+                          <p className={cx(page.missing_description ? 'text-red-500 italic' : 'text-gray-700')}>{page.og_description || 'нет'}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 font-medium mb-1">og:image</p>
+                          <p className={cx(page.missing_image ? 'text-red-500 italic' : 'text-gray-700 truncate')}>{page.og_image || 'нет'}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 font-medium mb-1">og:type</p>
+                          <p className="text-gray-700">{page.og_type || 'нет'}</p>
+                        </div>
+                      </div>
+
+                      {/* OG Preview (Telegram-style) */}
+                      {(page.og_title || form.rec_og_title) && (
+                        <div className="border rounded-lg overflow-hidden bg-white max-w-sm">
+                          {page.og_image && <img src={page.og_image} alt="" className="w-full h-32 object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />}
+                          <div className="p-2">
+                            <p className="text-xs text-gray-400">{new URL(page.page_url).hostname}</p>
+                            <p className="text-sm font-medium text-gray-900 line-clamp-2">{form.rec_og_title || page.og_title}</p>
+                            <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{form.rec_og_description || page.og_description}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Edit recommended */}
+                      <div className="space-y-2 pt-1">
+                        <div>
+                          <div className="flex justify-between mb-0.5">
+                            <label className="text-xs text-gray-600">Рек. og:title</label>
+                            <CharBadge len={form.rec_og_title.length} max={90} />
+                          </div>
+                          <input className="w-full border rounded px-2 py-1 text-sm bg-white"
+                            placeholder="OG заголовок для соцсетей (60–90 симв.)"
+                            value={form.rec_og_title}
+                            onChange={(e) => setEditForms((f) => ({ ...f, [page.page_url]: { ...form, rec_og_title: e.target.value } }))} />
+                        </div>
+                        <div>
+                          <div className="flex justify-between mb-0.5">
+                            <label className="text-xs text-gray-600">Рек. og:description</label>
+                            <CharBadge len={form.rec_og_description.length} max={200} />
+                          </div>
+                          <textarea rows={2} className="w-full border rounded px-2 py-1 text-sm bg-white"
+                            placeholder="OG описание (150–200 симв.)"
+                            value={form.rec_og_description}
+                            onChange={(e) => setEditForms((f) => ({ ...f, [page.page_url]: { ...form, rec_og_description: e.target.value } }))} />
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => saveMut.mutate({ url: page.page_url, form })}
+                          disabled={saveMut.isPending}
+                          className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+                          Сохранить
+                        </button>
+                        <button onClick={() => setExpandedUrl(null)} className="border px-3 py-1.5 rounded-lg text-sm hover:bg-white">Закрыть</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            {(data?.pages ?? []).length === 0 && (
+              <div className="text-center py-10 text-gray-400">Нет страниц с OG проблемами 🎉</div>
+            )}
+          </div>
+        )
+      }
+    </div>
+  )
+}
+
+// ─── History Tab ──────────────────────────────────────────────────────────────
+
+const EVENT_LABELS: Record<string, string> = {
+  project_created: '🆕 Проект создан',
+  project_updated: '✏️ Проект обновлён',
+  brief_updated: '📝 Бриф обновлён',
+  crawl_started: '🕷️ Парсинг запущен',
+  crawl_completed: '✅ Парсинг завершён',
+  strategy_generated: '🤖 Стратегия сгенерирована',
+  strategy_updated: '✏️ Стратегия обновлена',
+  campaign_created: '📁 Кампания создана',
+  campaign_updated: '✏️ Кампания обновлена',
+  campaign_deleted: '🗑 Кампания удалена',
+  group_created: '📂 Группа создана',
+  keywords_generated: '🔑 Ключи сгенерированы',
+  ads_generated: '📣 Объявления сгенерированы',
+  negative_kw_generated: '❌ Минус-слова сгенерированы',
+  seo_meta_generated: '🔍 Мета-теги сгенерированы',
+  export_downloaded: '📥 Экспорт скачан',
+  mediaplan_updated: '📊 Медиаплан обновлён',
+}
+
+function HistoryTab({ projectId }: { projectId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['history', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/history`).then((r) => r.data),
+    refetchInterval: 30000,
+  })
+
+  if (isLoading) return <div className="p-6 text-gray-500">Загрузка...</div>
+
+  const events: any[] = data?.events ?? []
+
+  return (
+    <div className="p-6 max-w-2xl">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold">История действий</h3>
+        <span className="text-sm text-gray-500">{data?.total ?? 0} событий</span>
+      </div>
+      {events.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">
+          <p className="text-4xl mb-3">📋</p>
+          <p>История пока пуста. Действия появятся здесь по мере работы с проектом.</p>
+        </div>
+      ) : (
+        <div className="relative">
+          <div className="absolute left-4 top-0 bottom-0 w-px bg-gray-200" />
+          <div className="space-y-1">
+            {events.map((e: any, i: number) => (
+              <div key={e.id} className="flex gap-4 relative pl-10">
+                <div className="absolute left-2.5 top-2 w-3 h-3 rounded-full bg-white border-2 border-primary-400" />
+                <div className="flex-1 bg-white border rounded-lg px-3 py-2 text-sm hover:border-gray-300 transition">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{EVENT_LABELS[e.event_type] || e.event_type}</span>
+                    <span className="text-xs text-gray-400 shrink-0">
+                      {new Date(e.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <p className="text-gray-500 text-xs mt-0.5">{e.description}</p>
+                  {e.user_login && <p className="text-xs text-gray-400 mt-0.5">👤 {e.user_login}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Analytics Tab ────────────────────────────────────────────────────────────
+
+function AnalyticsTab({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split('T')[0]
+  })
+  const [dateTo] = useState(() => new Date().toISOString().split('T')[0])
+  const [selectedCounter, setSelectedCounter] = useState<number | null>(null)
+
+  const { data: counterData } = useQuery({
+    queryKey: ['analytics-counter', projectId],
+    queryFn: () => analyticsApi.getCounter(projectId),
+    onSuccess: (d: any) => { if (d?.counter_id && !selectedCounter) setSelectedCounter(d.counter_id) },
+  } as any)
+
+  const { data: countersData } = useQuery({
+    queryKey: ['analytics-counters', projectId],
+    queryFn: () => analyticsApi.getCounters(projectId),
+  })
+
+  const activeCounter = selectedCounter ?? counterData?.counter_id
+
+  const { data: dashData, isLoading: dashLoading, error: dashError } = useQuery({
+    queryKey: ['analytics-summary', projectId, activeCounter, dateFrom],
+    queryFn: () => analyticsApi.getSummary(projectId, { date_from: dateFrom, date_to: dateTo }),
+    enabled: !!activeCounter,
+    retry: false,
+  })
+
+  const setCounterMut = useMutation({
+    mutationFn: (id: number) => analyticsApi.setCounter(projectId, id),
+    onSuccess: (_, id) => { setSelectedCounter(id); qc.invalidateQueries({ queryKey: ['analytics-counter', projectId] }) },
+  })
+
+  const formatDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60), s = seconds % 60
+    return m > 0 ? `${m}м ${s}с` : `${s}с`
+  }
+
+  const noCounter = !activeCounter
+  const hasError = !!dashError
+
+  return (
+    <div className="p-6 max-w-4xl">
+      {/* Counter selector */}
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">Счётчик Метрики:</label>
+          {countersData?.counters?.length ? (
+            <select className="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              value={activeCounter || ''}
+              onChange={(e) => { const id = Number(e.target.value); setCounterMut.mutate(id) }}>
+              <option value="">Выберите счётчик</option>
+              {countersData.counters.map((c: any) => (
+                <option key={c.id} value={c.id}>{c.name || c.site} (#{c.id})</option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-sm text-gray-400">
+              {countersData ? 'Нет доступных счётчиков' : 'Загрузка...'}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 ml-auto">
+          <label className="text-xs text-gray-500">От:</label>
+          <input type="date" className="border rounded px-2 py-1 text-sm" value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)} />
+          <label className="text-xs text-gray-500">до: {dateTo}</label>
+        </div>
+      </div>
+
+      {noCounter && (
+        <div className="text-center py-16 text-gray-400">
+          <p className="text-4xl mb-3">📊</p>
+          <p className="font-medium mb-1">Выберите счётчик Метрики</p>
+          <p className="text-sm">Убедитесь, что OAuth токен Метрики настроен в Настройках → API ключи</p>
+        </div>
+      )}
+
+      {hasError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+          ❌ Ошибка загрузки данных. Проверьте OAuth токен Метрики в настройках.
+        </div>
+      )}
+
+      {dashLoading && <div className="text-gray-500 py-4">Загрузка данных...</div>}
+
+      {dashData && (
+        <div className="space-y-6">
+          {/* KPI cards */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              { label: 'Визиты', value: dashData.summary.visits.toLocaleString(), icon: '👁' },
+              { label: 'Пользователи', value: dashData.summary.users.toLocaleString(), icon: '👤' },
+              { label: 'Отказы', value: dashData.summary.bounce_rate + '%', icon: '↩️' },
+              { label: 'Время на сайте', value: formatDuration(dashData.summary.avg_duration), icon: '⏱' },
+            ].map(({ label, value, icon }) => (
+              <div key={label} className="bg-white border rounded-lg p-4">
+                <p className="text-2xl mb-1">{icon}</p>
+                <p className="text-xl font-bold text-gray-900">{value}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Traffic sources */}
+          {dashData.sources.length > 0 && (
+            <div className="bg-white border rounded-lg p-4">
+              <h4 className="font-medium text-sm mb-3">Источники трафика</h4>
+              <div className="space-y-2">
+                {dashData.sources.map((s: TrafficSource) => {
+                  const maxVisits = Math.max(...dashData.sources.map((x: TrafficSource) => x.visits))
+                  const pct = maxVisits > 0 ? Math.round((s.visits / maxVisits) * 100) : 0
+                  return (
+                    <div key={s.source} className="flex items-center gap-3 text-sm">
+                      <span className="w-32 text-gray-600 text-xs truncate">{s.source}</span>
+                      <div className="flex-1 bg-gray-100 rounded-full h-2">
+                        <div className="bg-primary-500 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="w-16 text-right tabular-nums text-gray-700 font-medium">{s.visits.toLocaleString()}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Daily chart (simple bars) */}
+          {dashData.daily.length > 0 && (
+            <div className="bg-white border rounded-lg p-4">
+              <h4 className="font-medium text-sm mb-3">Визиты по дням</h4>
+              <div className="flex items-end gap-1 h-32">
+                {dashData.daily.map((d: DailyVisit) => {
+                  const maxV = Math.max(...dashData.daily.map((x: DailyVisit) => x.visits))
+                  const h = maxV > 0 ? Math.max(4, Math.round((d.visits / maxV) * 100)) : 4
+                  return (
+                    <div key={d.date} className="flex-1 flex flex-col items-center gap-1 group relative">
+                      <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs rounded px-1.5 py-0.5 opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none">
+                        {d.date}: {d.visits}
+                      </div>
+                      <div className="w-full bg-primary-500 rounded-t hover:bg-primary-600 transition cursor-default"
+                        style={{ height: `${h}%` }} />
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="flex justify-between text-xs text-gray-400 mt-1">
+                <span>{dashData.daily[0]?.date}</span>
+                <span>{dashData.daily[dashData.daily.length - 1]?.date}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function ProjectPage() {
@@ -1001,6 +1546,10 @@ export default function ProjectPage() {
     { key: 'crawl', label: 'Парсинг' },
     { key: 'direct', label: '📢 Директ' },
     { key: 'seo', label: '🔍 SEO' },
+    { key: 'og', label: 'OpenGraph' },
+    { key: 'mediaplan', label: '📅 Медиаплан' },
+    { key: 'analytics', label: '📊 Аналитика' },
+    { key: 'history', label: 'История' },
     { key: 'export', label: 'Экспорт' },
   ]
 
@@ -1064,6 +1613,10 @@ export default function ProjectPage() {
         {tab === 'crawl' && <CrawlTab projectId={id!} />}
         {tab === 'direct' && <DirectTab projectId={id!} />}
         {tab === 'seo' && <SeoTab projectId={id!} />}
+        {tab === 'og' && <OgTab projectId={id!} />}
+        {tab === 'mediaplan' && <MediaPlanTab projectId={id!} />}
+        {tab === 'analytics' && <AnalyticsTab projectId={id!} />}
+        {tab === 'history' && <HistoryTab projectId={id!} />}
         {tab === 'export' && <ExportTab projectId={id!} />}
       </div>
     </div>
