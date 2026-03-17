@@ -1,2 +1,74 @@
-from fastapi import APIRouter
+import uuid
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response, StreamingResponse
+from sqlalchemy.orm import Session
+
+from app.auth.deps import CurrentUser
+from app.db.session import get_db
+from app.services.exporter import export_direct_xls, export_strategy_md, validate_export
+
 router = APIRouter()
+
+
+@router.get("/projects/{project_id}/export/validate")
+def validate(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    return validate_export(project_id, db)
+
+
+@router.get("/projects/{project_id}/export/direct-xls")
+def download_direct_xls(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    from sqlalchemy import select
+    from app.models.project import Project
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    try:
+        xls_bytes = export_direct_xls(project_id, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    safe_name = project.name.replace(" ", "_")[:50]
+    filename = f"direct_{safe_name}.xlsx"
+
+    return Response(
+        content=xls_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/projects/{project_id}/export/strategy-md")
+def download_strategy_md(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    from app.models.project import Project
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    try:
+        md_text = export_strategy_md(project_id, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    safe_name = project.name.replace(" ", "_")[:50]
+    filename = f"strategy_{safe_name}.md"
+
+    return Response(
+        content=md_text.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
