@@ -1,7 +1,7 @@
 import uuid
 import enum
 
-from sqlalchemy import String, Text, Numeric, Enum, ForeignKey
+from sqlalchemy import String, Text, Numeric, Enum, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,3 +26,4 @@ class Project(Base, TimestampMixin):
     budget: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), nullable=False, default=ProjectStatus.ACTIVE)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    topvisor_project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -389,3 +389,172 @@ def validate_export(project_id, db: "Session") -> dict:
         "invalid_ads": invalid_ads,
         "ready": len(warnings) == 0,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DOCX: ТЗ для копирайтера
+# ─────────────────────────────────────────────────────────────────────────────
+
+def export_copywriter_docx(project_id, db: "Session") -> bytes:
+    """Generate a DOCX copywriting brief for the project."""
+    import uuid
+    from docx import Document
+    from docx.shared import Pt, RGBColor
+    from sqlalchemy import select
+    from app.models.project import Project
+    from app.models.brief import Brief
+    from app.models.crawl import CrawlSession, CrawlStatus, Page
+    from app.models.seo import SeoPageMeta
+    from app.models.direct import Campaign, AdGroup, Keyword, NegativeKeyword
+
+    if not isinstance(project_id, uuid.UUID):
+        project_id = uuid.UUID(str(project_id))
+
+    project = db.get(Project, project_id)
+    if not project:
+        raise ValueError("Project not found")
+
+    brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
+
+    doc = Document()
+
+    # ── Title ──────────────────────────────────────────────────────────────────
+    title = doc.add_heading(f"ТЗ копирайтеру — {project.name}", level=0)
+    title.runs[0].font.color.rgb = RGBColor(0x1E, 0x40, 0xAF)  # primary blue
+
+    doc.add_paragraph(f"Клиент: {project.client_name}")
+    doc.add_paragraph(f"Сайт: {project.url}")
+    doc.add_paragraph("")
+
+    # ── Brief ──────────────────────────────────────────────────────────────────
+    if brief:
+        doc.add_heading("О бизнесе", level=1)
+        if brief.niche:
+            p = doc.add_paragraph(); p.add_run("Ниша: ").bold = True; p.add_run(brief.niche)
+        if brief.products:
+            p = doc.add_paragraph(); p.add_run("Продукты/услуги: ").bold = True; p.add_run(brief.products)
+        if brief.usp:
+            p = doc.add_paragraph(); p.add_run("УТП: ").bold = True; p.add_run(brief.usp)
+        if brief.target_audience:
+            p = doc.add_paragraph(); p.add_run("ЦА: ").bold = True; p.add_run(brief.target_audience)
+        if brief.pains:
+            p = doc.add_paragraph(); p.add_run("Боли клиентов: ").bold = True; p.add_run(brief.pains)
+        if brief.restrictions:
+            p = doc.add_paragraph(); p.add_run("Ограничения: ").bold = True; p.add_run(brief.restrictions)
+        doc.add_paragraph("")
+
+    # ── Pages with SEO recommendations ────────────────────────────────────────
+    crawl = db.scalar(
+        select(CrawlSession)
+        .where(CrawlSession.project_id == project_id, CrawlSession.status == CrawlStatus.DONE)
+        .order_by(CrawlSession.finished_at.desc())
+    )
+    if crawl:
+        seo_pages = db.scalars(
+            select(SeoPageMeta).where(SeoPageMeta.crawl_session_id == crawl.id)
+        ).all()
+        if seo_pages:
+            doc.add_heading("Рекомендации по страницам", level=1)
+            doc.add_paragraph(
+                "Для каждой страницы указаны текущие мета-теги и рекомендуемые. "
+                "Напишите тексты с учётом УТП и ключевых запросов."
+            )
+            doc.add_paragraph("")
+
+            for page in seo_pages[:50]:  # limit to 50 pages
+                doc.add_heading(page.page_url, level=2)
+                tbl = doc.add_table(rows=1, cols=3)
+                tbl.style = "Table Grid"
+                hdr = tbl.rows[0].cells
+                hdr[0].text = "Поле"
+                hdr[1].text = "Текущее"
+                hdr[2].text = "Рекомендуемое"
+                for field, current, rec in [
+                    ("Title", page.current_title or "—", page.rec_title or ""),
+                    ("Description", page.current_description or "—", page.rec_description or ""),
+                    ("OG Title", page.og_title or "—", page.rec_og_title or ""),
+                    ("OG Description", page.og_description or "—", page.rec_og_description or ""),
+                ]:
+                    row = tbl.add_row().cells
+                    row[0].text = field
+                    row[1].text = current
+                    row[2].text = rec
+                doc.add_paragraph("")
+
+    # ── Keywords per group ─────────────────────────────────────────────────────
+    campaigns = db.scalars(
+        select(Campaign).where(Campaign.project_id == project_id).order_by(Campaign.priority)
+    ).all()
+    if campaigns:
+        doc.add_heading("Семантика по группам", level=1)
+        doc.add_paragraph(
+            "Ключевые запросы, под которые пишутся тексты объявлений и страниц."
+        )
+        for campaign in campaigns:
+            doc.add_heading(campaign.name, level=2)
+            groups = db.scalars(
+                select(AdGroup).where(AdGroup.campaign_id == campaign.id)
+            ).all()
+            for group in groups:
+                doc.add_heading(f"Группа: {group.name}", level=3)
+                keywords = db.scalars(
+                    select(Keyword).where(Keyword.ad_group_id == group.id)
+                    .order_by(Keyword.frequency.desc().nullslast())
+                ).all()
+                if keywords:
+                    for kw in keywords:
+                        freq = f" ({kw.frequency:,})" if kw.frequency else ""
+                        doc.add_paragraph(f"• {kw.phrase}{freq}", style="List Bullet")
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HTML: Стратегия для печати / PDF
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PRINT_CSS = """
+body { font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 860px;
+       margin: 0 auto; padding: 40px 20px; color: #111; line-height: 1.6; }
+h1 { color: #1e40af; border-bottom: 2px solid #1e40af; padding-bottom: 8px; }
+h2 { color: #1e3a8a; margin-top: 32px; }
+h3 { color: #374151; }
+h4 { color: #6b7280; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+th, td { border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; font-size: 13px; }
+th { background: #eff6ff; font-weight: 600; }
+code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+blockquote { border-left: 4px solid #93c5fd; padding-left: 12px; color: #374151; margin: 12px 0; }
+@media print {
+  @page { margin: 20mm; }
+  h1, h2 { page-break-after: avoid; }
+  table { page-break-inside: avoid; }
+}
+"""
+
+
+def export_strategy_html(project_id, db: "Session") -> str:
+    """Convert the Markdown strategy to a print-ready HTML page."""
+    import markdown as md_lib
+
+    md_text = export_strategy_md(project_id, db)
+    body = md_lib.markdown(md_text, extensions=["tables", "fenced_code"])
+    return f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Стратегия Яндекс Директ</title>
+  <style>{_PRINT_CSS}</style>
+</head>
+<body>
+{body}
+<hr style="margin-top:40px;border-color:#e5e7eb">
+<p style="font-size:11px;color:#9ca3af;text-align:right">
+  Сформировано SEODirect Tool
+</p>
+</body>
+</html>"""

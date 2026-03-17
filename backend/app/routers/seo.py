@@ -261,3 +261,147 @@ def seo_checklist(
         "items": items,
         "crawl_date": crawl.finished_at.isoformat() if crawl.finished_at else None,
     }
+
+
+# ─── SEO Keyword Clustering ───────────────────────────────────────────────────
+
+def _cluster_keywords(phrases: list[str]) -> list[dict]:
+    """Group keyword phrases by shared semantic roots.
+
+    Algorithm:
+    1. Tokenise each phrase into significant words (≥4 chars, non-stop)
+    2. Build co-occurrence graph: phrases sharing ≥1 significant token are
+       in the same cluster (union-find)
+    3. Name each cluster by the most frequent token across its members
+    4. Sort clusters by size descending
+    """
+    STOP = {
+        "как", "что", "для", "при", "без", "под", "про", "над", "или",
+        "это", "так", "все", "уже", "там", "вот", "здесь", "где", "когда",
+        "цена", "цены", "купить", "заказать", "онлайн", "недорого",
+    }
+
+    def tokens(phrase: str) -> list[str]:
+        return [w.lower() for w in phrase.split() if len(w) >= 4 and w.lower() not in STOP]
+
+    # Union-Find
+    parent = list(range(len(phrases)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x, y):
+        parent[find(x)] = find(y)
+
+    token_to_indices: dict[str, list[int]] = {}
+    for i, ph in enumerate(phrases):
+        for t in tokens(ph):
+            token_to_indices.setdefault(t, []).append(i)
+
+    for indices in token_to_indices.values():
+        for j in range(1, len(indices)):
+            union(indices[0], indices[j])
+
+    # Group by root
+    groups: dict[int, list[int]] = {}
+    for i in range(len(phrases)):
+        root = find(i)
+        groups.setdefault(root, []).append(i)
+
+    # Build cluster objects
+    clusters = []
+    for root, indices in groups.items():
+        member_phrases = [phrases[i] for i in indices]
+
+        # Name = most frequent significant token among members
+        freq: dict[str, int] = {}
+        for ph in member_phrases:
+            for t in tokens(ph):
+                freq[t] = freq.get(t, 0) + 1
+        name = max(freq, key=lambda t: freq[t]) if freq else member_phrases[0]
+
+        clusters.append({
+            "cluster_name": name,
+            "keywords": member_phrases,
+            "count": len(member_phrases),
+        })
+
+    clusters.sort(key=lambda c: c["count"], reverse=True)
+    return clusters
+
+
+@router.post("/projects/{project_id}/seo/cluster")
+async def cluster_keywords(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Cluster all Direct keywords for the project by semantic similarity.
+
+    Returns a list of clusters each with a suggested name and keyword members.
+    Optionally uses Topvisor clustering API if the project has a linked
+    Topvisor project and the API key is configured.
+    """
+    from sqlalchemy import select
+    from app.models.direct import Campaign, AdGroup, Keyword
+
+    # Collect all Direct keywords for this project
+    campaigns = db.scalars(
+        select(Campaign).where(Campaign.project_id == project_id)
+    ).all()
+    if not campaigns:
+        return {"source": "local", "clusters": [], "total_keywords": 0}
+
+    campaign_ids = [c.id for c in campaigns]
+    groups = db.scalars(
+        select(AdGroup).where(AdGroup.campaign_id.in_(campaign_ids))
+    ).all()
+    group_ids = [g.id for g in groups]
+
+    keywords = db.scalars(
+        select(Keyword).where(Keyword.ad_group_id.in_(group_ids))
+    ).all() if group_ids else []
+
+    phrases = [kw.phrase for kw in keywords]
+    if not phrases:
+        return {"source": "local", "clusters": [], "total_keywords": 0}
+
+    # Try Topvisor clustering if project is linked and API key exists
+    project = db.scalar(
+        select(Campaign).where(Campaign.project_id == project_id)
+    )
+    from app.models.project import Project as ProjectModel
+    prj = db.get(ProjectModel, project_id)
+    if prj and prj.topvisor_project_id:
+        from app.services.topvisor import get_topvisor_client_key
+        from app.services.settings_service import get_setting
+        api_key = get_setting("topvisor_api_key", db)
+        if api_key:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=20) as client:
+                    r = await client.post(
+                        "https://api.topvisor.com/v2/json/get/keywords_2/claster",
+                        headers={"Authorization": f"bearer {api_key}", "Content-Type": "application/json"},
+                        json={"project_id": prj.topvisor_project_id, "keywords": phrases},
+                    )
+                if r.status_code == 200:
+                    tv_clusters = r.json().get("result", [])
+                    if tv_clusters:
+                        return {
+                            "source": "topvisor",
+                            "clusters": tv_clusters,
+                            "total_keywords": len(phrases),
+                        }
+            except Exception:
+                pass  # fall through to local clustering
+
+    clusters = _cluster_keywords(phrases)
+    return {
+        "source": "local",
+        "clusters": clusters,
+        "total_keywords": len(phrases),
+    }

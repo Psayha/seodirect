@@ -104,23 +104,94 @@ async def test_api_key(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Test connectivity for an API service."""
-    if service == "anthropic":
-        api_key = get_setting("anthropic_api_key", db)
-        if not api_key:
-            return {"ok": False, "message": "API key not set"}
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+
+            if service == "anthropic":
+                key = get_setting("anthropic_api_key", db)
+                if not key:
+                    return {"ok": False, "message": "API key not set"}
                 r = await client.get(
                     "https://api.anthropic.com/v1/models",
-                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                    headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
                 )
-            if r.status_code in (200, 401):
                 ok = r.status_code == 200
-                return {"ok": ok, "message": "Connected" if ok else "Invalid API key"}
-            return {"ok": False, "message": f"HTTP {r.status_code}"}
-        except Exception as e:
-            return {"ok": False, "message": str(e)}
-    return {"ok": False, "message": f"Test not implemented for {service}"}
+                return {"ok": ok, "message": "Подключено" if ok else "Неверный API ключ"}
+
+            elif service == "wordstat":
+                token = get_setting("wordstat_oauth_token", db)
+                if not token:
+                    return {"ok": False, "message": "OAuth токен не задан"}
+                r = await client.post(
+                    "https://api.wordstat.yandex.net/v1/topRequests",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    json={"phrases": ["тест"], "geo_id": [0]},
+                )
+                if r.status_code == 200:
+                    return {"ok": True, "message": "Подключено"}
+                if r.status_code in (401, 403):
+                    return {"ok": False, "message": "Неверный OAuth токен"}
+                return {"ok": False, "message": f"HTTP {r.status_code}"}
+
+            elif service == "metrika":
+                token = get_setting("metrika_oauth_token", db)
+                if not token:
+                    return {"ok": False, "message": "OAuth токен не задан"}
+                r = await client.get(
+                    "https://api-metrika.yandex.net/management/v1/counters",
+                    headers={"Authorization": f"OAuth {token}"},
+                )
+                if r.status_code == 200:
+                    count = len(r.json().get("counters", []))
+                    return {"ok": True, "message": f"Подключено. Счётчиков: {count}"}
+                if r.status_code in (401, 403):
+                    return {"ok": False, "message": "Неверный OAuth токен"}
+                return {"ok": False, "message": f"HTTP {r.status_code}"}
+
+            elif service == "topvisor":
+                key = get_setting("topvisor_api_key", db)
+                if not key:
+                    return {"ok": False, "message": "API ключ не задан"}
+                r = await client.post(
+                    "https://api.topvisor.com/v2/json/get/projects_2/index",
+                    headers={"Authorization": f"bearer {key}", "Content-Type": "application/json"},
+                    json={},
+                )
+                if r.status_code == 200:
+                    result = r.json()
+                    count = len(result.get("result", []))
+                    return {"ok": True, "message": f"Подключено. Проектов: {count}"}
+                if r.status_code in (401, 403):
+                    return {"ok": False, "message": "Неверный API ключ"}
+                return {"ok": False, "message": f"HTTP {r.status_code}"}
+
+            elif service == "direct":
+                token = get_setting("direct_oauth_token", db)
+                login = get_setting("direct_client_login", db)
+                if not token:
+                    return {"ok": False, "message": "OAuth токен не задан"}
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Accept-Language": "ru",
+                }
+                if login:
+                    headers["Client-Login"] = login
+                r = await client.post(
+                    "https://api.direct.yandex.com/json/v5/campaigns",
+                    headers=headers,
+                    json={"method": "get", "params": {"SelectionCriteria": {}, "FieldNames": ["Id"], "Page": {"Limit": 1}}},
+                )
+                if r.status_code == 200:
+                    return {"ok": True, "message": "Подключено"}
+                if r.status_code in (401, 403):
+                    return {"ok": False, "message": "Неверный OAuth токен или логин"}
+                return {"ok": False, "message": f"HTTP {r.status_code}"}
+
+            return {"ok": False, "message": f"Неизвестный сервис: {service}"}
+
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
 
 
 # ─── Crawler settings ─────────────────────────────────────────────────────────

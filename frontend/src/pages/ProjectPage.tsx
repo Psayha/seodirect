@@ -799,10 +799,17 @@ function SeoPageRow({ page, projectId, onUpdate }: { page: SeoPage; projectId: s
 
 function SeoTab({ projectId }: { projectId: string }) {
   const qc = useQueryClient()
-  const [view, setView] = useState<'checklist' | 'pages'>('checklist')
+  const [view, setView] = useState<'checklist' | 'pages' | 'cluster'>('checklist')
   const [issuesOnly, setIssuesOnly] = useState(true)
   const [generateOg, setGenerateOg] = useState(false)
   const [generateTaskId, setGenerateTaskId] = useState<string | null>(null)
+  const [clusters, setClusters] = useState<any[] | null>(null)
+  const [clusterSource, setClusterSource] = useState('')
+
+  const clusterMut = useMutation({
+    mutationFn: () => api.post(`/projects/${projectId}/seo/cluster`).then((r) => r.data),
+    onSuccess: (data: any) => { setClusters(data.clusters); setClusterSource(data.source) },
+  })
 
   const { data: checklist, isLoading: clLoading } = useQuery({
     queryKey: ['seo-checklist', projectId],
@@ -835,11 +842,15 @@ function SeoTab({ projectId }: { projectId: string }) {
     <div className="p-6 max-w-4xl">
       <div className="flex items-center justify-between mb-5">
         <div className="flex gap-1">
-          {(['checklist', 'pages'] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)}
+          {([
+            ['checklist', '📋 Чеклист'],
+            ['pages', '📄 Мета-теги'],
+            ['cluster', '🔗 Кластеры'],
+          ] as const).map(([v, label]) => (
+            <button key={v} onClick={() => setView(v as any)}
               className={cx('px-4 py-2 text-sm rounded-lg transition',
                 view === v ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
-              {v === 'checklist' ? '📋 Чеклист' : '📄 Мета-теги'}
+              {label}
             </button>
           ))}
         </div>
@@ -938,6 +949,69 @@ function SeoTab({ projectId }: { projectId: string }) {
           }
         </div>
       )}
+
+      {view === 'cluster' && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-gray-600">
+              Кластеризация объединяет ключевые фразы по смыслу.
+              {clusterSource && <span className="ml-2 text-xs text-gray-400">(источник: {clusterSource})</span>}
+            </p>
+            <button onClick={() => clusterMut.mutate()} disabled={clusterMut.isPending}
+              className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+              {clusterMut.isPending ? '⏳ Кластеризация...' : '🔗 Запустить кластеризацию'}
+            </button>
+          </div>
+          {clusterMut.isError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 mb-3">
+              ❌ Ошибка: {(clusterMut.error as any)?.response?.data?.detail || 'Не удалось выполнить кластеризацию'}
+            </div>
+          )}
+          {!clusters && !clusterMut.isPending && (
+            <div className="text-center py-16 text-gray-400">
+              <p className="text-4xl mb-3">🔗</p>
+              <p className="font-medium">Нажмите «Запустить кластеризацию»</p>
+              <p className="text-sm mt-1">Ключевые фразы из вкладки Директ будут сгруппированы по смыслу</p>
+            </div>
+          )}
+          {clusters && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-500 mb-2">Найдено кластеров: <strong>{clusters.length}</strong></p>
+              {clusters.map((cl: any, i: number) => (
+                <ClusterCard key={i} cluster={cl} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ClusterCard({ cluster }: { cluster: any }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="bg-white border rounded-lg overflow-hidden">
+      <button className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition"
+        onClick={() => setOpen((o) => !o)}>
+        <div className="flex items-center gap-3">
+          <span className="font-medium text-sm">{cluster.name}</span>
+          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{cluster.keywords?.length ?? 0} фраз</span>
+          {cluster.total_volume > 0 && (
+            <span className="text-xs text-blue-600">~{cluster.total_volume.toLocaleString()} показов</span>
+          )}
+        </div>
+        <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="border-t px-4 py-3">
+          <div className="flex flex-wrap gap-1.5">
+            {(cluster.keywords || []).map((kw: string, j: number) => (
+              <span key={j} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">{kw}</span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -968,14 +1042,32 @@ function ExportTab({ projectId }: { projectId: string }) {
           ))}
         </div>
       )}
-      <div className="space-y-3">
+
+      <p className="text-xs text-gray-500 uppercase tracking-wide font-medium mb-2">Яндекс Директ</p>
+      <div className="space-y-2 mb-5">
         <button onClick={() => window.open(`/api/projects/${projectId}/export/direct-xls`, '_blank')}
           className="w-full bg-green-600 text-white py-2.5 rounded-lg text-sm hover:bg-green-700 transition font-medium">
-          📥 Скачать XLS для Директ Коммандера
+          📥 XLS для Директ Коммандера
+        </button>
+      </div>
+
+      <p className="text-xs text-gray-500 uppercase tracking-wide font-medium mb-2">Стратегия</p>
+      <div className="space-y-2 mb-5">
+        <button onClick={() => window.open(`/api/projects/${projectId}/export/strategy-html`, '_blank')}
+          className="w-full bg-blue-600 text-white py-2.5 rounded-lg text-sm hover:bg-blue-700 transition font-medium">
+          🖨 Стратегия HTML (для печати / PDF)
         </button>
         <button onClick={() => window.open(`/api/projects/${projectId}/export/strategy-md`, '_blank')}
-          className="w-full bg-gray-600 text-white py-2.5 rounded-lg text-sm hover:bg-gray-700 transition font-medium">
-          📄 Скачать стратегию (Markdown)
+          className="w-full bg-gray-500 text-white py-2.5 rounded-lg text-sm hover:bg-gray-600 transition font-medium">
+          📄 Стратегия Markdown
+        </button>
+      </div>
+
+      <p className="text-xs text-gray-500 uppercase tracking-wide font-medium mb-2">Копирайтеру</p>
+      <div className="space-y-2">
+        <button onClick={() => window.open(`/api/projects/${projectId}/export/copywriter-brief`, '_blank')}
+          className="w-full bg-purple-600 text-white py-2.5 rounded-lg text-sm hover:bg-purple-700 transition font-medium">
+          📝 ТЗ копирайтеру (DOCX)
         </button>
       </div>
     </div>
@@ -1374,6 +1466,33 @@ function AnalyticsTab({ projectId }: { projectId: string }) {
   })
   const [dateTo] = useState(() => new Date().toISOString().split('T')[0])
   const [selectedCounter, setSelectedCounter] = useState<number | null>(null)
+  const [tvProjectId, setTvProjectId] = useState<number | null>(null)
+  const [tvProjects, setTvProjects] = useState<any[] | null>(null)
+  const [positions, setPositions] = useState<any[] | null>(null)
+  const [posRegion, setPosRegion] = useState(0)
+
+  const tvLinkQuery = useQuery({
+    queryKey: ['topvisor-link', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/topvisor/link`).then((r) => r.data),
+    onSuccess: (d: any) => { if (d?.topvisor_project_id) setTvProjectId(d.topvisor_project_id) },
+  } as any)
+
+  const tvProjectsMut = useMutation({
+    mutationFn: () => api.get(`/projects/${projectId}/topvisor/projects`).then((r) => r.data),
+    onSuccess: (d: any) => setTvProjects(d.projects || []),
+  })
+
+  const tvLinkMut = useMutation({
+    mutationFn: (id: number | null) => api.post(`/projects/${projectId}/topvisor/link`, { topvisor_project_id: id }).then((r) => r.data),
+    onSuccess: (d: any) => { setTvProjectId(d.topvisor_project_id); qc.invalidateQueries({ queryKey: ['topvisor-link', projectId] }) },
+  })
+
+  const tvPositionsMut = useMutation({
+    mutationFn: () => api.get(`/projects/${projectId}/topvisor/positions`, {
+      params: { date_from: dateFrom, date_to: dateTo, region_index: posRegion },
+    }).then((r) => r.data),
+    onSuccess: (d: any) => setPositions(d.keywords || []),
+  })
 
   const { data: counterData } = useQuery({
     queryKey: ['analytics-counter', projectId],
@@ -1520,6 +1639,117 @@ function AnalyticsTab({ projectId }: { projectId: string }) {
           )}
         </div>
       )}
+
+      {/* ── Topvisor Positions ─────────────────────────────────────────────── */}
+      <div className="mt-8 border-t pt-6">
+        <h4 className="font-semibold text-sm text-gray-700 uppercase tracking-wide mb-4">📈 Позиции Topvisor</h4>
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Проект:</span>
+            {tvProjectId ? (
+              <span className="text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded px-2 py-0.5">
+                #{tvProjectId}
+              </span>
+            ) : (
+              <span className="text-sm text-gray-400">не привязан</span>
+            )}
+            <button onClick={() => tvProjectsMut.mutate()} disabled={tvProjectsMut.isPending}
+              className="text-xs text-primary-600 hover:underline">
+              {tvProjectsMut.isPending ? '...' : 'выбрать'}
+            </button>
+            {tvProjectId && (
+              <button onClick={() => tvLinkMut.mutate(null)}
+                className="text-xs text-red-500 hover:underline">отвязать</button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 ml-auto">
+            <label className="text-xs text-gray-500">Регион:</label>
+            <input type="number" min={0} value={posRegion}
+              onChange={(e) => setPosRegion(Number(e.target.value))}
+              className="border rounded px-2 py-1 text-sm w-16" />
+            <button onClick={() => tvPositionsMut.mutate()} disabled={tvPositionsMut.isPending || !tvProjectId}
+              className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-primary-700 disabled:opacity-50">
+              {tvPositionsMut.isPending ? '⏳ Загрузка...' : 'Загрузить позиции'}
+            </button>
+          </div>
+        </div>
+
+        {tvProjects && (
+          <div className="bg-white border rounded-lg p-3 mb-4">
+            <p className="text-xs text-gray-500 mb-2">Выберите проект Topvisor:</p>
+            <div className="space-y-1 max-h-48 overflow-y-auto">
+              {tvProjects.length === 0 && <p className="text-sm text-gray-400">Нет проектов</p>}
+              {tvProjects.map((p: any) => (
+                <button key={p.id} onClick={() => { tvLinkMut.mutate(p.id); setTvProjects(null) }}
+                  className={cx('w-full text-left text-sm px-3 py-1.5 rounded hover:bg-primary-50 transition',
+                    tvProjectId === p.id ? 'bg-primary-50 text-primary-700 font-medium' : 'text-gray-700')}>
+                  {p.name || p.site} <span className="text-xs text-gray-400">#{p.id}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tvPositionsMut.isError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 mb-3">
+            ❌ {(tvPositionsMut.error as any)?.response?.data?.detail || 'Ошибка загрузки позиций'}
+          </div>
+        )}
+
+        {!tvProjectId && !tvProjectsMut.isPending && (
+          <div className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg">
+            <p className="text-3xl mb-2">📈</p>
+            <p className="text-sm font-medium">Привяжите Topvisor-проект</p>
+            <p className="text-xs mt-1">Нажмите «выбрать» выше. API ключ настраивается в Настройках → API ключи</p>
+          </div>
+        )}
+
+        {positions && (
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-4 py-2 text-left font-medium text-gray-600">Ключевая фраза</th>
+                  <th className="px-4 py-2 text-center font-medium text-gray-600 w-24">Позиция</th>
+                  <th className="px-4 py-2 text-center font-medium text-gray-600 w-24">Динамика</th>
+                  <th className="px-4 py-2 text-center font-medium text-gray-600 w-24">Частота</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {positions.map((kw: any, i: number) => {
+                  const pos = kw.position ?? kw.pos
+                  const diff = kw.diff ?? kw.dynamics
+                  const vol = kw.volume ?? kw.frequency
+                  return (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="px-4 py-2 text-gray-800">{kw.phrase || kw.name}</td>
+                      <td className="px-4 py-2 text-center">
+                        {pos != null ? (
+                          <span className={cx('font-mono font-medium',
+                            pos <= 3 ? 'text-green-600' : pos <= 10 ? 'text-yellow-600' : 'text-gray-500')}>
+                            {pos}
+                          </span>
+                        ) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        {diff != null && diff !== 0 ? (
+                          <span className={cx('text-xs font-medium', diff > 0 ? 'text-green-600' : 'text-red-500')}>
+                            {diff > 0 ? '▲' : '▼'} {Math.abs(diff)}
+                          </span>
+                        ) : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+                      <td className="px-4 py-2 text-center text-gray-500 text-xs">{vol?.toLocaleString() ?? '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            {positions.length === 0 && (
+              <div className="text-center py-8 text-gray-400">Нет данных за выбранный период</div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
