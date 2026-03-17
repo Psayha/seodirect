@@ -10,6 +10,7 @@ from app.models.direct import (
     Ad, AdStatus,
 )
 from app.models.settings import Setting, SystemPrompt
+from app.models.seo import SeoPageMeta
 from app.models.task import Task, TaskType, TaskStatus
 
 __all__ = [
@@ -23,5 +24,6 @@ __all__ = [
     "NegativeKeyword",
     "Ad", "AdStatus",
     "Setting", "SystemPrompt",
+    "SeoPageMeta",
     "Task", "TaskType", "TaskStatus",
 ]
