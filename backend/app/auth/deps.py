@@ -6,7 +6,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.security import decode_token, verify_password
+from app.auth.security import decode_token
 from app.config import get_settings
 from app.db.session import get_db
 from app.models.user import User, UserRole
@@ -14,59 +14,52 @@ from app.models.user import User, UserRole
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-    db: Annotated[Session, Depends(get_db)],
-) -> User:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
+def _get_token_payload(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> dict:
     if not credentials:
-        raise credentials_exception
-
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     payload = decode_token(credentials.credentials)
     if not payload or payload.get("type") != "access":
-        raise credentials_exception
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    return payload
 
-    user_id: str | None = payload.get("sub")
-    if not user_id:
-        raise credentials_exception
 
-    # Проверяем super_admin по .env (не требует записи в БД)
+def get_current_user(
+    payload: Annotated[dict, Depends(_get_token_payload)],
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
     settings = get_settings()
-    if payload.get("is_super_admin_env"):
-        # Синтетический пользователь из .env
-        env_user = User()
-        env_user.id = uuid.UUID(user_id)
-        env_user.login = settings.super_admin_login
-        env_user.email = settings.super_admin_email
-        env_user.role = UserRole.SUPER_ADMIN
-        env_user.is_active = True
-        return env_user
+    user_id_str = payload.get("sub")
+    if not user_id_str:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
-    user = db.scalar(select(User).where(User.id == uuid.UUID(user_id)))
+    # Super admin might not be in DB but must be in .env
+    try:
+        user_id = uuid.UUID(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    user = db.scalar(select(User).where(User.id == user_id))
     if not user or not user.is_active:
-        raise credentials_exception
-
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
     return user
 
 
+CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
 def require_roles(*roles: UserRole):
-    """Dependency factory: требует одну из указанных ролей."""
-    def checker(current_user: Annotated[User, Depends(get_current_user)]) -> User:
+    """Dependency factory: require one of the given roles."""
+    def _check(current_user: CurrentUser) -> User:
         if current_user.role not in roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions",
             )
         return current_user
-    return checker
+    return Depends(_check)
 
 
-# Готовые зависимости
-CurrentUser = Annotated[User, Depends(get_current_user)]
-AdminUser = Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.SUPER_ADMIN))]
-SuperAdminUser = Annotated[User, Depends(require_roles(UserRole.SUPER_ADMIN))]
+AdminRequired = require_roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+SuperAdminRequired = require_roles(UserRole.SUPER_ADMIN)

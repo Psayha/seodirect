@@ -2,7 +2,7 @@ import uuid
 import enum
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Float, Text, JSON, ForeignKey, Enum, DateTime
+from sqlalchemy import String, Integer, Float, Text, JSON, ForeignKey, Enum as SAEnum, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,7 +21,7 @@ class CrawlSession(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
-    status: Mapped[CrawlStatus] = mapped_column(Enum(CrawlStatus), nullable=False, default=CrawlStatus.PENDING)
+    status: Mapped[CrawlStatus] = mapped_column(SAEnum(CrawlStatus), nullable=False, default=CrawlStatus.PENDING)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     pages_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -53,4 +53,3 @@ class Page(Base):
     load_time_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_modified: Mapped[str | None] = mapped_column(String(100), nullable=True)
     priority: Mapped[float | None] = mapped_column(Float, nullable=True)
-    raw_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
