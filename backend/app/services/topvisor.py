@@ -22,7 +22,7 @@ def _headers(api_key: str, user_id: str = "") -> dict:
 
 async def check_connection(api_key: str, user_id: str = "") -> dict:
     """Return {ok, message, projects_count}."""
-    endpoint = f"{BASE_URL}/get/projects_2/index"
+    endpoint = f"{BASE_URL}/get/projects_2/projects"
     body = {"fields": ["id", "name"]}
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -56,21 +56,18 @@ async def check_connection(api_key: str, user_id: str = "") -> dict:
 async def list_projects(api_key: str, user_id: str = "") -> list[dict]:
     """Return list of Topvisor projects [{id, name, site, ...}]."""
     body = {"fields": ["id", "name", "site", "searchers"]}
-    for endpoint in (f"{BASE_URL}/get/projects/index", f"{BASE_URL}/get/projects_2/index"):
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.post(endpoint, headers=_headers(api_key, user_id), json=body)
-        if r.status_code != 200:
-            continue
-        data = r.json()
-        errors = data.get("errors")
-        if errors:
-            err_msg = errors[0].get("string", "") if isinstance(errors, list) else ""
-            if "undefined method" in err_msg.lower():
-                continue
-        result = data.get("result")
-        if result is not None:
-            return result
-    return []
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(
+            f"{BASE_URL}/get/projects_2/projects",
+            headers=_headers(api_key, user_id),
+            json=body,
+        )
+    if r.status_code != 200:
+        return []
+    data = r.json()
+    if data.get("errors"):
+        return []
+    return data.get("result") or []
 
 
 async def get_positions(
@@ -146,19 +143,20 @@ async def get_snapshots(
 
     Each item: {keyword, date, position, url, snippet_title}
     """
+    # snapshots_2/history uses region_index (int) and dates (array) per API docs
+    today = date or __import__("datetime").date.today().isoformat()
     body: dict = {
         "project_id": project_id,
-        "regions_indexes": [region_index],
+        "region_index": region_index,
         "searcher_key": searcher_id,
+        "dates": [today],
         "fields": ["keyword_id", "keyword", "date", "position", "url", "snippet_title"],
         "show_headers": True,
     }
-    if date:
-        body["date"] = date
 
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
-            f"{BASE_URL}/get/snapshots_2/index",
+            f"{BASE_URL}/get/snapshots_2/history",
             headers=_headers(api_key, user_id),
             json=body,
         )
