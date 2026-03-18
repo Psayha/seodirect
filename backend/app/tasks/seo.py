@@ -238,6 +238,7 @@ def task_generate_schema_bulk(
 ):
     import json
     import re
+
     from sqlalchemy import select
 
     from app.db.session import SessionLocal
