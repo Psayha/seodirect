@@ -63,3 +63,5 @@ def require_roles(*roles: UserRole):
 
 AdminRequired = require_roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 SuperAdminRequired = require_roles(UserRole.SUPER_ADMIN)
+# Блокирует только роль viewer — specialist/admin/super_admin могут писать
+NonViewerRequired = require_roles(UserRole.SPECIALIST, UserRole.ADMIN, UserRole.SUPER_ADMIN)

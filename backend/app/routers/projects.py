@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, or_
 from sqlalchemy.orm import Session
 
-from app.auth.deps import CurrentUser, require_roles
+from app.auth.deps import CurrentUser, require_roles, NonViewerRequired
 from app.db.session import get_db
 from app.models.brief import Brief
 from app.models.project import Project, ProjectStatus
@@ -113,6 +113,7 @@ def list_projects(
 def create_project(
     body: ProjectCreate,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     # Auto-assign to current specialist if not admin
@@ -154,6 +155,7 @@ def update_project(
     project_id: uuid.UUID,
     body: ProjectUpdate,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     project = _get_project_or_404(project_id, current_user, db)
@@ -199,6 +201,7 @@ def update_brief(
     project_id: uuid.UUID,
     body: BriefUpdate,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     _get_project_or_404(project_id, current_user, db)
@@ -225,6 +228,7 @@ async def brief_chat(
     project_id: uuid.UUID,
     body: BriefChatBody,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     """AI assistant answers clarifying questions about the brief."""

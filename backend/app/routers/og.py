@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from app.auth.deps import CurrentUser
+from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.models.crawl import CrawlSession, CrawlStatus, Page
 from app.models.seo import SeoPageMeta
@@ -105,6 +105,7 @@ def og_audit(
 def generate_og_tags(
     project_id: uuid.UUID,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     """Trigger async Claude generation of OG tags (reuses SEO task with generate_og=True)."""

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from app.auth.deps import CurrentUser
+from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.models.crawl import CrawlSession, CrawlStatus, Page
 from app.models.seo import SeoPageMeta
@@ -118,6 +118,7 @@ def update_page_meta(
     project_id: uuid.UUID,
     body: MetaUpdate,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
     page_url: str = "",
 ):
@@ -144,6 +145,7 @@ def update_page_meta(
 def generate_seo_meta(
     project_id: uuid.UUID,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
     generate_og: bool = False,
 ):
@@ -211,6 +213,8 @@ def seo_checklist(
     def pct(n: int) -> str:
         return f"{round(n / total * 100)}%"
 
+    from collections import Counter
+
     no_title = sum(1 for p in pages if not p.title)
     short_title = sum(1 for p in pages if p.title and len(p.title) < 10)
     long_title = sum(1 for p in pages if p.title and len(p.title) > 70)
@@ -218,6 +222,7 @@ def seo_checklist(
     short_desc = sum(1 for p in pages if p.description and len(p.description) < 50)
     long_desc = sum(1 for p in pages if p.description and len(p.description) > 160)
     no_h1 = sum(1 for p in pages if not p.h1)
+    multi_h1 = sum(1 for p in pages if p.h1_count > 1)
     noindex = sum(1 for p in pages if p.robots_meta and "noindex" in p.robots_meta.lower())
     slow = sum(1 for p in pages if p.load_time_ms > 3000)
     images_no_alt = sum(p.images_without_alt or 0 for p in pages)
@@ -227,6 +232,11 @@ def seo_checklist(
     no_og_image = sum(1 for p in pages if not p.og_image)
     errors_4xx = sum(1 for p in pages if p.status_code and 400 <= p.status_code < 500)
     errors_5xx = sum(1 for p in pages if p.status_code and p.status_code >= 500)
+
+    title_counts = Counter(p.title for p in pages if p.title)
+    dup_title = sum(1 for p in pages if p.title and title_counts[p.title] > 1)
+    desc_counts = Counter(p.description for p in pages if p.description)
+    dup_desc = sum(1 for p in pages if p.description and desc_counts[p.description] > 1)
 
     def item(category, name, count, ok_if_zero=True, description=""):
         status = "ok" if (count == 0 if ok_if_zero else count == total) else ("warn" if count < total * 0.2 else "error")
@@ -244,10 +254,13 @@ def seo_checklist(
         item("Мета-теги", "Страниц без title", no_title),
         item("Мета-теги", "Title слишком короткий (<10 симв.)", short_title),
         item("Мета-теги", "Title слишком длинный (>70 симв.)", long_title),
+        item("Мета-теги", "Дублирующихся title", dup_title, description="Одинаковый title на нескольких страницах"),
         item("Мета-теги", "Страниц без description", no_desc),
         item("Мета-теги", "Description слишком короткий (<50 симв.)", short_desc),
         item("Мета-теги", "Description слишком длинный (>160 симв.)", long_desc),
+        item("Мета-теги", "Дублирующихся description", dup_desc, description="Одинаковый description на нескольких страницах"),
         item("Структура", "Страниц без H1", no_h1),
+        item("Структура", "Страниц с несколькими H1", multi_h1, description="На странице более одного тега H1"),
         item("Структура", "noindex страниц", noindex, description="Проверьте, нужен ли noindex"),
         item("Структура", "Страниц без canonical", no_canonical),
         item("Производительность", "Медленных страниц (>3с)", slow),
@@ -343,6 +356,7 @@ def _cluster_keywords(phrases: list[str]) -> list[dict]:
 async def cluster_keywords(
     project_id: uuid.UUID,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     """Cluster all Direct keywords for the project by semantic similarity.
