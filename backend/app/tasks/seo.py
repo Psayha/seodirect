@@ -27,7 +27,9 @@ def _run_async(coro):
     name="tasks.seo.generate_seo_meta",
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 3},
-    default_retry_delay=60,
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
 )
 def task_generate_seo_meta(
     self,
@@ -117,7 +119,7 @@ og:description: 150-200 символов, интригующий анонс ст
 
         generated = 0
         for i, page in enumerate(pages):
-            if task:
+            if task and i % 10 == 0:
                 task.progress = round(i / len(pages) * 100)
                 db.commit()
 

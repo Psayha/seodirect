@@ -26,7 +26,9 @@ def _run_async(coro):
     name="tasks.direct.generate_strategy",
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 3},
-    default_retry_delay=60,
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
 )
 def task_generate_strategy(self, task_id: str, project_id: str):
     from app.db.session import SessionLocal
@@ -85,7 +87,9 @@ def task_generate_strategy(self, task_id: str, project_id: str):
     name="tasks.direct.check_frequencies",
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 2},
-    default_retry_delay=30,
+    retry_backoff=True,
+    retry_backoff_max=120,
+    retry_jitter=True,
 )
 def task_check_frequencies(self, task_id: str, keyword_ids: list[str]):
     from sqlalchemy import select

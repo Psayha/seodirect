@@ -193,6 +193,10 @@ async def test_api_key(
 
             return {"ok": False, "message": f"Неизвестный сервис: {service}"}
 
+    except httpx.TimeoutException:
+        return {"ok": False, "message": "Connection timed out — check network or API URL"}
+    except httpx.ConnectError:
+        return {"ok": False, "message": "Could not connect to API — check network"}
     except Exception:
         logger.exception("API key test failed for service %s", service)
         return {"ok": False, "message": "Connection test failed"}

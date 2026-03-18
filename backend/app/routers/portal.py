@@ -206,8 +206,9 @@ async def portal_positions(token: str, db: Annotated[Session, Depends(get_db)]):
             return {"positions": [], "message": "Topvisor API key не настроен"}
         positions = await get_positions(project.topvisor_project_id, api_key)
         return {"positions": positions}
-    except Exception as e:
-        return {"positions": [], "error": str(e)[:200]}
+    except Exception:
+        logger.exception("Portal positions failed for token project %s", tok.project_id)
+        return {"positions": [], "error": "Failed to fetch positions"}
 
 
 @router.get("/portal/{token}/analytics")
@@ -223,8 +224,9 @@ async def portal_analytics(token: str, db: Annotated[Session, Depends(get_db)]):
         client = get_metrika_client(db)
         summary = await client.get_summary(int(counter_val))
         return {"summary": summary}
-    except Exception as e:
-        return {"summary": None, "error": str(e)[:200]}
+    except Exception:
+        logger.exception("Portal analytics failed for token project %s", tok.project_id)
+        return {"summary": None, "error": "Failed to fetch analytics"}
 
 
 @router.get("/portal/{token}/mediaplan")

@@ -6,7 +6,12 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 def _get_key(raw_key: str) -> bytes:
-    """Derive a 32-byte AES key from the raw encryption key using SHA-256."""
+    """Derive a 32-byte AES key from the raw encryption key using SHA-256.
+
+    NOTE: Ideally this should use PBKDF2, but changing KDF would break all
+    existing encrypted API keys in the database. Requires a data migration
+    to re-encrypt all settings with the new key derivation first.
+    """
     return hashlib.sha256(raw_key.encode("utf-8")).digest()
 
 

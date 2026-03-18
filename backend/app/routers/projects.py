@@ -121,6 +121,8 @@ def list_projects(
     db: Annotated[Session, Depends(get_db)],
     status_filter: str | None = Query(None, alias="status"),
     specialist_id: uuid.UUID | None = None,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
 ):
     q = select(Project).where(Project.deleted_at.is_(None))
 
@@ -136,7 +138,7 @@ def list_projects(
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid status: {status_filter}")
 
-    q = q.order_by(Project.created_at.desc())
+    q = q.order_by(Project.created_at.desc()).limit(limit).offset(offset)
     projects = db.scalars(q).all()
     return [_project_response(p) for p in projects]
 
@@ -318,14 +320,27 @@ async def brief_chat(
         "messages": messages,
     }
 
-    async with httpx.AsyncClient(timeout=60) as http_client:
-        resp = await http_client.post(
-            client.BASE_URL,
-            headers=client._headers(),
-            json=payload,
-        )
-    resp.raise_for_status()
-    reply = resp.json()["content"][0]["text"]
+    try:
+        async with httpx.AsyncClient(timeout=60) as http_client:
+            resp = await http_client.post(
+                client.BASE_URL,
+                headers=client._headers(),
+                json=payload,
+            )
+        resp.raise_for_status()
+        data = resp.json()
+        reply = data.get("content", [{}])[0].get("text", "")
+        if not reply:
+            raise HTTPException(status_code=502, detail="Empty response from AI")
+    except httpx.HTTPStatusError:
+        logger.exception("Claude API HTTP error in brief chat for project %s", project_id)
+        raise HTTPException(status_code=502, detail="AI service temporarily unavailable")
+    except httpx.RequestError:
+        logger.exception("Claude API connection error in brief chat for project %s", project_id)
+        raise HTTPException(status_code=502, detail="AI service temporarily unavailable")
+    except (KeyError, IndexError):
+        logger.exception("Unexpected Claude API response format for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Unexpected AI response format")
     return {"response": reply}
 
 

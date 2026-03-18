@@ -41,12 +41,12 @@ def start_crawl(
 ):
     project = _check_project_access(project_id, current_user, db)
 
-    # Check if crawl is already running
+    # Check if crawl is already running (FOR UPDATE prevents race condition)
     running = db.scalar(
         select(CrawlSession).where(
             CrawlSession.project_id == project_id,
             CrawlSession.status.in_([CrawlStatus.PENDING, CrawlStatus.RUNNING])
-        )
+        ).with_for_update(skip_locked=True)
     )
     if running:
         raise HTTPException(status_code=409, detail="Crawl already in progress for this project")
@@ -560,6 +560,7 @@ def crawl_tree(
     project_id: uuid.UUID,
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
+    limit: int = Query(1000, ge=1, le=5000),
 ):
     """Return URL tree structure for crawled pages."""
     _check_project_access(project_id, current_user, db)
@@ -571,7 +572,7 @@ def crawl_tree(
     if not session:
         raise HTTPException(status_code=404, detail="No completed crawl found")
 
-    pages = db.scalars(select(Page).where(Page.crawl_session_id == session.id)).all()
+    pages = db.scalars(select(Page).where(Page.crawl_session_id == session.id).limit(limit)).all()
 
     def build_tree(url_list: list) -> dict:
         tree: dict = {}

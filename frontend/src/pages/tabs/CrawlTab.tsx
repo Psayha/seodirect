@@ -323,6 +323,9 @@ function CwvSection({ projectId }: { projectId: string }) {
   const checkMut = useMutation({
     mutationFn: () => crawlApi.checkCwv(projectId, urlsText.split('\n').map(u => u.trim()).filter(Boolean), strategy),
     onSuccess: (d: any) => setResults(d.results || []),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const metricColor = (metric: string, value: number) => {
@@ -418,6 +421,9 @@ export default function CrawlTab({ projectId }: { projectId: string }) {
   const startMutation = useMutation({
     mutationFn: () => api.post(`/projects/${projectId}/crawl/start`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['crawl-status', projectId] }),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const { data: report } = useQuery({
     queryKey: ['crawl-report', projectId],

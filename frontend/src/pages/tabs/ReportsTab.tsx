@@ -21,11 +21,17 @@ function ClientPortalSection({ projectId }: { projectId: string }) {
   const createMut = useMutation({
     mutationFn: () => portalApi.createToken(projectId, { label: formData.label, expires_at: formData.expires_at || null }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['portal-tokens', projectId] }); setShowForm(false); setFormData({ label: '', expires_at: '' }) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const revokeMut = useMutation({
     mutationFn: (tokenId: string) => portalApi.revokeToken(projectId, tokenId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal-tokens', projectId] }),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const copyLink = (token: string) => {
@@ -105,6 +111,9 @@ export default function ReportsTab({ projectId }: { projectId: string }) {
   const generateNowMut = useMutation({
     mutationFn: () => api.post(`/projects/${projectId}/report/generate`).then(r => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['history', projectId] }),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   return (

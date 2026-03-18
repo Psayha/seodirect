@@ -82,13 +82,17 @@ def generate_strategy(
         created_at=datetime.now(timezone.utc),
     )
     db.add(task)
-    db.commit()
-    db.refresh(task)
+    db.flush()
 
     from app.tasks.direct import task_generate_strategy
-    result = task_generate_strategy.delay(str(task.id), str(project_id))
-    task.celery_task_id = result.id
-    db.commit()
+    try:
+        result = task_generate_strategy.delay(str(task.id), str(project_id))
+        task.celery_task_id = result.id
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to dispatch Celery task for strategy generation")
+        raise HTTPException(status_code=503, detail="Task queue unavailable, try again later")
 
     return {"task_id": str(task.id)}
 
@@ -159,10 +163,12 @@ def list_campaigns(
     project_id: uuid.UUID,
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
 ):
     _check_project_access(project_id, current_user, db)
     campaigns = db.scalars(
-        select(Campaign).where(Campaign.project_id == project_id).order_by(Campaign.priority)
+        select(Campaign).where(Campaign.project_id == project_id).order_by(Campaign.priority).limit(limit).offset(offset)
     ).all()
     return [_campaign_dict(c) for c in campaigns]
 
@@ -221,9 +227,11 @@ def list_groups(
     campaign_id: uuid.UUID,
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
 ):
     _check_campaign_access(campaign_id, current_user, db)
-    groups = db.scalars(select(AdGroup).where(AdGroup.campaign_id == campaign_id)).all()
+    groups = db.scalars(select(AdGroup).where(AdGroup.campaign_id == campaign_id).limit(limit).offset(offset)).all()
     return [{"id": str(g.id), "campaign_id": str(g.campaign_id), "name": g.name, "status": g.status} for g in groups]
 
 

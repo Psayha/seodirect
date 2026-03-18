@@ -56,11 +56,17 @@ export default function OgTab({ projectId }: { projectId: string }) {
   const genMut = useMutation({
     mutationFn: () => ogApi.generate(projectId),
     onSuccess: (d: any) => setTaskId(d.task_id),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const saveMut = useMutation({
     mutationFn: ({ url, form }: { url: string; form: { rec_og_title: string; rec_og_description: string } }) =>
       ogApi.updateMeta(projectId, url, form),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['og-audit', projectId] }); setExpandedUrl(null) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const stats = data?.stats

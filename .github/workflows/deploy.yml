@@ -19,6 +19,18 @@ jobs:
       packages: write
 
     steps:
+      - name: Validate required secrets
+        run: |
+          missing=""
+          [ -z "${{ secrets.SERVER_HOST }}" ] && missing="$missing SERVER_HOST"
+          [ -z "${{ secrets.SERVER_USER }}" ] && missing="$missing SERVER_USER"
+          [ -z "${{ secrets.SERVER_SSH_KEY }}" ] && missing="$missing SERVER_SSH_KEY"
+          [ -z "${{ secrets.GHCR_TOKEN }}" ] && missing="$missing GHCR_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required secrets:$missing"
+            exit 1
+          fi
+
       - uses: actions/checkout@v5
 
       # ── Lowercase repo name (GHCR requires it) ────────────────────────────

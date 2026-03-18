@@ -126,6 +126,10 @@ class SiteCrawler:
     async def _parse_sitemap(self, client: httpx.AsyncClient, url: str, depth: int = 0) -> list[SitemapEntry]:
         if depth > 5:
             return []
+        # SSRF protection: validate sitemap URL before fetching
+        parsed_url = urlparse(url)
+        if _is_private_or_reserved(parsed_url.hostname or ""):
+            return []
         try:
             r = await client.get(url, timeout=15, follow_redirects=True)
             if r.status_code != 200:

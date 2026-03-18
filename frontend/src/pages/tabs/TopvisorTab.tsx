@@ -46,6 +46,9 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
       qc.invalidateQueries({ queryKey: ['topvisor-link', projectId] })
       setLinking(false)
     },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const linked = linkData?.topvisor_project_id

@@ -322,7 +322,7 @@ Super admin создаётся из `.env`: `SUPER_ADMIN_LOGIN`, `SUPER_ADMIN_PA
 | `utm.ts` | `utmApi` (шаблоны + сборка URL) |
 | `portal.ts` | `portalApi` (токены) |
 | `settings.ts` | `settingsApi` (настройки, пользователи, промпты) |
-| `client.ts` | Axios-инстанс с инжектом токена |
+| `client.ts` | Axios-инстанс с инжектом токена + автоматический refresh при 401 |
 
 ---
 
@@ -333,6 +333,15 @@ Super admin создаётся из `.env`: `SUPER_ADMIN_LOGIN`, `SUPER_ADMIN_PA
 ```python
 from app.auth.deps import CurrentUser, NonViewerRequired
 
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
+    """Стандартная проверка доступа — копировать в каждый роутер."""
+    project = db.get(Project, project_id)
+    if not project or project.deleted_at is not None:  # ← soft delete обязателен!
+        raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
+
 @router.post("/projects/{project_id}/something", status_code=201)
 def do_something(
     project_id: uuid.UUID,
@@ -341,13 +350,11 @@ def do_something(
     _: Annotated[object, NonViewerRequired],  # только для write-операций
     db: Annotated[Session, Depends(get_db)],
 ):
-    project = db.get(Project, project_id)
-    if not project:
-        raise HTTPException(404)
-    if current_user.role == "specialist" and project.specialist_id != current_user.id:
-        raise HTTPException(403)
+    _check_project_access(project_id, current_user, db)
     ...
 ```
+
+> **Важно:** Всегда проверяй `project.deleted_at is not None` при доступе к проекту. Не используй `db.get(Project, id)` без этой проверки.
 
 ### Backend — новая миграция
 
@@ -380,7 +387,7 @@ const mutation = useMutation({ mutationFn: ..., onSuccess: () => qc.invalidateQu
 
 ```bash
 SUPER_ADMIN_LOGIN=admin
-SUPER_ADMIN_PASSWORD_HASH=$2b$12$...
+SUPER_ADMIN_PASSWORD_HASH=$$2b$$12$$...   # ⚠️ Каждый $ удваивается → $$ для docker-compose!
 SUPER_ADMIN_EMAIL=admin@company.ru
 
 # БД — ОБЯЗАТЕЛЬНО сменить пароль!
@@ -460,14 +467,15 @@ GOOGLE_PAGESPEED_API_KEY=             # опционально, без него 
 - API-ключи: AES-256-GCM, хранятся в таблице `settings` (`auth/encryption.py`)
 - Пароли: bcrypt (`auth/security.py`)
 - JWT: HS256/384/512, access 15 мин + refresh 30 дней (90 дней с remember me)
-- Refresh-токены: jti-blacklist + per-user generation counter в Redis
-- `POST /auth/logout` — отзыв refresh-токена
+- Refresh-токены: jti-blacklist + per-user generation counter в Redis + rotation при каждом refresh
+- `POST /auth/logout` — отзыв refresh-токена (фронтенд вызывает автоматически)
+- Фронтенд: автоматический refresh при 401 с очередью запросов (`api/client.ts`)
 - Автоинвалидация при: деактивации, смене роли, сбросе пароля
 - Timing-safe login (dummy hash при несуществующем пользователе)
 
 ### SSRF-защита
 
-- `crawl/crawler.py` — `_is_private_or_reserved()` блокирует приватные/зарезервированные IP через DNS resolution
+- `crawl/crawler.py` — `_is_private_or_reserved()` блокирует приватные/зарезервированные IP через DNS resolution (включая sitemap URL из robots.txt)
 - `seo_enrichments.py` — `_is_safe_url()` в content gap анализе блокирует internal IP, metadata endpoints, unsafe redirects
 
 ### Soft delete
@@ -477,6 +485,29 @@ GOOGLE_PAGESPEED_API_KEY=             # опционально, без него 
 ### Бэкапы
 
 `scripts/backup_db.sh` — pg_dump + gzip + ротация 30 дней. Запускать через cron.
+
+---
+
+## Технический долг
+
+Низкоприоритетные задачи. Все critical/high закрыты.
+
+| Проблема | Файл | Приоритет |
+|----------|------|-----------|
+| SHA256 → PBKDF2 для encryption key (нужна data migration — re-encrypt settings) | `auth/encryption.py` | Medium |
+| Content-gap rate limit 5/min, но 50+ outbound HTTP на запрос | `seo_enrichments.py` | Medium |
+| DLQ мониторинг (Celery Flower или sweep task) | `celery_app.py` | Medium |
+| N+1 в duplicate_project (группы в цикле по кампаниям) | `projects.py:384` | Medium |
+| duplicate_project без единой транзакции | `projects.py:334` | Medium |
+| ondelete CASCADE на FK Project→User | миграция | Medium |
+| Axios: retry transient errors (429, 5xx) | `api/client.ts` | Medium |
+| Rate limiter fallback на IP для аутентифицированных | `limiter.py` | Low |
+| Migration 0005: nullable created_at/updated_at | `0005_content_plan_push.py` | Low |
+| CHECK constraints (frequency >= 0, load_time_ms >= 0) | models | Low |
+| TypeScript: noUnusedLocals/noUnusedParameters=true | `tsconfig.json` | Low |
+| React Query: global error handler | `main.tsx` | Low |
+| setup_server.sh: хардкод домена/IP | `scripts/setup_server.sh` | Low |
+| Crawl task inner exception может проглотить ошибку | `tasks/crawl.py:123` | Low |
 
 ---
 
@@ -504,7 +535,7 @@ docker-compose -f docker-compose.prod.yml up -d
 docker-compose -f docker-compose.prod.yml exec backend alembic upgrade head
 ```
 
-Prod-отличия: нет volume mounts, нет `--reload`, нет exposed портов (только nginx 80/443), Redis с `--requirepass`, 4 Celery-воркера, SSL через nginx.
+Prod-отличия: нет volume mounts, нет `--reload`, нет exposed портов (только nginx 80/443), Redis с `--requirepass` (256MB), backend 1GB + 2 workers, Celery 1.5GB + 4 воркера, healthchecks на всех сервисах, SSL через nginx.
 
 ### Обновление
 
