@@ -9,7 +9,7 @@ import { ogApi, type OgPage, type OgStats } from '../api/og'
 import { mediaplanApi, type MediaPlanRow } from '../api/mediaplan'
 import { analyticsApi, type TrafficSource, type DailyVisit } from '../api/analytics'
 
-type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og' | 'mediaplan' | 'analytics' | 'history' | 'export'
+type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og' | 'mediaplan' | 'analytics' | 'topvisor' | 'content-plan' | 'reports' | 'history' | 'export'
 
 function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
@@ -61,6 +61,12 @@ function BriefTab({ projectId }: { projectId: string }) {
   })
   const [form, setForm] = useState<Partial<Brief>>({})
   const [saved, setSaved] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
+
+  const { data: templatesData } = useQuery({
+    queryKey: ['brief-templates'],
+    queryFn: () => api.get('/briefs/templates').then((r) => r.data),
+  })
 
   const mutation = useMutation({
     mutationFn: (data: Partial<Brief>) => projectsApi.updateBrief(projectId, data),
@@ -70,6 +76,13 @@ function BriefTab({ projectId }: { projectId: string }) {
       setTimeout(() => setSaved(false), 2000)
     },
   })
+
+  const applyTemplate = async (templateId: string) => {
+    const r = await api.get(`/briefs/templates/${templateId}`)
+    const tData = r.data.data as Partial<Brief>
+    setForm((f) => ({ ...f, ...tData }))
+    setShowTemplates(false)
+  }
 
   if (isLoading) return <div className="p-4 text-gray-500">Загрузка...</div>
 
@@ -89,9 +102,35 @@ function BriefTab({ projectId }: { projectId: string }) {
     </div>
   )
 
+  const templates: { id: string; name: string; icon: string }[] = templatesData?.templates || []
+
   return (
     <div className="p-6 max-w-2xl space-y-4">
-      <h3 className="font-semibold text-gray-700 text-sm uppercase tracking-wide">О бизнесе</h3>
+      {/* Templates */}
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-gray-700 text-sm uppercase tracking-wide">О бизнесе</h3>
+        <div className="relative">
+          <button
+            onClick={() => setShowTemplates((v) => !v)}
+            className="text-xs px-3 py-1.5 border rounded-lg text-gray-600 hover:bg-gray-50 transition"
+          >
+            📋 Шаблон по нише
+          </button>
+          {showTemplates && templates.length > 0 && (
+            <div className="absolute right-0 top-full mt-1 bg-white border rounded-xl shadow-lg z-20 w-56 py-1">
+              {templates.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => applyTemplate(t.id)}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <span>{t.icon}</span> {t.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
       {field('niche', 'Ниша / тематика')}
       {field('products', 'Продукты / услуги', true)}
       {field('price_segment', 'Ценовой сегмент')}
@@ -118,8 +157,14 @@ function BriefTab({ projectId }: { projectId: string }) {
 
 // ─── Crawl Tab ────────────────────────────────────────────────────────────────
 
+type AuditIssue = 'no_title' | 'no_description' | 'no_h1' | 'noindex' | 'slow' | 'no_alt'
+
 function CrawlTab({ projectId }: { projectId: string }) {
   const qc = useQueryClient()
+  const [activeIssue, setActiveIssue] = useState<AuditIssue | null>(null)
+  const [auditPage, setAuditPage] = useState(0)
+  const PAGE_SIZE = 20
+
   const { data: status } = useQuery({
     queryKey: ['crawl-status', projectId],
     queryFn: () => api.get(`/projects/${projectId}/crawl/status`).then((r) => r.data),
@@ -135,16 +180,60 @@ function CrawlTab({ projectId }: { projectId: string }) {
     enabled: status?.status === 'done',
   })
 
+  // SEO pages list for issue drill-down
+  const issueParam = activeIssue ? 'true' : 'false'
+  const { data: seoPages } = useQuery({
+    queryKey: ['crawl-seo-pages', projectId, activeIssue, auditPage],
+    queryFn: () =>
+      api.get(`/projects/${projectId}/seo/pages`, {
+        params: { issues_only: true, limit: PAGE_SIZE, offset: auditPage * PAGE_SIZE },
+      }).then((r) => r.data),
+    enabled: !!activeIssue && status?.status === 'done',
+  })
+
+  const ISSUE_LABELS: Record<AuditIssue, string> = {
+    no_title: 'Без title',
+    no_description: 'Без description',
+    no_h1: 'Без H1',
+    noindex: 'noindex',
+    slow: 'Медленных (>3с)',
+    no_alt: 'Картинок без alt',
+  }
+
+  const auditItems = report ? [
+    { key: 'pages_total' as const, label: 'Всего страниц', value: report.pages_total, bad: false, issue: null },
+    { key: 'no_title' as const, label: 'Без title', value: report.no_title, bad: report.no_title > 0, issue: 'no_title' as AuditIssue },
+    { key: 'no_description' as const, label: 'Без description', value: report.no_description, bad: report.no_description > 0, issue: 'no_description' as AuditIssue },
+    { key: 'no_h1' as const, label: 'Без H1', value: report.no_h1, bad: report.no_h1 > 0, issue: 'no_h1' as AuditIssue },
+    { key: 'noindex_pages' as const, label: 'noindex страниц', value: report.noindex_pages, bad: report.noindex_pages > 0, issue: 'noindex' as AuditIssue },
+    { key: 'slow_pages' as const, label: 'Медленных (>3с)', value: report.slow_pages, bad: report.slow_pages > 0, issue: 'slow' as AuditIssue },
+    { key: 'images_without_alt' as const, label: 'Картинок без alt', value: report.images_without_alt, bad: report.images_without_alt > 0, issue: 'no_alt' as AuditIssue },
+  ] : []
+
+  const issues = auditItems.filter((i) => i.bad)
+  const score = report
+    ? Math.max(0, 100 - issues.length * 12 - (report.slow_pages > 5 ? 10 : 0))
+    : null
+
+  const scoreColor = score === null ? 'text-gray-400' : score >= 80 ? 'text-green-600' : score >= 50 ? 'text-yellow-600' : 'text-red-600'
+
   return (
-    <div className="p-6 max-w-2xl">
+    <div className="p-6 max-w-4xl">
       <div className="flex items-center gap-4 mb-6">
-        <h3 className="font-semibold">Парсинг сайта</h3>
+        <h3 className="font-semibold text-lg">Технический SEO аудит</h3>
         <button onClick={() => startMutation.mutate()}
           disabled={startMutation.isPending || status?.status === 'running'}
           className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 transition disabled:opacity-50">
-          {status?.status === 'running' ? '⏳ Парсинг...' : 'Запустить парсинг'}
+          {status?.status === 'running' ? '⏳ Парсинг...' : 'Запустить сканирование'}
         </button>
+        {score !== null && (
+          <div className="ml-auto text-center">
+            <p className={cx('text-3xl font-bold', scoreColor)}>{score}</p>
+            <p className="text-xs text-gray-400">SEO-score</p>
+          </div>
+        )}
       </div>
+
       {status && status.status !== 'not_started' && (
         <div className="bg-gray-50 rounded-lg p-4 mb-4">
           <div className="flex justify-between text-sm mb-2">
@@ -160,26 +249,94 @@ function CrawlTab({ projectId }: { projectId: string }) {
           {status.error && <p className="text-red-500 text-sm mt-2">{status.error}</p>}
         </div>
       )}
+
       {report && (
-        <div className="space-y-2">
-          <h4 className="font-medium text-sm text-gray-700 mb-3">Отчёт</h4>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            {[
-              { label: 'Всего страниц', value: report.pages_total },
-              { label: 'Без title', value: report.no_title, bad: report.no_title > 0 },
-              { label: 'Без description', value: report.no_description, bad: report.no_description > 0 },
-              { label: 'Без H1', value: report.no_h1, bad: report.no_h1 > 0 },
-              { label: 'noindex страниц', value: report.noindex_pages, bad: report.noindex_pages > 0 },
-              { label: 'Медленных (>3с)', value: report.slow_pages, bad: report.slow_pages > 0 },
-              { label: 'Картинок без alt', value: report.images_without_alt, bad: report.images_without_alt > 0 },
-            ].map((item) => (
-              <div key={item.label} className={cx('bg-white rounded-lg p-3 border', (item as any).bad ? 'border-red-200' : 'border-gray-200')}>
-                <p className="text-gray-500">{item.label}</p>
-                <p className={cx('text-lg font-semibold', (item as any).bad ? 'text-red-600' : 'text-gray-900')}>{item.value}</p>
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6 text-sm">
+            {auditItems.map((item) => (
+              <div
+                key={item.key}
+                onClick={() => item.issue && item.bad ? setActiveIssue(item.issue === activeIssue ? null : item.issue) : null}
+                className={cx(
+                  'bg-white rounded-xl p-3 border transition',
+                  item.bad ? 'border-red-200 cursor-pointer hover:border-red-400' : 'border-gray-200',
+                  activeIssue === item.issue ? 'ring-2 ring-red-400' : ''
+                )}
+              >
+                <p className="text-gray-500 text-xs">{item.label}</p>
+                <p className={cx('text-xl font-bold mt-1', item.bad ? 'text-red-600' : 'text-gray-900')}>{item.value}</p>
+                {item.issue && item.bad && <p className="text-xs text-red-400 mt-0.5">нажмите для деталей</p>}
               </div>
             ))}
           </div>
-        </div>
+
+          {/* Issues summary */}
+          {issues.length === 0 ? (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-700">
+              ✅ Технических проблем не обнаружено
+            </div>
+          ) : (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+              <p className="text-sm font-medium text-red-700 mb-2">⚠️ Найдено проблем: {issues.length}</p>
+              <ul className="text-sm text-red-600 space-y-0.5">
+                {issues.map((i) => (
+                  <li key={i.key}>• {i.label}: <strong>{i.value}</strong> страниц</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Drill-down table */}
+          {activeIssue && (
+            <div className="bg-white rounded-xl border mt-4 overflow-hidden">
+              <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">
+                  Страницы с проблемой: {ISSUE_LABELS[activeIssue]}
+                </span>
+                <button onClick={() => setActiveIssue(null)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+              </div>
+              {seoPages?.pages?.length ? (
+                <>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 border-b">
+                        <th className="px-4 py-2 text-left text-gray-500">URL</th>
+                        <th className="px-4 py-2 text-left text-gray-500 w-48">Title</th>
+                        <th className="px-4 py-2 text-left text-gray-500 w-24">Статус</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {seoPages.pages.map((p: any) => (
+                        <tr key={p.page_url} className="border-b last:border-0 hover:bg-gray-50">
+                          <td className="px-4 py-2">
+                            <a href={p.page_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate block max-w-xs">
+                              {p.page_url}
+                            </a>
+                          </td>
+                          <td className="px-4 py-2 text-gray-600 truncate max-w-xs">{p.current_title || '—'}</td>
+                          <td className="px-4 py-2">
+                            {p.has_title_issue && <span className="text-red-500 mr-1">T</span>}
+                            {p.has_desc_issue && <span className="text-orange-500 mr-1">D</span>}
+                            {p.has_og_issue && <span className="text-yellow-600">OG</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="px-4 py-2 border-t flex gap-2 text-xs">
+                    <button disabled={auditPage === 0} onClick={() => setAuditPage((p) => p - 1)}
+                      className="px-2 py-1 border rounded disabled:opacity-40">← Назад</button>
+                    <button disabled={seoPages.pages.length < PAGE_SIZE} onClick={() => setAuditPage((p) => p + 1)}
+                      className="px-2 py-1 border rounded disabled:opacity-40">Далее →</button>
+                    <span className="text-gray-400 py-1">Стр. {auditPage + 1}</span>
+                  </div>
+                </>
+              ) : (
+                <p className="px-4 py-4 text-sm text-gray-400">Нет данных (запустите сканирование)</p>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
@@ -1754,6 +1911,514 @@ function AnalyticsTab({ projectId }: { projectId: string }) {
   )
 }
 
+// ─── Topvisor / Competitor Tab ────────────────────────────────────────────────
+
+function TopvisorTab({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
+  const [linking, setLinking] = useState(false)
+  const [selectedTvId, setSelectedTvId] = useState<number | null>(null)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+
+  const { data: linkData } = useQuery({
+    queryKey: ['topvisor-link', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/topvisor/link`).then((r) => r.data),
+  })
+
+  const { data: tvProjects, isLoading: tvLoading, refetch: fetchTvProjects } = useQuery({
+    queryKey: ['topvisor-projects', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/topvisor/projects`).then((r) => r.data),
+    enabled: false,
+  })
+
+  const { data: positions, isLoading: posLoading, refetch: fetchPositions, isError: posError } = useQuery({
+    queryKey: ['topvisor-positions', projectId, dateFrom, dateTo],
+    queryFn: () =>
+      api.get(`/projects/${projectId}/topvisor/positions`, { params: { date_from: dateFrom, date_to: dateTo } }).then((r) => r.data),
+    enabled: false,
+  })
+
+  const linkMutation = useMutation({
+    mutationFn: (tvId: number | null) => api.post(`/projects/${projectId}/topvisor/link`, { topvisor_project_id: tvId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['topvisor-link', projectId] })
+      setLinking(false)
+    },
+  })
+
+  const linked = linkData?.topvisor_project_id
+  const kws: any[] = positions?.keywords || []
+
+  return (
+    <div className="p-6 max-w-4xl">
+      <h2 className="text-lg font-semibold text-gray-900 mb-4">Конкурентный анализ / Позиции (Topvisor)</h2>
+
+      {/* Link project */}
+      <div className="bg-white rounded-xl border p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-700">Привязанный Topvisor-проект</p>
+            <p className="text-sm text-gray-500 mt-0.5">{linked ? `ID: ${linked}` : 'Не привязан'}</p>
+          </div>
+          <button
+            onClick={() => { setLinking(true); fetchTvProjects() }}
+            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            {linked ? 'Изменить' : 'Привязать'}
+          </button>
+        </div>
+
+        {linking && (
+          <div className="mt-3">
+            {tvLoading ? (
+              <p className="text-sm text-gray-400">Загрузка проектов из Topvisor...</p>
+            ) : tvProjects?.projects?.length ? (
+              <div className="space-y-1 max-h-48 overflow-y-auto">
+                {tvProjects.projects.map((p: any) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedTvId(p.id)}
+                    className={cx(
+                      'w-full text-left px-3 py-2 rounded-lg text-sm border transition',
+                      selectedTvId === p.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                    )}
+                  >
+                    {p.name || p.site || `Project #${p.id}`}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-red-500">Нет доступных проектов. Проверьте Topvisor API key в Настройках.</p>
+            )}
+            {selectedTvId && (
+              <button
+                onClick={() => linkMutation.mutate(selectedTvId)}
+                className="mt-2 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                Сохранить привязку
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Positions */}
+      {linked && (
+        <div className="bg-white rounded-xl border p-4">
+          <div className="flex items-center gap-3 mb-4">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Дата от</label>
+              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+                className="border rounded px-2 py-1 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Дата до</label>
+              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+                className="border rounded px-2 py-1 text-sm" />
+            </div>
+            <div className="pt-5">
+              <button
+                onClick={() => fetchPositions()}
+                className="px-3 py-1.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+              >
+                Получить позиции
+              </button>
+            </div>
+          </div>
+
+          {posLoading && <p className="text-sm text-gray-400">Загрузка позиций...</p>}
+          {posError && <p className="text-sm text-red-500">Ошибка. Проверьте привязку и API ключ.</p>}
+          {kws.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="px-3 py-2 text-left text-gray-600 font-medium">Ключевое слово</th>
+                    <th className="px-3 py-2 text-center text-gray-600 font-medium w-20">Позиция</th>
+                    <th className="px-3 py-2 text-center text-gray-600 font-medium w-20">Динамика</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {kws.map((kw: any, i: number) => {
+                    const pos = kw.position ?? kw.pos ?? '—'
+                    const diff = kw.diff ?? kw.change ?? null
+                    return (
+                      <tr key={i} className="border-t">
+                        <td className="px-3 py-2">{kw.name || kw.keyword || '—'}</td>
+                        <td className="px-3 py-2 text-center font-mono tabular-nums">
+                          {pos === 0 || pos === null ? '100+' : pos}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {diff != null && diff !== 0 ? (
+                            <span className={cx('font-mono text-xs', diff > 0 ? 'text-green-600' : 'text-red-500')}>
+                              {diff > 0 ? `+${diff}` : diff}
+                            </span>
+                          ) : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Content Plan Tab ─────────────────────────────────────────────────────────
+
+const ARTICLE_STATUSES = [
+  { value: 'idea', label: 'Идея', color: 'bg-gray-100 text-gray-600' },
+  { value: 'in_progress', label: 'В работе', color: 'bg-blue-100 text-blue-700' },
+  { value: 'review', label: 'Ревью', color: 'bg-yellow-100 text-yellow-700' },
+  { value: 'published', label: 'Опубликовано', color: 'bg-green-100 text-green-700' },
+  { value: 'archived', label: 'Архив', color: 'bg-gray-100 text-gray-400' },
+]
+const INTENTS = [
+  { value: 'informational', label: 'Информационный' },
+  { value: 'commercial', label: 'Коммерческий' },
+  { value: 'transactional', label: 'Транзакционный' },
+  { value: 'navigational', label: 'Навигационный' },
+]
+
+interface Article {
+  id: string
+  title: string
+  target_keyword: string | null
+  cluster: string | null
+  intent: string | null
+  status: string
+  priority: number
+  due_date: string | null
+  assigned_to: string | null
+  notes: string | null
+  url: string | null
+  word_count_target: number | null
+}
+
+type ArticleForm = Omit<Article, 'id'>
+
+const emptyArticle: ArticleForm = {
+  title: '',
+  target_keyword: null,
+  cluster: null,
+  intent: null,
+  status: 'idea',
+  priority: 0,
+  due_date: null,
+  assigned_to: null,
+  notes: null,
+  url: null,
+  word_count_target: null,
+}
+
+function ContentPlanTab({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
+  const [showForm, setShowForm] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [form, setForm] = useState<ArticleForm>(emptyArticle)
+  const [filterStatus, setFilterStatus] = useState<string>('all')
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['content-plan', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/content-plan`).then((r) => r.data),
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (body: ArticleForm) => api.post(`/projects/${projectId}/content-plan`, body),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['content-plan', projectId] }); setShowForm(false); setForm(emptyArticle) },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, ...body }: ArticleForm & { id: string }) =>
+      api.patch(`/projects/${projectId}/content-plan/${id}`, body),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['content-plan', projectId] }); setEditId(null) },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/projects/${projectId}/content-plan/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['content-plan', projectId] }),
+  })
+
+  const articles: Article[] = data?.articles || []
+  const filtered = filterStatus === 'all' ? articles : articles.filter((a) => a.status === filterStatus)
+
+  const f = (key: keyof ArticleForm, val: any) => setForm((p) => ({ ...p, [key]: val || null }))
+
+  const ArticleFormFields = () => (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Заголовок статьи *</label>
+        <input value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
+          className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Как выбрать..." />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Ключевое слово</label>
+          <input value={form.target_keyword || ''} onChange={(e) => f('target_keyword', e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Кластер</label>
+          <input value={form.cluster || ''} onChange={(e) => f('cluster', e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm" />
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Статус</label>
+          <select value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
+            className="w-full border rounded-lg px-3 py-2 text-sm">
+            {ARTICLE_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Интент</label>
+          <select value={form.intent || ''} onChange={(e) => f('intent', e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm">
+            <option value="">—</option>
+            {INTENTS.map((i) => <option key={i.value} value={i.value}>{i.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Приоритет</label>
+          <input type="number" value={form.priority} onChange={(e) => setForm((p) => ({ ...p, priority: Number(e.target.value) }))}
+            className="w-full border rounded-lg px-3 py-2 text-sm" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Дедлайн</label>
+          <input type="date" value={form.due_date || ''} onChange={(e) => f('due_date', e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Исполнитель</label>
+          <input value={form.assigned_to || ''} onChange={(e) => f('assigned_to', e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">URL (после публикации)</label>
+          <input value={form.url || ''} onChange={(e) => f('url', e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Объём (слов)</label>
+          <input type="number" value={form.word_count_target || ''} onChange={(e) => f('word_count_target', Number(e.target.value))}
+            className="w-full border rounded-lg px-3 py-2 text-sm" />
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Заметки</label>
+        <textarea value={form.notes || ''} onChange={(e) => f('notes', e.target.value)}
+          rows={2} className="w-full border rounded-lg px-3 py-2 text-sm" />
+      </div>
+    </div>
+  )
+
+  const statusBadge = (s: string) => {
+    const st = ARTICLE_STATUSES.find((x) => x.value === s)
+    return <span className={cx('px-2 py-0.5 rounded-full text-xs font-medium', st?.color || 'bg-gray-100 text-gray-600')}>{st?.label || s}</span>
+  }
+
+  return (
+    <div className="p-6 max-w-5xl">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-gray-900">Контент-план блога</h2>
+        <button onClick={() => { setShowForm(true); setEditId(null); setForm(emptyArticle) }}
+          className="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700">
+          + Добавить статью
+        </button>
+      </div>
+
+      {/* Filter */}
+      <div className="flex gap-2 mb-4">
+        {['all', ...ARTICLE_STATUSES.map((s) => s.value)].map((s) => (
+          <button key={s} onClick={() => setFilterStatus(s)}
+            className={cx('px-3 py-1 text-xs rounded-full border transition',
+              filterStatus === s ? 'bg-primary-600 text-white border-primary-600' : 'border-gray-300 text-gray-600 hover:border-gray-400')}>
+            {s === 'all' ? 'Все' : ARTICLE_STATUSES.find((x) => x.value === s)?.label || s}
+          </button>
+        ))}
+      </div>
+
+      {/* Create/Edit modal */}
+      {(showForm || editId) && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <h3 className="font-semibold mb-4">{editId ? 'Редактировать статью' : 'Новая статья'}</h3>
+            <ArticleFormFields />
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => editId ? updateMutation.mutate({ id: editId, ...form }) : createMutation.mutate(form)}
+                disabled={!form.title || createMutation.isPending || updateMutation.isPending}
+                className="flex-1 py-2 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 disabled:opacity-50"
+              >
+                {createMutation.isPending || updateMutation.isPending ? 'Сохранение...' : 'Сохранить'}
+              </button>
+              <button onClick={() => { setShowForm(false); setEditId(null) }}
+                className="flex-1 py-2 border text-sm rounded-lg hover:bg-gray-50">Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <p className="text-gray-400 text-sm">Загрузка...</p>
+      ) : (
+        <div className="bg-white rounded-xl border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b">
+                <th className="px-4 py-3 text-left font-medium text-gray-600">Статья</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600 w-28">Статус</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600 w-32">Ключевое слово</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600 w-24">Дедлайн</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600 w-28">Исполнитель</th>
+                <th className="px-4 py-3 text-right font-medium text-gray-600 w-20">Действия</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((a) => (
+                <tr key={a.id} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-gray-900">{a.title}</p>
+                    {a.cluster && <p className="text-xs text-gray-400">{a.cluster}</p>}
+                  </td>
+                  <td className="px-4 py-3">{statusBadge(a.status)}</td>
+                  <td className="px-4 py-3 text-gray-600">{a.target_keyword || '—'}</td>
+                  <td className="px-4 py-3 text-gray-500">{a.due_date || '—'}</td>
+                  <td className="px-4 py-3 text-gray-600">{a.assigned_to || '—'}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button onClick={() => { setEditId(a.id); setForm({ ...a }); setShowForm(false) }}
+                      className="text-primary-600 hover:text-primary-800 text-xs mr-2">Изм.</button>
+                    <button onClick={() => deleteMutation.mutate(a.id)}
+                      className="text-red-500 hover:text-red-700 text-xs">Удал.</button>
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Нет статей</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Reports Tab ───────────────────────────────────────────────────────────────
+
+function ReportsTab({ projectId }: { projectId: string }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+
+  return (
+    <div className="p-6 max-w-3xl">
+      <h2 className="text-lg font-semibold text-gray-900 mb-2">Автоотчёты для клиентов</h2>
+      <p className="text-sm text-gray-500 mb-6">
+        Готовые отчёты на основе данных проекта: Директ, SEO аудит, медиаплан.
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* HTML Report */}
+        <div className="bg-white border rounded-xl p-5">
+          <div className="text-2xl mb-2">📊</div>
+          <h3 className="font-semibold text-gray-900 mb-1">Сводный отчёт (HTML)</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Брендированный HTML-отчёт с ключевыми метриками. Отправьте клиенту напрямую.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPreviewUrl(`/api/projects/${projectId}/report/preview`)}
+              className="flex-1 py-2 text-sm border rounded-lg hover:bg-gray-50 transition"
+            >
+              Просмотр
+            </button>
+            <a
+              href={`/api/projects/${projectId}/report/html`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex-1 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition text-center"
+            >
+              Скачать
+            </a>
+          </div>
+        </div>
+
+        {/* Strategy MD */}
+        <div className="bg-white border rounded-xl p-5">
+          <div className="text-2xl mb-2">📝</div>
+          <h3 className="font-semibold text-gray-900 mb-1">SEO-стратегия (Markdown)</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Полная стратегия продвижения в текстовом формате для команды.
+          </p>
+          <a
+            href={`/api/projects/${projectId}/export/strategy-md`}
+            target="_blank"
+            rel="noreferrer"
+            className="block py-2 text-sm bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition text-center"
+          >
+            Скачать .md
+          </a>
+        </div>
+
+        {/* Strategy HTML */}
+        <div className="bg-white border rounded-xl p-5">
+          <div className="text-2xl mb-2">🌐</div>
+          <h3 className="font-semibold text-gray-900 mb-1">Стратегия (HTML)</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Красиво оформленная стратегия в HTML. Открывается в браузере.
+          </p>
+          <a
+            href={`/api/projects/${projectId}/export/strategy-html`}
+            target="_blank"
+            rel="noreferrer"
+            className="block py-2 text-sm bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition text-center"
+          >
+            Скачать .html
+          </a>
+        </div>
+
+        {/* Copywriter brief */}
+        <div className="bg-white border rounded-xl p-5">
+          <div className="text-2xl mb-2">✍️</div>
+          <h3 className="font-semibold text-gray-900 mb-1">Бриф для копирайтера (DOCX)</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Готовый бриф для внешнего копирайтера с описанием проекта и требований.
+          </p>
+          <a
+            href={`/api/projects/${projectId}/export/copywriter-brief`}
+            target="_blank"
+            rel="noreferrer"
+            className="block py-2 text-sm bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition text-center"
+          >
+            Скачать .docx
+          </a>
+        </div>
+      </div>
+
+      {/* Preview iframe */}
+      {previewUrl && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-4xl h-[80vh] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <span className="font-medium text-sm">Предпросмотр отчёта</span>
+              <button onClick={() => setPreviewUrl(null)} className="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+            </div>
+            <iframe src={previewUrl} className="flex-1 rounded-b-xl" title="Report preview" />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function ProjectPage() {
@@ -1773,12 +2438,15 @@ export default function ProjectPage() {
   const tabs: { key: Tab; label: string }[] = [
     { key: 'overview', label: 'Обзор' },
     { key: 'brief', label: 'Бриф' },
-    { key: 'crawl', label: 'Парсинг' },
+    { key: 'crawl', label: '🔧 Аудит' },
     { key: 'direct', label: '📢 Директ' },
     { key: 'seo', label: '🔍 SEO' },
     { key: 'og', label: 'OpenGraph' },
     { key: 'mediaplan', label: '📅 Медиаплан' },
     { key: 'analytics', label: '📊 Аналитика' },
+    { key: 'topvisor', label: '📈 Позиции' },
+    { key: 'content-plan', label: '✍️ Контент' },
+    { key: 'reports', label: '📋 Отчёты' },
     { key: 'history', label: 'История' },
     { key: 'export', label: 'Экспорт' },
   ]
@@ -1846,6 +2514,9 @@ export default function ProjectPage() {
         {tab === 'og' && <OgTab projectId={id!} />}
         {tab === 'mediaplan' && <MediaPlanTab projectId={id!} />}
         {tab === 'analytics' && <AnalyticsTab projectId={id!} />}
+        {tab === 'topvisor' && <TopvisorTab projectId={id!} />}
+        {tab === 'content-plan' && <ContentPlanTab projectId={id!} />}
+        {tab === 'reports' && <ReportsTab projectId={id!} />}
         {tab === 'history' && <HistoryTab projectId={id!} />}
         {tab === 'export' && <ExportTab projectId={id!} />}
       </div>

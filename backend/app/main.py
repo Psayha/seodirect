@@ -58,6 +58,10 @@ def create_app() -> FastAPI:
     from app.routers.history import router as history_router
     from app.routers.analytics import router as analytics_router
     from app.routers.topvisor import router as topvisor_router
+    from app.routers.content_plan import router as content_plan_router
+    from app.routers.reports import router as reports_router
+    from app.routers.brief_templates import router as brief_templates_router
+    from app.routers.push import router as push_router
 
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
@@ -73,6 +77,10 @@ def create_app() -> FastAPI:
     app.include_router(history_router, prefix="/api", tags=["history"])
     app.include_router(analytics_router, prefix="/api", tags=["analytics"])
     app.include_router(topvisor_router, prefix="/api", tags=["topvisor"])
+    app.include_router(content_plan_router, prefix="/api", tags=["content-plan"])
+    app.include_router(reports_router, prefix="/api", tags=["reports"])
+    app.include_router(brief_templates_router, prefix="/api", tags=["briefs"])
+    app.include_router(push_router, prefix="/api", tags=["push"])
 
     @app.get("/api/health")
     def health():
