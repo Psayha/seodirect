@@ -58,8 +58,9 @@ async def topvisor_list_projects(
     key = _require_key(db)
     try:
         projects = await list_projects(key)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    except Exception:
+        logger.exception("Topvisor list_projects failed for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Topvisor API error")
     return {"projects": projects}
 
 
@@ -135,8 +136,9 @@ async def topvisor_positions(
             date_to,
             region_index=region_index,
         )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    except Exception:
+        logger.exception("Topvisor get_positions failed for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Topvisor API error")
 
     return {
         "topvisor_project_id": project.topvisor_project_id,
@@ -176,8 +178,9 @@ async def topvisor_snapshots(
             date=date,
             region_index=region_index,
         )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    except Exception:
+        logger.exception("Topvisor get_snapshots failed for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Topvisor API error")
 
     return {
         "topvisor_project_id": project.topvisor_project_id,

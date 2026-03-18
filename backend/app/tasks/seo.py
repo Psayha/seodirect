@@ -27,7 +27,9 @@ def _run_async(coro):
     name="tasks.seo.generate_seo_meta",
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 3},
-    default_retry_delay=60,
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
 )
 def task_generate_seo_meta(
     self,

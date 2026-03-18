@@ -24,14 +24,14 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set} --save ""
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set} --save ""
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 30s
       timeout: 5s
       retries: 5
-    mem_limit: 96m
+    mem_limit: 320m
 
   backend:
     image: ghcr.io/psayha/seodirect/backend:latest
@@ -43,7 +43,13 @@ services:
       redis:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
-    mem_limit: 384m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    mem_limit: 1024m
 
   celery:
     image: ghcr.io/psayha/seodirect/backend:latest
@@ -54,12 +60,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.celery_app worker -l warning -c 1 --max-memory-per-child=200000
-    mem_limit: 320m
+    command: celery -A app.celery_app worker -l warning -c 4 --max-memory-per-child=300000
+    mem_limit: 1536m
 
   frontend:
     image: ghcr.io/psayha/seodirect/frontend:latest
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/", "||", "exit", "1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     mem_limit: 32m
 
   nginx:
@@ -72,8 +83,15 @@ services:
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/api/health", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     mem_limit: 32m
 
 volumes:

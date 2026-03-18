@@ -20,11 +20,22 @@ from app.models.direct import (
     Keyword,
     NegativeKeyword,
 )
+from app.models.project import Project
+from app.models.user import UserRole
 from app.routers.direct import _ad_dict
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
+    project = db.get(Project, project_id)
+    if not project or project.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
 
 
 # ─── N-gram Analysis ──────────────────────────────────────────────────────────
@@ -40,6 +51,8 @@ def get_ngrams(
     """Analyse n-grams across all project keywords."""
     import re
     from collections import Counter, defaultdict
+
+    _check_project_access(project_id, current_user, db)
 
     if n not in (2, 3):
         raise HTTPException(status_code=400, detail="n must be 2 or 3")
@@ -103,6 +116,7 @@ def keywords_heatmap(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Heatmap: temperature × frequency range."""
+    _check_project_access(project_id, current_user, db)
     campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
     campaign_ids = [c.id for c in campaigns]
     if not campaign_ids:
@@ -169,6 +183,7 @@ def ab_ad_stats(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Show ads grouped by ad group for A/B comparison."""
+    _check_project_access(project_id, current_user, db)
     campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
     campaign_ids = [c.id for c in campaigns]
     if not campaign_ids:

@@ -28,7 +28,7 @@ docker compose -f "$COMPOSE_FILE" exec -T postgres \
   pg_dump -U "$PG_USER" -d "$PG_DB" --no-owner --no-acl \
   | gzip > "$BACKUP_FILE"
 
-FILESIZE=$(stat -f%z "$BACKUP_FILE" 2>/dev/null || stat -c%s "$BACKUP_FILE" 2>/dev/null || echo "unknown")
+FILESIZE=$(stat -c%s "$BACKUP_FILE" 2>/dev/null || stat -f%z "$BACKUP_FILE" 2>/dev/null || echo "unknown")
 echo "[$(date)] Backup complete: $BACKUP_FILE ($FILESIZE bytes)"
 
 # Cleanup old backups

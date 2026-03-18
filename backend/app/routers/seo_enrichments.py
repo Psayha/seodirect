@@ -98,12 +98,15 @@ Description: {page.description or 'нет'}
 
     response_text = await claude.generate(system_prompt, user_msg)
     json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-    schema_json = json_match.group() if json_match else response_text.strip()
+    if not json_match:
+        raise HTTPException(status_code=502, detail="Failed to generate valid Schema.org JSON-LD")
+    schema_json = json_match.group()
 
     try:
         json.loads(schema_json)
-    except Exception:
-        schema_json = response_text.strip()
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("Invalid Schema.org JSON from Claude for %s: %s", body.page_url, schema_json[:200])
+        raise HTTPException(status_code=502, detail="Generated Schema.org JSON-LD is not valid JSON")
 
     meta = db.scalar(
         select(SeoPageMeta).where(SeoPageMeta.project_id == project_id, SeoPageMeta.page_url == body.page_url)

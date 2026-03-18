@@ -16,7 +16,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const tokens = await login(form.login, form.password, form.remember_me)
-      setTokens(tokens.access_token)
+      setTokens(tokens.access_token, tokens.refresh_token)
       const me = await getMe()
       setUser(me)
       navigate('/projects')

@@ -10,7 +10,9 @@ from app.celery_app import celery_app
     name="tasks.reports.monthly_reports",
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 2},
-    default_retry_delay=120,
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
 )
 def task_monthly_reports():
     """Generate and save monthly reports for all active projects."""
