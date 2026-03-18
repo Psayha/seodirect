@@ -142,25 +142,17 @@ function CrawlerTab() {
   )
 }
 
-const CLAUDE_MODELS = ['claude-opus-4-6','claude-sonnet-4-6','claude-haiku-4-5-20251001','claude-sonnet-4-20250514']
-const OPENROUTER_MODELS = [
-  'anthropic/claude-sonnet-4-6',
-  'anthropic/claude-opus-4-6',
-  'anthropic/claude-haiku-4-5-20251001',
-  'anthropic/claude-sonnet-4-20250514',
-  'openai/gpt-4o',
-  'openai/gpt-4o-mini',
-  'openai/o3-mini',
-  'google/gemini-2.0-flash-001',
-  'meta-llama/llama-3.3-70b-instruct',
-  'deepseek/deepseek-chat',
-]
-
 function AITab() {
   const qc = useQueryClient()
   const { data, isLoading } = useQuery({ queryKey: ['ai-settings'], queryFn: () => settingsApi.getAI() })
   const [form, setForm] = useState<Partial<AISettings>>({})
   const [saved, setSaved] = useState(false)
+
+  const { data: modelsData, isLoading: modelsLoading, isError: modelsError, refetch: refetchModels, isFetching: modelsFetching } = useQuery({
+    queryKey: ['ai-models'],
+    queryFn: () => api.get('/settings/ai/models').then((r) => r.data as { provider: string; models: { id: string; name: string }[] }),
+    retry: false,
+  })
 
   const saveMut = useMutation({
     mutationFn: (d: AISettings) => settingsApi.updateAI(d),
@@ -171,6 +163,7 @@ function AITab() {
 
   const cur = { ...data, ...form } as AISettings
   const isOpenRouter = cur.active_provider === 'openrouter'
+  const models = modelsData?.models ?? []
 
   return (
     <div className="bg-white rounded-lg border p-4 space-y-4">
@@ -181,34 +174,47 @@ function AITab() {
           {isOpenRouter ? '⚡ OpenRouter' : '🟠 Anthropic (прямой)'}
         </span>
       </div>
-      {isOpenRouter && (
-        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-xs text-purple-700">
-          Активен OpenRouter. Можно использовать любую модель — не только Claude. Задайте ID модели вручную или выберите из списка.
-        </div>
-      )}
       <div>
-        <label className="block text-sm text-gray-600 mb-1">
-          {isOpenRouter ? 'Модель (OpenRouter ID)' : 'Модель Claude'}
-        </label>
-        {isOpenRouter ? (
-          <>
-            <input list="or-models" className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              value={cur.ai_model ?? 'anthropic/claude-sonnet-4-20250514'}
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-sm text-gray-600">
+            {isOpenRouter ? 'Модель (OpenRouter)' : 'Модель Claude'}
+          </label>
+          <button
+            onClick={() => refetchModels()}
+            disabled={modelsFetching}
+            className="text-xs text-primary-600 hover:text-primary-800 disabled:opacity-40 flex items-center gap-1">
+            {modelsFetching ? 'Загрузка...' : '↻ Обновить список'}
+          </button>
+        </div>
+        {modelsLoading || modelsFetching ? (
+          <div className="w-full border rounded-lg px-3 py-2 text-sm text-gray-400 bg-gray-50">Загрузка моделей...</div>
+        ) : modelsError || models.length === 0 ? (
+          <div className="space-y-1">
+            <input
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              value={cur.ai_model ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, ai_model: e.target.value }))}
-              placeholder="anthropic/claude-sonnet-4-20250514" />
-            <datalist id="or-models">
-              {OPENROUTER_MODELS.map((m) => <option key={m} value={m} />)}
-            </datalist>
-            <p className="text-xs text-gray-400 mt-1">
-              Формат: <code>provider/model-name</code>. Если нет «/» — автоматически добавится prefix «anthropic/».
-            </p>
-          </>
+              placeholder={isOpenRouter ? 'anthropic/claude-sonnet-4-6' : 'claude-sonnet-4-6'}
+            />
+            <p className="text-xs text-amber-600">Не удалось загрузить список — введите ID модели вручную или нажмите «Обновить список»</p>
+          </div>
         ) : (
-          <select className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-            value={cur.ai_model ?? 'claude-sonnet-4-20250514'}
+          <select
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            value={cur.ai_model ?? ''}
             onChange={(e) => setForm((f) => ({ ...f, ai_model: e.target.value }))}>
-            {CLAUDE_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+            {cur.ai_model && !models.find((m) => m.id === cur.ai_model) && (
+              <option value={cur.ai_model}>{cur.ai_model} (текущая)</option>
+            )}
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>{m.name !== m.id ? `${m.name} — ${m.id}` : m.id}</option>
+            ))}
           </select>
+        )}
+        {isOpenRouter && (
+          <p className="text-xs text-gray-400 mt-1">
+            Формат: <code>provider/model-name</code>. Если нет «/» — автоматически добавится prefix «anthropic/».
+          </p>
         )}
       </div>
       <div className="grid grid-cols-2 gap-4">

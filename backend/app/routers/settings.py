@@ -271,6 +271,56 @@ def update_crawler_settings(
     return {"detail": "Updated"}
 
 
+# ─── AI models list ───────────────────────────────────────────────────────────
+
+@router.get("/ai/models")
+async def get_ai_models(
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Fetch available models from the active AI provider."""
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            openrouter_key = get_setting("openrouter_api_key", db)
+            if openrouter_key:
+                r = await client.get(
+                    "https://openrouter.ai/api/v1/models",
+                    headers={"Authorization": f"Bearer {openrouter_key}"},
+                )
+                if r.status_code != 200:
+                    raise HTTPException(status_code=502, detail=f"OpenRouter returned {r.status_code}")
+                data = r.json().get("data", [])
+                models = sorted(
+                    [{"id": m["id"], "name": m.get("name", m["id"])} for m in data if m.get("id")],
+                    key=lambda m: m["id"],
+                )
+                return {"provider": "openrouter", "models": models}
+
+            anthropic_key = get_setting("anthropic_api_key", db)
+            if anthropic_key:
+                r = await client.get(
+                    "https://api.anthropic.com/v1/models",
+                    headers={"x-api-key": anthropic_key, "anthropic-version": "2023-06-01"},
+                )
+                if r.status_code != 200:
+                    raise HTTPException(status_code=502, detail=f"Anthropic returned {r.status_code}")
+                data = r.json().get("data", [])
+                models = sorted(
+                    [{"id": m["id"], "name": m.get("display_name", m["id"])} for m in data if m.get("id")],
+                    key=lambda m: m["id"],
+                )
+                return {"provider": "anthropic", "models": models}
+
+            raise HTTPException(status_code=400, detail="API ключ не задан")
+    except HTTPException:
+        raise
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Таймаут запроса к API провайдера")
+    except Exception:
+        logger.exception("Failed to fetch AI models")
+        raise HTTPException(status_code=502, detail="Не удалось получить список моделей")
+
+
 # ─── AI settings ─────────────────────────────────────────────────────────────
 
 class AISettings(BaseModel):
