@@ -32,7 +32,7 @@ seodirect/
 │   │   ├── services/          # claude.py, wordstat.py, topvisor.py, metrika.py, exporter.py, pagespeed.py
 │   │   ├── tasks/             # Celery задачи (crawl, direct, seo, reports)
 │   │   └── main.py            # подключение всех роутеров
-│   └── alembic/versions/      # миграции БД (0001–0009)
+│   └── alembic/versions/      # миграции БД (0001–0011)
 └── frontend/
     └── src/
         ├── api/               # HTTP-клиенты
@@ -383,18 +383,49 @@ SUPER_ADMIN_LOGIN=admin
 SUPER_ADMIN_PASSWORD_HASH=$2b$12$...
 SUPER_ADMIN_EMAIL=admin@company.ru
 
-DATABASE_URL=postgresql://user:pass@postgres:5432/seodirect
-REDIS_URL=redis://redis:6379/0
+# БД — ОБЯЗАТЕЛЬНО сменить пароль!
+DATABASE_URL=postgresql+psycopg://seodirect:CHANGE_ME@postgres:5432/seodirect
+POSTGRES_USER=seodirect
+POSTGRES_PASSWORD=CHANGE_ME           # используется docker-compose
+POSTGRES_DB=seodirect
 
-SECRET_KEY=64-char-random
-ENCRYPTION_KEY=32-char-random
+# Redis — ОБЯЗАТЕЛЬНО задать пароль!
+REDIS_PASSWORD=CHANGE_ME
+REDIS_URL=redis://:CHANGE_ME@redis:6379/0
+
+SECRET_KEY=64-char-random             # python -c "import secrets; print(secrets.token_hex(32))"
+ENCRYPTION_KEY=32-char-random         # python -c "import secrets; print(secrets.token_hex(16))"
+
+# JWT
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_MINUTES=15
+REFRESH_TOKEN_DAYS=30
+REFRESH_TOKEN_REMEMBER_DAYS=90
+
+# Rate limiting
+LOGIN_RATE_LIMIT_ATTEMPTS=5
+LOGIN_RATE_LIMIT_WINDOW_SECONDS=900
+
+# Парсер
+CRAWL_DELAY_MS_DEFAULT=1000
+CRAWL_TIMEOUT_SECONDS=10
+CRAWL_MAX_PAGES=500
+CRAWL_USER_AGENT=SEODirectBot/1.0 (internal)
+CRAWL_RESPECT_ROBOTS=true
+
+# Приложение
+APP_ENV=production
+FRONTEND_URL=https://yourdomain.ru
+LOG_LEVEL=INFO
 
 # API ключи (можно задать здесь или через веб-настройки)
 ANTHROPIC_API_KEY=sk-ant-...
 WORDSTAT_OAUTH_TOKEN=
 TOPVISOR_API_KEY=
 METRIKA_OAUTH_TOKEN=
-GOOGLE_PAGESPEED_API_KEY=   # опционально, без него 25K/день бесплатно
+DIRECT_OAUTH_TOKEN=
+DIRECT_CLIENT_LOGIN=
+GOOGLE_PAGESPEED_API_KEY=             # опционально, без него 25K/день бесплатно
 ```
 
 ---
@@ -407,46 +438,85 @@ GOOGLE_PAGESPEED_API_KEY=   # опционально, без него 25K/ден
 |-----------|-----|---------------|
 | `GET /api/health` | Liveness | Процесс запущен |
 | `GET /api/ready` | Readiness | БД + Redis + Celery workers |
-| `GET /api/metrics` | Prometheus | Счётчики запросов, латентность (только внутренние IP) |
+| `GET /api/metrics` | Prometheus | Счётчики запросов, латентность (только внутренние IP — nginx ACL + проверка на уровне приложения) |
 
-### Security headers (middleware)
+### Security headers
 
-`observability.py` автоматически добавляет: `HSTS`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`.
+Два уровня защиты:
+
+**nginx** (основной): `HSTS` (max-age=2y, includeSubDomains, preload), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `X-XSS-Protection: 0`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` (camera, microphone, geolocation, usb, payment, interest-cohort), `CSP` (default-src 'self', frame-ancestors 'none').
+
+**observability.py** (бэкап): дублирует основные заголовки для запросов, минующих nginx.
 
 ### Rate limiting
 
-- Login: 5 попыток / 15 мин (по IP + по логину)
-- Генерация (Claude API): 10 запросов / мин на эндпоинт
-- Реализация: `slowapi` + Redis
+- Login: 5 попыток / 15 мин (по IP + по логину, берётся MAX)
+- Генерация (Claude API): 10 запросов / мин на эндпоинт (все `generate` и `content-gap`)
+- nginx: общий `10r/s` burst=20 на `/api/`, `5r/m` burst=3 на `/api/auth/login`
+- Реализация: `slowapi` + Redis (бэкенд), `limit_req` (nginx)
 
 ### Шифрование и токены
 
 - API-ключи: AES-256-GCM, хранятся в таблице `settings` (`auth/encryption.py`)
 - Пароли: bcrypt (`auth/security.py`)
-- JWT: HS256/384/512, access 15 мин + refresh 30 дней
+- JWT: HS256/384/512, access 15 мин + refresh 30 дней (90 дней с remember me)
 - Refresh-токены: jti-blacklist + per-user generation counter в Redis
 - `POST /auth/logout` — отзыв refresh-токена
 - Автоинвалидация при: деактивации, смене роли, сбросе пароля
+- Timing-safe login (dummy hash при несуществующем пользователе)
+
+### SSRF-защита
+
+- `crawl/crawler.py` — `_is_private_or_reserved()` блокирует приватные/зарезервированные IP через DNS resolution
+- `seo_enrichments.py` — `_is_safe_url()` в content gap анализе блокирует internal IP, metadata endpoints, unsafe redirects
 
 ### Soft delete
 
 Проекты не удаляются физически. `DELETE /projects/{id}` устанавливает `deleted_at`. Все запросы фильтруют `deleted_at IS NULL`.
 
+### Бэкапы
+
+`scripts/backup_db.sh` — pg_dump + gzip + ротация 30 дней. Запускать через cron.
+
 ---
 
 ## Запуск (Docker)
 
+### Development
+
 ```bash
 cp .env.example .env
+# ОБЯЗАТЕЛЬНО: задать POSTGRES_PASSWORD, REDIS_PASSWORD, SECRET_KEY, ENCRYPTION_KEY
 docker-compose up -d
 docker-compose exec backend alembic upgrade head
 docker-compose exec backend python init_superadmin.py
+```
 
-# Production
+Доступ: `http://localhost` (через nginx) или `http://localhost:8000/api/docs` (напрямую, только dev).
+Backend и frontend привязаны к `127.0.0.1` — не доступны извне.
+
+### Production
+
+```bash
+cp .env.example .env
+# ОБЯЗАТЕЛЬНО: сменить ВСЕ пароли и ключи, установить FRONTEND_URL, APP_ENV=production
 docker-compose -f docker-compose.prod.yml up -d
 docker-compose -f docker-compose.prod.yml exec backend alembic upgrade head
+```
 
-# Обновление
+Prod-отличия: нет volume mounts, нет `--reload`, нет exposed портов (только nginx 80/443), Redis с `--requirepass`, 4 Celery-воркера, SSL через nginx.
+
+### Обновление
+
+```bash
 git pull && docker-compose up -d --build
 docker-compose exec backend alembic upgrade head
 ```
+
+### Docker-файлы
+
+| Файл | Назначение |
+|------|------------|
+| `docker-compose.yml` | Development: volume mounts, hot reload, localhost-only порты |
+| `docker-compose.prod.yml` | Production: без volumes, без exposed портов, SSL, `--requirepass` обязателен |
+| `.dockerignore` | Исключает `.env`, `.git`, `node_modules`, `scripts/` из образов |

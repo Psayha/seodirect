@@ -15,12 +15,23 @@ from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.limiter import limiter
 from app.models.crawl import Page
+from app.models.project import Project
 from app.models.seo import SeoPageMeta
+from app.models.user import UserRole
 from app.routers.seo import _get_latest_crawl
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
+    project = db.get(Project, project_id)
+    if not project or project.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
 
 
 # ─── Schema.org Generator ─────────────────────────────────────────────────────
@@ -114,6 +125,7 @@ def get_schema_org(
     page_url: str = "",
 ):
     """Return saved schema_org_json for a page."""
+    _check_project_access(project_id, current_user, db)
     if not page_url:
         raise HTTPException(status_code=400, detail="page_url required")
     meta = db.scalar(
@@ -223,6 +235,7 @@ def get_faq(
     page_url: str = "",
 ):
     """Return saved faq_json for a page."""
+    _check_project_access(project_id, current_user, db)
     import json
     if not page_url:
         raise HTTPException(status_code=400, detail="page_url required")

@@ -4,14 +4,14 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: seodirect
-      POSTGRES_PASSWORD: seodirect
-      POSTGRES_DB: seodirect
+      POSTGRES_USER: ${POSTGRES_USER:-seodirect}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-seodirect}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U seodirect"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-seodirect}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -23,7 +23,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 200mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 200mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-changeme}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -41,7 +41,7 @@ services:
     volumes:
       - ./backend:/app
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file: .env
     depends_on:
       postgres:
@@ -98,7 +98,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     environment:
       - VITE_API_URL=${VITE_API_URL:-/api}
     depends_on:
