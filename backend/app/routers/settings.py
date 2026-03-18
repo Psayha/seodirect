@@ -265,6 +265,38 @@ def update_ai_settings(
     return {"detail": "Updated"}
 
 
+# ─── White Label settings ─────────────────────────────────────────────────────
+
+class WhiteLabelSettings(BaseModel):
+    white_label_agency_name: str = "SEODirect Tool"
+    white_label_logo_url: str = ""
+    white_label_primary_color: str = "#1e40af"
+
+
+@router.get("/white-label", response_model=WhiteLabelSettings)
+def get_white_label_settings(
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    return WhiteLabelSettings(
+        white_label_agency_name=get_setting("white_label_agency_name", db) or "SEODirect Tool",
+        white_label_logo_url=get_setting("white_label_logo_url", db) or "",
+        white_label_primary_color=get_setting("white_label_primary_color", db) or "#1e40af",
+    )
+
+
+@router.put("/white-label")
+def update_white_label_settings(
+    body: WhiteLabelSettings,
+    current_user: CurrentUser,
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    for field, value in body.model_dump().items():
+        set_setting(field, str(value), db, updated_by=current_user.id)
+    return {"detail": "Updated"}
+
+
 # ─── System prompts ────────────────────────────────────────────────────────────
 
 class PromptUpdate(BaseModel):

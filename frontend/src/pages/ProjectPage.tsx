@@ -53,6 +53,8 @@ function TempBadge({ temp }: { temp: string | null }) {
 
 // ─── Brief Tab ────────────────────────────────────────────────────────────────
 
+interface ChatMessage { role: 'user' | 'assistant'; content: string }
+
 function BriefTab({ projectId }: { projectId: string }) {
   const qc = useQueryClient()
   const { data: brief, isLoading } = useQuery({
@@ -62,6 +64,9 @@ function BriefTab({ projectId }: { projectId: string }) {
   const [form, setForm] = useState<Partial<Brief>>({})
   const [saved, setSaved] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
 
   const { data: templatesData } = useQuery({
     queryKey: ['brief-templates'],
@@ -151,18 +156,165 @@ function BriefTab({ projectId }: { projectId: string }) {
         </button>
         {saved && <span className="text-green-600 text-sm py-2">✅ Сохранено</span>}
       </div>
+
+      {/* AI clarifying questions chat */}
+      <div className="mt-8 border-t pt-6">
+        <h3 className="font-semibold text-gray-700 text-sm uppercase tracking-wide mb-3">
+          🤖 ИИ-ассистент — уточняющие вопросы
+        </h3>
+        <p className="text-xs text-gray-500 mb-3">
+          ИИ проанализирует бриф и задаст уточняющие вопросы. Это поможет создать более точную стратегию.
+        </p>
+
+        {/* Messages */}
+        {chatMessages.length > 0 && (
+          <div className="space-y-3 mb-3 max-h-80 overflow-y-auto bg-gray-50 rounded-xl p-3">
+            {chatMessages.map((msg, i) => (
+              <div key={i} className={cx('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+                <div className={cx(
+                  'max-w-[85%] rounded-xl px-3 py-2 text-sm whitespace-pre-wrap',
+                  msg.role === 'user'
+                    ? 'bg-primary-600 text-white'
+                    : 'bg-white border text-gray-800'
+                )}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+            {chatLoading && (
+              <div className="flex justify-start">
+                <div className="bg-white border rounded-xl px-3 py-2 text-sm text-gray-400">
+                  ✍️ Печатает...
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Input */}
+        <div className="flex gap-2">
+          <input
+            className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            placeholder={chatMessages.length === 0 ? 'Нажмите «Начать» или задайте вопрос...' : 'Ваш ответ...'}
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && chatInput.trim()) {
+                e.preventDefault()
+                const userMsg = chatInput.trim()
+                setChatInput('')
+                setChatMessages((prev) => [...prev, { role: 'user', content: userMsg }])
+                setChatLoading(true)
+                api.post(`/projects/${projectId}/brief/chat`, {
+                  message: userMsg,
+                  history: chatMessages,
+                }).then((r) => {
+                  setChatMessages((prev) => [...prev, { role: 'assistant', content: r.data.response }])
+                }).finally(() => setChatLoading(false))
+              }
+            }}
+            disabled={chatLoading}
+          />
+          {chatMessages.length === 0 && (
+            <button
+              onClick={() => {
+                const msg = 'Проанализируй мой бриф и задай уточняющие вопросы.'
+                setChatMessages([{ role: 'user', content: msg }])
+                setChatLoading(true)
+                api.post(`/projects/${projectId}/brief/chat`, {
+                  message: msg,
+                  history: [],
+                }).then((r) => {
+                  setChatMessages((prev) => [...prev, { role: 'assistant', content: r.data.response }])
+                }).finally(() => setChatLoading(false))
+              }}
+              disabled={chatLoading}
+              className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 transition disabled:opacity-50 whitespace-nowrap"
+            >
+              Начать
+            </button>
+          )}
+          {chatMessages.length > 0 && (
+            <button
+              onClick={() => {
+                if (!chatInput.trim()) return
+                const userMsg = chatInput.trim()
+                setChatInput('')
+                setChatMessages((prev) => [...prev, { role: 'user', content: userMsg }])
+                setChatLoading(true)
+                api.post(`/projects/${projectId}/brief/chat`, {
+                  message: userMsg,
+                  history: chatMessages,
+                }).then((r) => {
+                  setChatMessages((prev) => [...prev, { role: 'assistant', content: r.data.response }])
+                }).finally(() => setChatLoading(false))
+              }}
+              disabled={chatLoading || !chatInput.trim()}
+              className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 transition disabled:opacity-50"
+            >
+              →
+            </button>
+          )}
+          {chatMessages.length > 0 && (
+            <button
+              onClick={() => { setChatMessages([]); setChatInput('') }}
+              className="border px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-50"
+              title="Очистить чат"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
 
 // ─── Crawl Tab ────────────────────────────────────────────────────────────────
 
-type AuditIssue = 'no_title' | 'no_description' | 'no_h1' | 'noindex' | 'slow' | 'no_alt'
+type AuditIssue = 'no_title' | 'no_description' | 'no_h1' | 'noindex' | 'slow' | 'no_alt' | 'orphan' | 'dup_title' | 'dup_description'
+
+function UrlTreeNode({ node, depth = 0 }: { node: Record<string, any>; depth?: number }) {
+  const [expanded, setExpanded] = useState(depth < 2)
+  const entries = Object.entries(node)
+  if (!entries.length) return null
+  return (
+    <ul className={depth === 0 ? '' : 'ml-4 border-l border-gray-200 pl-2'}>
+      {entries.map(([key, val]) => (
+        <li key={key} className="py-0.5">
+          <div
+            className="flex items-center gap-1 cursor-pointer hover:text-primary-600 text-sm"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            <span className="text-gray-400 text-xs w-3">{Object.keys(val.children || {}).length > 0 ? (expanded ? '▾' : '▸') : '·'}</span>
+            <span className="font-medium text-gray-700">{key}</span>
+            {(val.pages || []).map((p: any) => (
+              <a key={p.url} href={p.url} target="_blank" rel="noreferrer"
+                className="text-xs text-blue-500 hover:underline truncate max-w-xs"
+                onClick={(e) => e.stopPropagation()}>
+                {p.title || p.url}
+              </a>
+            ))}
+            {(val.pages || []).length > 0 && (
+              <span className={`text-xs px-1 rounded ${val.pages[0].status_code === 200 ? 'text-green-500' : 'text-red-500'}`}>
+                {val.pages[0].status_code}
+              </span>
+            )}
+          </div>
+          {expanded && val.children && Object.keys(val.children).length > 0 && (
+            <UrlTreeNode node={val.children} depth={depth + 1} />
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 function CrawlTab({ projectId }: { projectId: string }) {
   const qc = useQueryClient()
   const [activeIssue, setActiveIssue] = useState<AuditIssue | null>(null)
   const [auditPage, setAuditPage] = useState(0)
+  const [showTree, setShowTree] = useState(false)
   const PAGE_SIZE = 20
 
   const { data: status } = useQuery({
@@ -178,6 +330,12 @@ function CrawlTab({ projectId }: { projectId: string }) {
     queryKey: ['crawl-report', projectId],
     queryFn: () => api.get(`/projects/${projectId}/crawl/report`).then((r) => r.data),
     enabled: status?.status === 'done',
+  })
+
+  const { data: treeData } = useQuery({
+    queryKey: ['crawl-tree', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/crawl/tree`).then((r) => r.data),
+    enabled: status?.status === 'done' && showTree,
   })
 
   // SEO pages list for issue drill-down
@@ -198,6 +356,9 @@ function CrawlTab({ projectId }: { projectId: string }) {
     noindex: 'noindex',
     slow: 'Медленных (>3с)',
     no_alt: 'Картинок без alt',
+    orphan: 'Orphan pages',
+    dup_title: 'Дубли title',
+    dup_description: 'Дубли description',
   }
 
   const auditItems = report ? [
@@ -208,6 +369,9 @@ function CrawlTab({ projectId }: { projectId: string }) {
     { key: 'noindex_pages' as const, label: 'noindex страниц', value: report.noindex_pages, bad: report.noindex_pages > 0, issue: 'noindex' as AuditIssue },
     { key: 'slow_pages' as const, label: 'Медленных (>3с)', value: report.slow_pages, bad: report.slow_pages > 0, issue: 'slow' as AuditIssue },
     { key: 'images_without_alt' as const, label: 'Картинок без alt', value: report.images_without_alt, bad: report.images_without_alt > 0, issue: 'no_alt' as AuditIssue },
+    { key: 'orphan_pages' as const, label: 'Orphan pages', value: report.orphan_pages ?? 0, bad: (report.orphan_pages ?? 0) > 0, issue: 'orphan' as AuditIssue },
+    { key: 'dup_title' as const, label: 'Дубли title', value: report.dup_title ?? 0, bad: (report.dup_title ?? 0) > 0, issue: 'dup_title' as AuditIssue },
+    { key: 'dup_description' as const, label: 'Дубли description', value: report.dup_description ?? 0, bad: (report.dup_description ?? 0) > 0, issue: 'dup_description' as AuditIssue },
   ] : []
 
   const issues = auditItems.filter((i) => i.bad)
@@ -336,6 +500,27 @@ function CrawlTab({ projectId }: { projectId: string }) {
               )}
             </div>
           )}
+
+          {/* URL Tree */}
+          <div className="mt-6">
+            <button
+              onClick={() => setShowTree((v) => !v)}
+              className="text-sm text-primary-600 hover:underline flex items-center gap-1"
+            >
+              <span>{showTree ? '▾' : '▸'}</span>
+              Структура сайта (дерево URL)
+              {treeData && <span className="text-gray-400 text-xs ml-1">({treeData.total} страниц)</span>}
+            </button>
+            {showTree && (
+              <div className="mt-3 bg-white rounded-xl border p-4 overflow-auto max-h-96 text-xs">
+                {treeData ? (
+                  <UrlTreeNode node={treeData.tree} />
+                ) : (
+                  <p className="text-gray-400">Загрузка...</p>
+                )}
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
@@ -1919,6 +2104,8 @@ function TopvisorTab({ projectId }: { projectId: string }) {
   const [selectedTvId, setSelectedTvId] = useState<number | null>(null)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [snapshotDate, setSnapshotDate] = useState('')
+  const [showSnapshots, setShowSnapshots] = useState(false)
 
   const { data: linkData } = useQuery({
     queryKey: ['topvisor-link', projectId],
@@ -1938,6 +2125,13 @@ function TopvisorTab({ projectId }: { projectId: string }) {
     enabled: false,
   })
 
+  const { data: snapshots, isLoading: snapLoading, refetch: fetchSnapshots, isError: snapError } = useQuery({
+    queryKey: ['topvisor-snapshots', projectId, snapshotDate],
+    queryFn: () =>
+      api.get(`/projects/${projectId}/topvisor/snapshots`, { params: { date: snapshotDate } }).then((r) => r.data),
+    enabled: false,
+  })
+
   const linkMutation = useMutation({
     mutationFn: (tvId: number | null) => api.post(`/projects/${projectId}/topvisor/link`, { topvisor_project_id: tvId }),
     onSuccess: () => {
@@ -1948,6 +2142,7 @@ function TopvisorTab({ projectId }: { projectId: string }) {
 
   const linked = linkData?.topvisor_project_id
   const kws: any[] = positions?.keywords || []
+  const snapKws: any[] = snapshots?.keywords || []
 
   return (
     <div className="p-6 max-w-4xl">
@@ -2061,6 +2256,82 @@ function TopvisorTab({ projectId }: { projectId: string }) {
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Snapshots: competitor analysis */}
+      {linked && (
+        <div className="bg-white rounded-xl border p-4 mt-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">📸 Снимки выдачи (конкуренты)</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Какие сайты видны по вашим ключам в поиске</p>
+            </div>
+            <button
+              onClick={() => setShowSnapshots((v) => !v)}
+              className="text-xs text-primary-600 hover:underline"
+            >
+              {showSnapshots ? 'Скрыть' : 'Показать'}
+            </button>
+          </div>
+          {showSnapshots && (
+            <>
+              <div className="flex items-center gap-3 mb-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Дата снимка</label>
+                  <input type="date" value={snapshotDate} onChange={(e) => setSnapshotDate(e.target.value)}
+                    className="border rounded px-2 py-1 text-sm" />
+                </div>
+                <div className="pt-5">
+                  <button
+                    onClick={() => fetchSnapshots()}
+                    className="px-3 py-1.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                  >
+                    Загрузить снимки
+                  </button>
+                </div>
+              </div>
+              {snapLoading && <p className="text-sm text-gray-400">Загрузка...</p>}
+              {snapError && <p className="text-sm text-red-500">Ошибка загрузки снимков</p>}
+              {snapKws.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50">
+                        <th className="px-3 py-2 text-left text-gray-600 font-medium">Ключевое слово</th>
+                        <th className="px-3 py-2 text-center text-gray-600 font-medium w-16">Поз.</th>
+                        <th className="px-3 py-2 text-left text-gray-600 font-medium">URL конкурента</th>
+                        <th className="px-3 py-2 text-left text-gray-600 font-medium w-48">Заголовок</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {snapKws.map((kw: any, i: number) => (
+                        <tr key={i} className="border-t hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-800">{kw.name || kw.keyword || '—'}</td>
+                          <td className="px-3 py-2 text-center font-mono">
+                            <span className={cx('font-medium', kw.position <= 3 ? 'text-green-600' : kw.position <= 10 ? 'text-yellow-600' : 'text-gray-500')}>
+                              {kw.position ?? '—'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">
+                            {kw.url ? (
+                              <a href={kw.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline text-xs truncate block max-w-xs">
+                                {kw.url}
+                              </a>
+                            ) : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-600 truncate max-w-xs">{kw.snippet_title || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {!snapLoading && snapKws.length === 0 && snapshots && (
+                <p className="text-sm text-gray-400">Нет данных для выбранной даты</p>
+              )}
+            </>
           )}
         </div>
       )}

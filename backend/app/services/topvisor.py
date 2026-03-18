@@ -100,6 +100,38 @@ async def get_keyword_volumes(api_key: str, project_id: int, phrases: list[str])
     return result
 
 
+async def get_snapshots(
+    api_key: str,
+    project_id: int,
+    date: str = "",
+    searcher_id: int = 0,
+    region_index: int = 0,
+) -> list[dict]:
+    """Get SERP snapshots (competitor positions in search results).
+
+    Each item: {keyword, date, position, url, snippet_title}
+    """
+    body: dict = {
+        "project_id": project_id,
+        "regions_indexes": [region_index],
+        "searcher_key": searcher_id,
+        "fields": ["keyword_id", "keyword", "date", "position", "url", "snippet_title"],
+        "show_headers": True,
+    }
+    if date:
+        body["date"] = date
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(
+            f"{BASE_URL}/get/snapshots_2/index",
+            headers=_headers(api_key),
+            json=body,
+        )
+    if r.status_code != 200:
+        return []
+    return r.json().get("result", {}).get("keywords", [])
+
+
 def get_topvisor_client_key(db) -> str | None:
     """Return Topvisor API key from settings, or None."""
     from app.services.settings_service import get_setting

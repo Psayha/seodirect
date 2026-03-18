@@ -30,11 +30,20 @@ function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
 }
 
+interface Project {
+  id: string
+  name: string
+  client_name: string
+  status: string
+  specialist_id: string | null
+}
+
 export default function AdminUsersPage() {
   const qc = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [resetId, setResetId] = useState<string | null>(null)
+  const [projectsUserId, setProjectsUserId] = useState<string | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [form, setForm] = useState({ login: '', email: '', password: '', role: 'specialist' as UserRole })
   const [editForm, setEditForm] = useState<{ role: UserRole; is_active: boolean; email: string }>({ role: 'specialist', is_active: true, email: '' })
@@ -42,6 +51,24 @@ export default function AdminUsersPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['admin-users'],
     queryFn: () => api.get('/users/').then((r) => r.data as User[]),
+  })
+
+  const { data: allProjects } = useQuery({
+    queryKey: ['all-projects-admin'],
+    queryFn: () => api.get('/users/all-projects').then((r) => r.data as Project[]),
+    enabled: !!projectsUserId,
+  })
+
+  const assignMutation = useMutation({
+    mutationFn: ({ userId, projectId }: { userId: string; projectId: string }) =>
+      api.post(`/users/${userId}/projects/${projectId}/assign`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['all-projects-admin'] }),
+  })
+
+  const unassignMutation = useMutation({
+    mutationFn: ({ userId, projectId }: { userId: string; projectId: string }) =>
+      api.delete(`/users/${userId}/projects/${projectId}/assign`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['all-projects-admin'] }),
   })
 
   const createMutation = useMutation({
@@ -187,6 +214,70 @@ export default function AdminUsersPage() {
         </div>
       )}
 
+      {/* Project assignment modal */}
+      {projectsUserId && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-gray-900">
+                Проекты — {users.find((u) => u.id === projectsUserId)?.login}
+              </h2>
+              <button onClick={() => setProjectsUserId(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {!allProjects ? (
+                <p className="text-gray-400 text-sm">Загрузка...</p>
+              ) : allProjects.length === 0 ? (
+                <p className="text-gray-400 text-sm">Нет проектов</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-3 py-2 text-left text-gray-600 font-medium">Проект</th>
+                      <th className="px-3 py-2 text-left text-gray-600 font-medium">Клиент</th>
+                      <th className="px-3 py-2 text-center text-gray-600 font-medium w-28">Назначен</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allProjects.map((p) => {
+                      const isAssigned = p.specialist_id === projectsUserId
+                      return (
+                        <tr key={p.id} className="border-t hover:bg-gray-50">
+                          <td className="px-3 py-2 font-medium text-gray-800">{p.name}</td>
+                          <td className="px-3 py-2 text-gray-500 text-xs">{p.client_name}</td>
+                          <td className="px-3 py-2 text-center">
+                            {isAssigned ? (
+                              <button
+                                onClick={() => unassignMutation.mutate({ userId: projectsUserId, projectId: p.id })}
+                                className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full hover:bg-red-100 hover:text-red-600 transition"
+                              >
+                                ✓ Назначен
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => assignMutation.mutate({ userId: projectsUserId, projectId: p.id })}
+                                className="text-xs border px-2 py-0.5 rounded-full text-gray-500 hover:border-primary-400 hover:text-primary-600 transition"
+                              >
+                                Назначить
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="mt-4 pt-3 border-t">
+              <button onClick={() => setProjectsUserId(null)} className="w-full py-2 border text-sm rounded-lg hover:bg-gray-50">
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Reset password modal */}
       {resetId && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -257,9 +348,15 @@ export default function AdminUsersPage() {
                     </button>
                     <button
                       onClick={() => setResetId(u.id)}
-                      className="text-orange-500 hover:text-orange-700 text-xs"
+                      className="text-orange-500 hover:text-orange-700 text-xs mr-3"
                     >
                       Пароль
+                    </button>
+                    <button
+                      onClick={() => setProjectsUserId(u.id)}
+                      className="text-gray-500 hover:text-gray-700 text-xs"
+                    >
+                      Проекты
                     </button>
                   </td>
                 </tr>

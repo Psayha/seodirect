@@ -14,6 +14,7 @@ from app.services.topvisor import (
     check_connection,
     list_projects,
     get_positions,
+    get_snapshots,
     get_topvisor_client_key,
 )
 
@@ -135,4 +136,44 @@ async def topvisor_positions(
         "date_from": date_from,
         "date_to": date_to,
         "keywords": positions,
+    }
+
+
+# ── Snapshots (competitor SERP analysis) ─────────────────────────────────────
+
+@router.get("/projects/{project_id}/topvisor/snapshots")
+async def topvisor_snapshots(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    date: str = "",
+    region_index: int = 0,
+):
+    """Get SERP snapshots for all keywords in the linked Topvisor project.
+
+    Returns competitor URLs and positions in search results.
+    """
+    project = _get_project(project_id, db)
+    if not project.topvisor_project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No Topvisor project linked. Use POST /topvisor/link first.",
+        )
+
+    key = _require_key(db)
+
+    try:
+        snapshots = await get_snapshots(
+            key,
+            project.topvisor_project_id,
+            date=date,
+            region_index=region_index,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return {
+        "topvisor_project_id": project.topvisor_project_id,
+        "date": date,
+        "keywords": snapshots,
     }

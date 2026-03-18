@@ -213,6 +213,76 @@ def update_brief(
     return _brief_to_dict(brief)
 
 
+# ─── Brief Chat ───────────────────────────────────────────────────────────────
+
+class BriefChatBody(BaseModel):
+    message: str
+    history: list[dict] | None = None
+
+
+@router.post("/{project_id}/brief/chat")
+async def brief_chat(
+    project_id: uuid.UUID,
+    body: BriefChatBody,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """AI assistant answers clarifying questions about the brief."""
+    project = _get_project_or_404(project_id, current_user, db)
+    brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
+
+    from app.services.claude import get_claude_client
+    import httpx
+    client = get_claude_client(db)
+
+    brief_parts = []
+    if brief:
+        if brief.niche:           brief_parts.append(f"Ниша: {brief.niche}")
+        if brief.products:        brief_parts.append(f"Продукты/услуги: {brief.products}")
+        if brief.usp:             brief_parts.append(f"УТП: {brief.usp}")
+        if brief.target_audience: brief_parts.append(f"Целевая аудитория: {brief.target_audience}")
+        if brief.pains:           brief_parts.append(f"Боли клиентов: {brief.pains}")
+        if brief.campaign_goal:   brief_parts.append(f"Цель кампании: {brief.campaign_goal}")
+        if brief.monthly_budget:  brief_parts.append(f"Месячный бюджет: {brief.monthly_budget} ₽")
+        if brief.geo:             brief_parts.append(f"Гео: {brief.geo}")
+
+    brief_context = "\n".join(brief_parts) if brief_parts else "Бриф не заполнен"
+
+    system_prompt = f"""Ты — опытный специалист по поисковому маркетингу. Помогаешь заполнить бриф для проекта "{project.name}" (сайт: {project.url}).
+
+Текущий бриф:
+{brief_context}
+
+Задавай уточняющие вопросы, если информации не хватает для разработки стратегии Яндекс Директ и SEO.
+Если бриф достаточно полный — скажи об этом и предложи следующий шаг.
+Отвечай кратко и по-деловому. Используй только русский язык."""
+
+    messages = []
+    for h in (body.history or []):
+        role = h.get("role", "user")
+        if role in ("user", "assistant"):
+            messages.append({"role": role, "content": h.get("content", "")})
+    messages.append({"role": "user", "content": body.message})
+
+    payload = {
+        "model": client.model,
+        "max_tokens": 800,
+        "temperature": 0.7,
+        "system": system_prompt,
+        "messages": messages,
+    }
+
+    async with httpx.AsyncClient(timeout=60) as http_client:
+        resp = await http_client.post(
+            client.BASE_URL,
+            headers=client._headers(),
+            json=payload,
+        )
+    resp.raise_for_status()
+    reply = resp.json()["content"][0]["text"]
+    return {"response": reply}
+
+
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def _get_project_or_404(project_id: uuid.UUID, current_user: User, db: Session) -> Project:
