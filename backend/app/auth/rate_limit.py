@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import redis as redis_lib
 
 from app.config import get_settings
+
+_BLACKLIST_PREFIX = "token_blacklist:"
 
 
 def _get_redis() -> redis_lib.Redis:
@@ -61,3 +65,31 @@ def get_ttl(ip: str, login: str | None = None) -> int:
     ip_ttl = r.ttl(_key(ip))
     login_ttl = r.ttl(_login_key(login)) if login else 0
     return max(0, ip_ttl, login_ttl)
+
+
+# ── Refresh token blacklist ──────────────────────────────────────────────────
+
+
+def blacklist_token(jti: str, ttl_seconds: int) -> None:
+    """Add a token (by its jti claim) to the blacklist until it expires naturally."""
+    r = _get_redis()
+    r.setex(f"{_BLACKLIST_PREFIX}{jti}", ttl_seconds, "1")
+
+
+def is_token_blacklisted(jti: str) -> bool:
+    """Check whether a refresh token has been revoked."""
+    r = _get_redis()
+    return r.exists(f"{_BLACKLIST_PREFIX}{jti}") > 0
+
+
+def blacklist_all_user_tokens(user_id: str) -> None:
+    """Bump a per-user counter so ALL existing refresh tokens become invalid."""
+    r = _get_redis()
+    r.set(f"token_gen:{user_id}", r.incr(f"token_gen:{user_id}"))
+
+
+def get_user_token_generation(user_id: str) -> int:
+    """Return current token generation for a user (0 if never bumped)."""
+    r = _get_redis()
+    val = r.get(f"token_gen:{user_id}")
+    return int(val) if val else 0

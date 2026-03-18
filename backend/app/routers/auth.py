@@ -7,7 +7,15 @@ from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.auth.rate_limit import check_rate_limit, clear_attempts, get_ttl, increment_attempts
+from app.auth.rate_limit import (
+    blacklist_token,
+    check_rate_limit,
+    clear_attempts,
+    get_ttl,
+    get_user_token_generation,
+    increment_attempts,
+    is_token_blacklisted,
+)
 from app.auth.security import create_access_token, create_refresh_token, decode_token, verify_password
 from app.config import get_settings
 from app.db.session import get_db
@@ -101,8 +109,9 @@ def login(body: LoginRequest, request: Request, db: Annotated[Session, Depends(g
     )
     db.commit()
 
+    token_gen = get_user_token_generation(str(user.id))
     access_token = create_access_token(str(user.id), user.role.value)
-    refresh_token = create_refresh_token(str(user.id), body.remember_me)
+    refresh_token = create_refresh_token(str(user.id), body.remember_me, token_gen)
 
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
@@ -117,19 +126,50 @@ def refresh_token(body: RefreshRequest, db: Annotated[Session, Depends(get_db)])
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
+    # Check individual token blacklist (jti-based)
+    jti = payload.get("jti")
+    if jti and is_token_blacklisted(jti):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
+
     import uuid
     try:
         user_id = uuid.UUID(payload["sub"])
     except (KeyError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
+    # Check per-user generation (invalidates all tokens when user is deactivated)
+    current_gen = get_user_token_generation(str(user_id))
+    token_gen = payload.get("gen", 0)
+    if token_gen < current_gen:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
+
     user = db.scalar(select(User).where(User.id == user_id))
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     access_token = create_access_token(str(user.id), user.role.value)
-    new_refresh = create_refresh_token(str(user.id))
+    new_refresh = create_refresh_token(str(user.id), token_gen=current_gen)
     return TokenResponse(access_token=access_token, refresh_token=new_refresh)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(body: LogoutRequest):
+    """Revoke the given refresh token so it cannot be reused."""
+    payload = decode_token(body.refresh_token)
+    if not payload or payload.get("type") != "refresh":
+        return  # silently ignore invalid tokens
+    jti = payload.get("jti")
+    if jti:
+        # Blacklist until the token's natural expiry
+        exp = payload.get("exp", 0)
+        now = int(__import__("time").time())
+        ttl = max(exp - now, 0)
+        if ttl > 0:
+            blacklist_token(jti, ttl)
 
 
 @router.get("/me", response_model=MeResponse)

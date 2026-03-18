@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -33,11 +36,11 @@ def create_access_token(user_id: str, role: str) -> str:
     )
 
 
-def create_refresh_token(user_id: str, remember_me: bool = False) -> str:
+def create_refresh_token(user_id: str, remember_me: bool = False, token_gen: int = 0) -> str:
     settings = get_settings()
     days = settings.refresh_token_remember_days if remember_me else settings.refresh_token_days
     return _create_token(
-        {"sub": user_id, "type": "refresh"},
+        {"sub": user_id, "type": "refresh", "jti": uuid.uuid4().hex, "gen": token_gen},
         timedelta(days=days),
     )
 

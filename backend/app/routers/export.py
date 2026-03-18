@@ -27,7 +27,7 @@ router = APIRouter()
 
 def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
     project = db.get(Project, project_id)
-    if not project:
+    if not project or project.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Project not found")
     if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
