@@ -13,10 +13,21 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
+from app.models.project import Project
+from app.models.user import UserRole
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
+    project = db.get(Project, project_id)
+    if not project or project.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
 
 
 def _fmt(v) -> str:
@@ -111,72 +122,10 @@ def _build_html(project, brief, crawl_report, keywords_total: int, ads_total: in
 </html>"""
 
 
-@router.get("/projects/{project_id}/report/html")
-def get_html_report(
-    project_id: uuid.UUID,
-    current_user: CurrentUser,
-    db: Annotated[Session, Depends(get_db)],
-):
-    """Generate an HTML client-facing report for the project."""
+def _build_report_data(project, project_id, db):
     from app.models.brief import Brief
     from app.models.crawl import CrawlSession, CrawlStatus
     from app.models.direct import Ad, AdGroup, Campaign, Keyword
-    from app.models.project import Project
-
-    project = db.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
-
-    # Crawl report
-    crawl = db.scalar(
-        select(CrawlSession)
-        .where(CrawlSession.project_id == project_id, CrawlSession.status == CrawlStatus.DONE)
-        .order_by(CrawlSession.finished_at.desc())
-    )
-    crawl_report = crawl.report if crawl else None
-
-    # Direct stats
-    campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
-    campaign_ids = [c.id for c in campaigns]
-    keywords_total = 0
-    ads_total = 0
-    if campaign_ids:
-        from sqlalchemy import func
-
-        from app.models.direct import AdGroup as AG
-        group_ids = db.scalars(select(AG.id).where(AG.campaign_id.in_(campaign_ids))).all()
-        if group_ids:
-            keywords_total = db.scalar(select(func.count(Keyword.id)).where(Keyword.group_id.in_(group_ids))) or 0
-            ads_total = db.scalar(select(func.count(Ad.id)).where(Ad.group_id.in_(group_ids))) or 0
-
-    report_date = date.today().strftime("%d.%m.%Y")
-    html = _build_html(project, brief, crawl_report, keywords_total, ads_total, report_date)
-
-    safe_name = project.name.replace(" ", "_")[:50]
-    return Response(
-        content=html.encode("utf-8"),
-        media_type="text/html; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="report_{safe_name}.html"'},
-    )
-
-
-@router.get("/projects/{project_id}/report/preview")
-def preview_report(
-    project_id: uuid.UUID,
-    current_user: CurrentUser,
-    db: Annotated[Session, Depends(get_db)],
-):
-    """Preview report inline (no download header)."""
-    from app.models.brief import Brief
-    from app.models.crawl import CrawlSession, CrawlStatus
-    from app.models.direct import Ad, AdGroup, Campaign, Keyword
-    from app.models.project import Project
-
-    project = db.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
 
     brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
 
@@ -199,8 +148,36 @@ def preview_report(
             ads_total = db.scalar(select(func.count(Ad.id)).where(Ad.group_id.in_(group_ids))) or 0
 
     report_date = date.today().strftime("%d.%m.%Y")
-    html = _build_html(project, brief, crawl_report, keywords_total, ads_total, report_date)
+    return _build_html(project, brief, crawl_report, keywords_total, ads_total, report_date)
 
+
+@router.get("/projects/{project_id}/report/html")
+def get_html_report(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Generate an HTML client-facing report for the project."""
+    project = _check_project_access(project_id, current_user, db)
+    html = _build_report_data(project, project_id, db)
+
+    safe_name = project.name.replace(" ", "_")[:50]
+    return Response(
+        content=html.encode("utf-8"),
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="report_{safe_name}.html"'},
+    )
+
+
+@router.get("/projects/{project_id}/report/preview")
+def preview_report(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Preview report inline (no download header)."""
+    project = _check_project_access(project_id, current_user, db)
+    html = _build_report_data(project, project_id, db)
     return Response(content=html.encode("utf-8"), media_type="text/html; charset=utf-8")
 
 
@@ -213,11 +190,8 @@ def generate_report_manually(
 ):
     """Trigger monthly report generation manually for a project."""
     from app.models.history import EventType, ProjectEvent
-    from app.models.project import Project
 
-    project = db.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    _check_project_access(project_id, current_user, db)
 
     ev = ProjectEvent(
         project_id=project_id,

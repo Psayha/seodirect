@@ -6,17 +6,28 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser
 from app.db.session import get_db
 from app.models.history import ProjectEvent
+from app.models.project import Project
+from app.models.user import UserRole
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
+    project = db.get(Project, project_id)
+    if not project or project.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
 
 
 @router.get("/projects/{project_id}/history")
@@ -27,12 +38,10 @@ def get_history(
     limit: int = 50,
     offset: int = 0,
 ):
+    _check_project_access(project_id, current_user, db)
+
     total = db.scalar(
-        __import__("sqlalchemy", fromlist=["func"]).func.count(ProjectEvent.id)
-        if False else
-        __import__("sqlalchemy", fromlist=["select"]).select(
-            __import__("sqlalchemy", fromlist=["func"]).func.count()
-        ).select_from(ProjectEvent).where(ProjectEvent.project_id == project_id)
+        select(func.count()).select_from(ProjectEvent).where(ProjectEvent.project_id == project_id)
     )
 
     events = db.scalars(

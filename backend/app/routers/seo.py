@@ -16,8 +16,10 @@ from app.db.session import get_db
 from app.limiter import limiter
 from app.models.crawl import CrawlSession, CrawlStatus, Page
 from app.models.meta_history import SeoMetaHistory
+from app.models.project import Project
 from app.models.seo import SeoPageMeta
 from app.models.task import Task, TaskStatus, TaskType
+from app.models.user import UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,15 @@ router = APIRouter()
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
+    project = db.get(Project, project_id)
+    if not project or project.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
+
 
 def _get_latest_crawl(project_id: uuid.UUID, db: Session) -> CrawlSession | None:
     return db.scalar(
@@ -70,6 +81,7 @@ def list_seo_pages(
     limit: int = 100,
     offset: int = 0,
 ):
+    _check_project_access(project_id, current_user, db)
     crawl = _get_latest_crawl(project_id, db)
     if not crawl:
         return {"pages": [], "total": 0, "crawl_status": "not_done"}
@@ -127,6 +139,7 @@ def update_page_meta(
     db: Annotated[Session, Depends(get_db)],
     page_url: str = "",
 ):
+    _check_project_access(project_id, current_user, db)
     if not page_url:
         raise HTTPException(status_code=400, detail="page_url required")
     meta = db.scalar(
@@ -171,6 +184,7 @@ def get_meta_history(
     page_url: str | None = None,
 ):
     """Return last 50 meta changes for a project (optionally filtered by page_url)."""
+    _check_project_access(project_id, current_user, db)
     q = select(SeoMetaHistory).where(SeoMetaHistory.project_id == project_id)
     if page_url:
         q = q.where(SeoMetaHistory.page_url == page_url)
@@ -209,6 +223,7 @@ def generate_seo_meta(
     db: Annotated[Session, Depends(get_db)],
     body: GenerateMetaRequest = None,
 ):
+    _check_project_access(project_id, current_user, db)
     crawl = _get_latest_crawl(project_id, db)
     if not crawl:
         raise HTTPException(status_code=400, detail="Нет завершённого парсинга. Сначала запустите парсинг сайта.")
@@ -251,8 +266,9 @@ def get_seo_task_status(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     task = db.get(Task, task_id)
-    if not task:
+    if not task or task.project_id != project_id:
         raise HTTPException(status_code=404, detail="Task not found")
     return {
         "task_id": str(task.id),
@@ -271,6 +287,7 @@ def seo_checklist(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     from app.services.auto_audit import run_seo_checklist
     return run_seo_checklist(project_id, db)
 
@@ -358,6 +375,8 @@ async def cluster_keywords(
     Optionally uses Topvisor clustering API if the project has a linked
     Topvisor project and the API key is configured.
     """
+    _check_project_access(project_id, current_user, db)
+
     from sqlalchemy import select
 
     from app.models.direct import AdGroup, Campaign, Keyword
@@ -384,8 +403,7 @@ async def cluster_keywords(
         return {"source": "local", "clusters": [], "total_keywords": 0}
 
     # Try Topvisor clustering if project is linked and API key exists
-    from app.models.project import Project as ProjectModel
-    prj = db.get(ProjectModel, project_id)
+    prj = db.get(Project, project_id)
     if prj and prj.topvisor_project_id:
         from app.services.settings_service import get_setting
         from app.services.topvisor import get_topvisor_client_key

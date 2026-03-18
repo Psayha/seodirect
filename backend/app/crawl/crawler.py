@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
+import socket
 import time
 from dataclasses import dataclass, field
 from io import StringIO
@@ -10,6 +12,17 @@ from urllib.robotparser import RobotFileParser
 import httpx
 from bs4 import BeautifulSoup
 from defusedxml import ElementTree as ET
+
+
+def _is_private_or_reserved(hostname: str) -> bool:
+    """Check if a hostname resolves to a private, loopback, or reserved IP."""
+    try:
+        # Resolve hostname to IP
+        ip_str = socket.gethostbyname(hostname)
+        ip = ipaddress.ip_address(ip_str)
+        return ip.is_private or ip.is_reserved or ip.is_loopback or ip.is_link_local
+    except (socket.gaierror, ValueError):
+        return True  # If we can't resolve, block it
 
 
 @dataclass
@@ -58,6 +71,9 @@ class SiteCrawler:
         parsed = urlparse(self.base_url)
         self.scheme = parsed.scheme
         self.netloc = parsed.netloc
+        # SSRF protection: block private/reserved IPs
+        if _is_private_or_reserved(parsed.hostname or ""):
+            raise ValueError(f"Crawling private or reserved addresses is not allowed: {parsed.hostname}")
         self.crawl_delay_ms = crawl_delay_ms
         self.timeout = timeout_seconds
         self.max_pages = max_pages
