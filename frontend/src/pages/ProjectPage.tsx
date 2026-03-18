@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectsApi, Brief } from '../api/projects'
@@ -8,6 +8,9 @@ import { seoApi, type SeoPage, type ChecklistItem } from '../api/seo'
 import { ogApi, type OgPage, type OgStats } from '../api/og'
 import { mediaplanApi, type MediaPlanRow } from '../api/mediaplan'
 import { analyticsApi, type TrafficSource, type DailyVisit } from '../api/analytics'
+import { crawlApi } from '../api/crawl'
+import { utmApi } from '../api/utm'
+import { portalApi } from '../api/portal'
 
 type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og' | 'mediaplan' | 'analytics' | 'topvisor' | 'content-plan' | 'reports' | 'history' | 'export'
 
