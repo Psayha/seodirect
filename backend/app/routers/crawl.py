@@ -5,6 +5,7 @@ from typing import Annotated
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
@@ -244,6 +245,281 @@ def _get_duplicate_values(values: list[str]) -> set[str]:
     """Return set of values that appear more than once."""
     counts = Counter(values)
     return {v for v, c in counts.items() if c > 1}
+
+
+@router.get("/projects/{project_id}/crawl/linking")
+def crawl_linking(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Internal linking analysis using crawled page data."""
+    _check_project_access(project_id, current_user, db)
+    session = db.scalar(
+        select(CrawlSession)
+        .where(CrawlSession.project_id == project_id, CrawlSession.status == CrawlStatus.DONE)
+        .order_by(CrawlSession.finished_at.desc())
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="No completed crawl found")
+
+    pages = db.scalars(select(Page).where(Page.crawl_session_id == session.id)).all()
+    if not pages:
+        return {"pages": [], "stats": {"total": 0, "orphans": 0, "hubs": 0, "isolated": 0}}
+
+    # Build adjacency
+    url_set = {p.url for p in pages}
+    incoming: dict[str, set[str]] = {p.url: set() for p in pages}
+    outgoing: dict[str, set[str]] = {p.url: set() for p in pages}
+
+    for page in pages:
+        for link in (page.internal_links or []):
+            link_clean = link.split("#")[0].split("?")[0]
+            if link_clean in url_set and link_clean != page.url:
+                outgoing[page.url].add(link_clean)
+                incoming[link_clean].add(page.url)
+
+    # Homepage = first page (lowest URL or first in list)
+    homepage = pages[0].url
+
+    max_incoming = max((len(v) for v in incoming.values()), default=0)
+    hub_threshold = max(max_incoming * 0.5, 5) if max_incoming > 0 else 5
+
+    result_pages = []
+    for page in pages:
+        inc = len(incoming[page.url])
+        out = len(outgoing[page.url])
+        is_orphan = inc == 0 and page.url != homepage
+        is_hub = inc >= hub_threshold
+        is_isolated = inc == 0 and out == 0
+        result_pages.append({
+            "url": page.url,
+            "title": page.title,
+            "incoming_count": inc,
+            "outgoing_count": out,
+            "is_orphan": is_orphan,
+            "is_hub": is_hub,
+            "is_isolated": is_isolated,
+        })
+
+    result_pages.sort(key=lambda x: x["incoming_count"], reverse=True)
+
+    stats = {
+        "total": len(pages),
+        "orphans": sum(1 for p in result_pages if p["is_orphan"]),
+        "hubs": sum(1 for p in result_pages if p["is_hub"]),
+        "isolated": sum(1 for p in result_pages if p["is_isolated"]),
+    }
+
+    return {"pages": result_pages, "stats": stats}
+
+
+@router.get("/projects/{project_id}/crawl/redirects")
+def crawl_redirects(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Redirect chain analysis."""
+    _check_project_access(project_id, current_user, db)
+    session = db.scalar(
+        select(CrawlSession)
+        .where(CrawlSession.project_id == project_id, CrawlSession.status == CrawlStatus.DONE)
+        .order_by(CrawlSession.finished_at.desc())
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="No completed crawl found")
+
+    pages = db.scalars(
+        select(Page)
+        .where(Page.crawl_session_id == session.id, Page.redirect_chain.isnot(None))
+    ).all()
+
+    chains = []
+    stats = {"total": 0, "ok": 0, "warn": 0, "error": 0, "loops": 0}
+
+    for page in pages:
+        chain = page.redirect_chain or []
+        if not chain:
+            continue
+
+        length = len(chain)
+        final_url = chain[-1] if chain else page.url
+
+        # Detect loops
+        is_loop = len(set(chain)) < len(chain) or page.url in chain
+
+        if is_loop:
+            severity = "error"
+            stats["loops"] += 1
+        elif length == 1:
+            severity = "ok"
+            stats["ok"] += 1
+        elif length == 2:
+            severity = "warn"
+            stats["warn"] += 1
+        else:
+            severity = "error"
+            stats["error"] += 1
+
+        stats["total"] += 1
+        chains.append({
+            "url": page.url,
+            "final_url": final_url,
+            "chain": chain,
+            "length": length,
+            "severity": severity,
+            "is_loop": is_loop,
+        })
+
+    chains.sort(key=lambda x: x["length"], reverse=True)
+    return {"chains": chains, "stats": stats}
+
+
+@router.get("/projects/{project_id}/crawl/robots-audit")
+async def robots_audit(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Audit robots.txt and sitemap against crawled pages."""
+    import httpx
+    import re as _re
+
+    project = _check_project_access(project_id, current_user, db)
+    session = db.scalar(
+        select(CrawlSession)
+        .where(CrawlSession.project_id == project_id, CrawlSession.status == CrawlStatus.DONE)
+        .order_by(CrawlSession.finished_at.desc())
+    )
+
+    base_url = project.url.rstrip("/")
+    crawled_urls = set()
+    if session:
+        pages = db.scalars(select(Page.url).where(Page.crawl_session_id == session.id)).all()
+        crawled_urls = set(pages)
+
+    # Fetch robots.txt
+    robots_data = {"found": False, "disallow_rules": [], "sitemap_urls": []}
+    disallow_rules = []
+    sitemap_urls = []
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"{base_url}/robots.txt")
+            if r.status_code == 200:
+                robots_data["found"] = True
+                lines = r.text.splitlines()
+                current_agent = None
+                for line in lines:
+                    line = line.strip()
+                    if line.lower().startswith("user-agent:"):
+                        current_agent = line.split(":", 1)[1].strip()
+                    elif line.lower().startswith("disallow:") and current_agent in ("*", None):
+                        path = line.split(":", 1)[1].strip()
+                        if path:
+                            disallow_rules.append(path)
+                    elif line.lower().startswith("sitemap:"):
+                        sm_url = line.split(":", 1)[1].strip()
+                        if sm_url.startswith("/"):
+                            sm_url = base_url + sm_url
+                        sitemap_urls.append(sm_url)
+                robots_data["disallow_rules"] = disallow_rules
+                robots_data["sitemap_urls"] = sitemap_urls
+    except Exception:
+        pass
+
+    # Fetch sitemap
+    sitemap_page_urls: set[str] = set()
+    sitemap_to_fetch = sitemap_urls or [f"{base_url}/sitemap.xml"]
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            for sm_url in sitemap_to_fetch[:3]:
+                r = await client.get(sm_url)
+                if r.status_code == 200:
+                    found = _re.findall(r"<loc>(.*?)</loc>", r.text)
+                    sitemap_page_urls.update(found)
+    except Exception:
+        pass
+
+    # Cross-reference
+    def is_disallowed(url: str) -> bool:
+        path = url.replace(base_url, "") or "/"
+        for rule in disallow_rules:
+            if path.startswith(rule):
+                return True
+        return False
+
+    disallowed_but_crawled = [u for u in crawled_urls if is_disallowed(u)]
+    in_sitemap_not_crawled = list(sitemap_page_urls - crawled_urls)[:50]
+    crawled_not_in_sitemap = len(crawled_urls - sitemap_page_urls)
+
+    return {
+        "robots_txt": robots_data,
+        "sitemap_urls_found": len(sitemap_page_urls),
+        "audit": {
+            "disallowed_but_crawled": disallowed_but_crawled[:50],
+            "crawled_not_in_sitemap_count": crawled_not_in_sitemap,
+            "in_sitemap_not_crawled": in_sitemap_not_crawled,
+        },
+    }
+
+
+class CwvRequest(BaseModel):
+    urls: list[str]
+    strategy: str = "mobile"
+
+
+@router.post("/projects/{project_id}/crawl/cwv")
+async def run_cwv(
+    project_id: uuid.UUID,
+    body: CwvRequest,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Fetch Core Web Vitals for given URLs via PageSpeed API."""
+    from app.services.pagespeed import get_cwv
+    from app.services.settings_service import get_setting
+
+    if len(body.urls) > 10:
+        raise HTTPException(status_code=400, detail="Max 10 URLs per request")
+
+    project = _check_project_access(project_id, current_user, db)
+    api_key = get_setting("pagespeed_api_key", db)  # optional
+
+    session = db.scalar(
+        select(CrawlSession)
+        .where(CrawlSession.project_id == project_id, CrawlSession.status == CrawlStatus.DONE)
+        .order_by(CrawlSession.finished_at.desc())
+    )
+
+    results = []
+    for url in body.urls:
+        try:
+            data = await get_cwv(url, api_key=api_key, strategy=body.strategy)
+            results.append({"url": url, "success": True, **data})
+
+            # Save to Page model if in latest crawl
+            if session:
+                page = db.scalar(
+                    select(Page).where(
+                        Page.crawl_session_id == session.id,
+                        Page.url == url,
+                    )
+                )
+                if page:
+                    if data.get("lcp") is not None:
+                        page.cwv_lcp = data["lcp"]
+                    if data.get("cls") is not None:
+                        page.cwv_cls = data["cls"]
+                    if data.get("fid") is not None:
+                        page.cwv_fid = data["fid"]
+                    db.commit()
+        except Exception as e:
+            results.append({"url": url, "success": False, "error": str(e)[:200]})
+
+    return {"results": results, "strategy": body.strategy}
 
 
 @router.get("/projects/{project_id}/crawl/tree")

@@ -24,6 +24,7 @@ class AdStatus(str, enum.Enum):
     DRAFT = "draft"
     READY = "ready"
     REVIEW = "review"
+    PAUSED = "paused"
 
 
 class CampaignStatus(str, enum.Enum):

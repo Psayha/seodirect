@@ -52,4 +52,10 @@ export const analyticsApi = {
     api.get<{ goals: Array<{ id: number; name: string; type: string }> }>(
       `/projects/${projectId}/analytics/goals`
     ).then((r) => r.data),
+
+  getAnomalies: (projectId: string) =>
+    api.get(`/projects/${projectId}/analytics/anomalies`).then((r) => r.data),
+
+  getRoi: (projectId: string) =>
+    api.get(`/projects/${projectId}/analytics/roi`).then((r) => r.data),
 }
