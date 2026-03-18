@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser
 from app.db.session import get_db
+from app.models.project import Project
 from app.models.task import Task
+from app.models.user import UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,15 @@ def get_task(
     task = db.scalar(select(Task).where(Task.id == task_id))
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    # Verify the user has access to the project this task belongs to
+    if task.project_id:
+        project = db.get(Project, task.project_id)
+        if not project or project.deleted_at is not None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
     return {
         "id": str(task.id),
         "type": task.type.value,

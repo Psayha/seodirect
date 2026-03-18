@@ -85,7 +85,7 @@ def is_token_blacklisted(jti: str) -> bool:
 def blacklist_all_user_tokens(user_id: str) -> None:
     """Bump a per-user counter so ALL existing refresh tokens become invalid."""
     r = _get_redis()
-    r.set(f"token_gen:{user_id}", r.incr(f"token_gen:{user_id}"))
+    r.incr(f"token_gen:{user_id}")
 
 
 def get_user_token_generation(user_id: str) -> int:

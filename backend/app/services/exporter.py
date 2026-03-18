@@ -537,6 +537,9 @@ def export_copywriter_docx(project_id, db: "Session") -> bytes:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _get_print_css(primary_color: str = "#1e40af") -> str:
+    import re
+    if not re.match(r'^#[0-9a-fA-F]{3,8}$', primary_color):
+        primary_color = "#1e40af"
     return f"""
 body {{ font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 860px;
        margin: 0 auto; padding: 40px 20px; color: #111; line-height: 1.6; }}
@@ -586,7 +589,8 @@ def export_strategy_html(project_id, db: "Session") -> str:
     md_text = export_strategy_md(project_id, db)
     body = md_lib.markdown(md_text, extensions=["tables", "fenced_code"])
 
-    logo_html = f'<img src="{logo_url}" alt="{agency_name}" class="agency-logo">' if logo_url else ""
+    from html import escape as _esc
+    logo_html = f'<img src="{_esc(logo_url, quote=True)}" alt="{_esc(agency_name, quote=True)}" class="agency-logo">' if logo_url else ""
 
     from datetime import date
     today = date.today().strftime("%d.%m.%Y")

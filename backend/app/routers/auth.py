@@ -1,12 +1,15 @@
 import logging
+import time
+import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.auth.deps import CurrentUser
 from app.auth.rate_limit import (
     blacklist_token,
     check_rate_limit,
@@ -27,8 +30,8 @@ router = APIRouter()
 
 
 class LoginRequest(BaseModel):
-    login: str
-    password: str
+    login: str = Field(..., min_length=1, max_length=100)
+    password: str = Field(..., min_length=1, max_length=256)
     remember_me: bool = False
 
 
@@ -52,10 +55,20 @@ def _get_client_ip(request: Request) -> str:
     if client_ip in ("127.0.0.1", "::1") or client_ip.startswith(("172.", "10.", "192.168.")):
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            # Take the LAST untrusted IP (rightmost entry added by our proxy)
+            # Take the leftmost (client) IP — our nginx is the single trusted proxy
             parts = [p.strip() for p in forwarded.split(",")]
-            return parts[-1] if parts else client_ip
+            return parts[0] if parts else client_ip
     return client_ip
+
+
+def _blacklist_jti(payload: dict) -> None:
+    """Blacklist a token by its jti claim until its natural expiry."""
+    jti = payload.get("jti")
+    if jti:
+        exp = payload.get("exp", 0)
+        ttl = max(int(exp) - int(time.time()), 0)
+        if ttl > 0:
+            blacklist_token(jti, ttl)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -113,11 +126,12 @@ def login(body: LoginRequest, request: Request, db: Annotated[Session, Depends(g
     access_token = create_access_token(str(user.id), user.role.value)
     refresh_token = create_refresh_token(str(user.id), body.remember_me, token_gen)
 
+    logger.info("Login success: user=%s ip=%s", user.login, ip)
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str = Field(..., min_length=1, max_length=4096)
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -131,7 +145,6 @@ def refresh_token(body: RefreshRequest, db: Annotated[Session, Depends(get_db)])
     if jti and is_token_blacklisted(jti):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
 
-    import uuid
     try:
         user_id = uuid.UUID(payload["sub"])
     except (KeyError, ValueError):
@@ -147,13 +160,16 @@ def refresh_token(body: RefreshRequest, db: Annotated[Session, Depends(get_db)])
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+    # Revoke the old refresh token to prevent reuse (refresh token rotation)
+    _blacklist_jti(payload)
+
     access_token = create_access_token(str(user.id), user.role.value)
     new_refresh = create_refresh_token(str(user.id), token_gen=current_gen)
     return TokenResponse(access_token=access_token, refresh_token=new_refresh)
 
 
 class LogoutRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str = Field(..., min_length=1, max_length=4096)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -162,33 +178,15 @@ def logout(body: LogoutRequest):
     payload = decode_token(body.refresh_token)
     if not payload or payload.get("type") != "refresh":
         return  # silently ignore invalid tokens
-    jti = payload.get("jti")
-    if jti:
-        # Blacklist until the token's natural expiry
-        exp = payload.get("exp", 0)
-        now = int(__import__("time").time())
-        ttl = max(exp - now, 0)
-        if ttl > 0:
-            blacklist_token(jti, ttl)
+    _blacklist_jti(payload)
 
 
 @router.get("/me", response_model=MeResponse)
-def get_me(request: Request, db: Annotated[Session, Depends(get_db)]):
-    # Inline to avoid circular import complexity
-    from fastapi.security import HTTPAuthorizationCredentials
-
-    from app.auth.deps import _get_token_payload, bearer_scheme, get_current_user
-    auth_header = request.headers.get("authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    token = auth_header[7:]
-    payload = decode_token(token)
-    if not payload or payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Invalid token")
-    import uuid
-    user_id = uuid.UUID(payload["sub"])
-    from sqlalchemy import select
-    user = db.scalar(select(User).where(User.id == user_id))
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    return MeResponse(id=str(user.id), login=user.login, email=user.email, role=user.role.value)
+def get_me(current_user: CurrentUser):
+    """Return current authenticated user info."""
+    return MeResponse(
+        id=str(current_user.id),
+        login=current_user.login,
+        email=current_user.email,
+        role=current_user.role.value,
+    )
