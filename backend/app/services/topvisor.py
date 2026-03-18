@@ -18,34 +18,48 @@ def _headers(api_key: str, user_id: str = "") -> dict:
 
 async def check_connection(api_key: str, user_id: str = "") -> dict:
     """Return {ok, message, projects_count}."""
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.post(
-            f"{BASE_URL}/get/projects_2/index",
-            headers=_headers(api_key, user_id),
-            json={},
-        )
-    if r.status_code == 200:
-        data = r.json()
-        errors = data.get("errors")
-        if errors:
-            msg = errors[0].get("string", "Ошибка авторизации") if isinstance(errors, list) else "Ошибка авторизации"
-            return {"ok": False, "message": msg, "projects_count": 0}
-        projects = data.get("result") or []
-        return {"ok": True, "message": "Connected", "projects_count": len(projects)}
-    return {"ok": False, "message": f"HTTP {r.status_code}", "projects_count": 0}
+    # Try the current API endpoint first, fall back to legacy _2 suffix
+    for endpoint in (f"{BASE_URL}/get/projects/index", f"{BASE_URL}/get/projects_2/index"):
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(
+                endpoint,
+                headers=_headers(api_key, user_id),
+                json={},
+            )
+        if r.status_code == 200:
+            data = r.json()
+            errors = data.get("errors")
+            if errors:
+                msg = errors[0].get("string", "Ошибка авторизации") if isinstance(errors, list) else "Ошибка авторизации"
+                # "undefined method" means this endpoint variant is wrong — try next
+                if "undefined method" in msg.lower():
+                    continue
+                return {"ok": False, "message": msg, "projects_count": 0}
+            projects = data.get("result") or []
+            return {"ok": True, "message": "Connected", "projects_count": len(projects)}
+        if r.status_code in (401, 403):
+            return {"ok": False, "message": "Неверный API ключ или User ID", "projects_count": 0}
+    return {"ok": False, "message": "Endpoint недоступен — проверьте ключ и User ID", "projects_count": 0}
 
 
 async def list_projects(api_key: str, user_id: str = "") -> list[dict]:
     """Return list of Topvisor projects [{id, name, site, ...}]."""
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.post(
-            f"{BASE_URL}/get/projects_2/index",
-            headers=_headers(api_key, user_id),
-            json={"fields": ["id", "name", "site", "searchers"]},
-        )
-    if r.status_code != 200:
-        return []
-    return r.json().get("result") or []
+    body = {"fields": ["id", "name", "site", "searchers"]}
+    for endpoint in (f"{BASE_URL}/get/projects/index", f"{BASE_URL}/get/projects_2/index"):
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(endpoint, headers=_headers(api_key, user_id), json=body)
+        if r.status_code != 200:
+            continue
+        data = r.json()
+        errors = data.get("errors")
+        if errors:
+            err_msg = errors[0].get("string", "") if isinstance(errors, list) else ""
+            if "undefined method" in err_msg.lower():
+                continue
+        result = data.get("result")
+        if result is not None:
+            return result
+    return []
 
 
 async def get_positions(

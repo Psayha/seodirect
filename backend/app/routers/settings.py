@@ -193,26 +193,12 @@ async def test_api_key(
                     return {"ok": False, "message": "API ключ не задан"}
                 if not user_id:
                     return {"ok": False, "message": "User ID не задан"}
-                r = await client.post(
-                    "https://api.topvisor.com/v2/json/get/projects_2/index",
-                    headers={
-                        "Authorization": f"bearer {key}",
-                        "User-Id": user_id,
-                        "Content-Type": "application/json",
-                    },
-                    json={},
-                )
-                if r.status_code == 200:
-                    data = r.json()
-                    errors = data.get("errors")
-                    if errors:
-                        msg = errors[0].get("string", "Неверный API ключ или User ID") if isinstance(errors, list) else "Неверный API ключ или User ID"
-                        return {"ok": False, "message": msg}
-                    count = len(data.get("result") or [])
+                from app.services.topvisor import check_connection as topvisor_check
+                result = await topvisor_check(key, user_id)
+                if result["ok"]:
+                    count = result.get("projects_count", 0)
                     return {"ok": True, "message": f"Подключено. Проектов: {count}"}
-                if r.status_code in (401, 403):
-                    return {"ok": False, "message": "Неверный API ключ или User ID"}
-                return {"ok": False, "message": f"HTTP {r.status_code}"}
+                return {"ok": False, "message": result["message"]}
 
             elif service == "direct":
                 token = get_setting("direct_oauth_token", db)
