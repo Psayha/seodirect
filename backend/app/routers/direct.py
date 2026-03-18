@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from app.auth.deps import CurrentUser
+from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.models.direct import (
     Ad, AdGroup, AdStatus, Campaign, CampaignStatus,
@@ -27,6 +27,7 @@ router = APIRouter()
 def generate_strategy(
     project_id: uuid.UUID,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     task = Task(
@@ -69,6 +70,7 @@ def update_strategy(
     project_id: uuid.UUID,
     body: dict,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     campaign = db.scalar(
@@ -119,6 +121,7 @@ def create_campaign(
     project_id: uuid.UUID,
     body: CampaignCreate,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     c = Campaign(project_id=project_id, **body.model_dump(exclude_none=True))
@@ -133,6 +136,7 @@ def update_campaign(
     campaign_id: uuid.UUID,
     body: CampaignUpdate,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     c = db.get(Campaign, campaign_id)
@@ -148,6 +152,7 @@ def update_campaign(
 def delete_campaign(
     campaign_id: uuid.UUID,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     c = db.get(Campaign, campaign_id)
@@ -174,6 +179,7 @@ def create_group(
     campaign_id: uuid.UUID,
     body: dict,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     g = AdGroup(campaign_id=campaign_id, name=body.get("name", "Новая группа"))
@@ -206,6 +212,7 @@ def list_keywords(
 def generate_keywords(
     group_id: uuid.UUID,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     group = db.get(AdGroup, group_id)
@@ -238,6 +245,7 @@ def generate_keywords(
 def check_keyword_frequency(
     group_id: uuid.UUID,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     keywords = db.scalars(select(Keyword).where(Keyword.ad_group_id == group_id)).all()
@@ -282,7 +290,7 @@ async def keyword_dynamics(
 
 
 @router.post("/direct/keywords", status_code=201)
-def add_keyword(current_user: CurrentUser, body: dict, db: Annotated[Session, Depends(get_db)]):
+def add_keyword(current_user: CurrentUser, _: Annotated[object, NonViewerRequired], body: dict, db: Annotated[Session, Depends(get_db)]):
     kw = Keyword(
         ad_group_id=uuid.UUID(body["ad_group_id"]),
         phrase=body["phrase"],
@@ -295,7 +303,7 @@ def add_keyword(current_user: CurrentUser, body: dict, db: Annotated[Session, De
 
 
 @router.delete("/direct/keywords/{keyword_id}", status_code=204)
-def delete_keyword(keyword_id: uuid.UUID, current_user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
+def delete_keyword(keyword_id: uuid.UUID, current_user: CurrentUser, _: Annotated[object, NonViewerRequired], db: Annotated[Session, Depends(get_db)]):
     kw = db.get(Keyword, keyword_id)
     if kw:
         db.delete(kw)
@@ -314,6 +322,7 @@ def list_ads(group_id: uuid.UUID, current_user: CurrentUser, db: Annotated[Sessi
 def generate_ads(
     group_id: uuid.UUID,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
     variants: int = 2,
 ):
@@ -323,7 +332,7 @@ def generate_ads(
 
 
 @router.patch("/direct/ads/{ad_id}")
-def update_ad(ad_id: uuid.UUID, body: dict, current_user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
+def update_ad(ad_id: uuid.UUID, body: dict, current_user: CurrentUser, _: Annotated[object, NonViewerRequired], db: Annotated[Session, Depends(get_db)]):
     ad = db.get(Ad, ad_id)
     if not ad:
         raise HTTPException(status_code=404, detail="Ad not found")
@@ -353,6 +362,7 @@ def list_negative_keywords(
 def generate_negative_keywords_endpoint(
     project_id: uuid.UUID,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     from app.direct.service import generate_negative_keywords
@@ -365,6 +375,7 @@ def add_negative_keyword(
     project_id: uuid.UUID,
     body: dict,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     nk = NegativeKeyword(project_id=project_id, phrase=body["phrase"], block=body.get("block", "general"))
@@ -375,7 +386,7 @@ def add_negative_keyword(
 
 
 @router.delete("/direct/negative-keywords/{nk_id}", status_code=204)
-def delete_negative_keyword(nk_id: uuid.UUID, current_user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
+def delete_negative_keyword(nk_id: uuid.UUID, current_user: CurrentUser, _: Annotated[object, NonViewerRequired], db: Annotated[Session, Depends(get_db)]):
     nk = db.get(NegativeKeyword, nk_id)
     if nk:
         db.delete(nk)

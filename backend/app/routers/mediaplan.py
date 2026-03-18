@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.deps import CurrentUser
+from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.models.mediaplan import MediaPlan
 from app.models.project import Project
@@ -123,6 +123,7 @@ def update_mediaplan(
     project_id: uuid.UUID,
     body: MediaPlanUpdate,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     plan = db.scalar(select(MediaPlan).where(MediaPlan.project_id == project_id))
@@ -157,6 +158,7 @@ def update_mediaplan(
 def reset_mediaplan(
     project_id: uuid.UUID,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
     year: int = 2025,
 ):

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from app.auth.deps import CurrentUser
+from app.auth.deps import CurrentUser, NonViewerRequired
 from app.config import get_settings
 from app.db.session import get_db
 from app.models.crawl import CrawlSession, CrawlStatus, Page
@@ -32,6 +32,7 @@ def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> P
 def start_crawl(
     project_id: uuid.UUID,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     project = _check_project_access(project_id, current_user, db)

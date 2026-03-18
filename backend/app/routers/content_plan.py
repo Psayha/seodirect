@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.deps import CurrentUser
+from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.models.content_plan import ContentPlanArticle, ArticleStatus
 
@@ -87,6 +87,7 @@ def create_article(
     project_id: uuid.UUID,
     body: ArticleCreate,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     article = ContentPlanArticle(project_id=project_id, **body.model_dump())
@@ -102,6 +103,7 @@ def update_article(
     article_id: uuid.UUID,
     body: ArticleUpdate,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     article = db.scalar(
@@ -122,6 +124,7 @@ def delete_article(
     project_id: uuid.UUID,
     article_id: uuid.UUID,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     article = db.scalar(
