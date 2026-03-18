@@ -48,7 +48,7 @@ function QuickCard({
   )
 }
 
-export default function OverviewTab({ projectId }: { projectId: string }) {
+export default function OverviewTab({ projectId, onTabChange }: { projectId: string; onTabChange?: (tab: string) => void }) {
   const navigate = useNavigate()
 
   const { data: project } = useQuery({
@@ -165,6 +165,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
               label="Заполнить бриф"
               desc={briefFilled ? 'Бриф заполнен — обновить данные' : 'Укажите нишу, ЦА, бюджет и конкурентов'}
               color={briefFilled ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}
+              onClick={() => onTabChange?.('brief')}
             />
             <QuickCard
               icon="🔍"
@@ -173,30 +174,35 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
                 ? `Последнее: ${crawlReport?.pages_total ?? '?'} страниц`
                 : 'Технический SEO аудит сайта'}
               color={crawlDone ? 'bg-blue-500/10 text-blue-500' : 'bg-surface-raised text-muted'}
+              onClick={() => onTabChange?.('crawl')}
             />
             <QuickCard
               icon="🎯"
               label="Яндекс Директ"
               desc="Стратегия, кампании, ключи и объявления"
               color="bg-accent-subtle text-accent"
+              onClick={() => onTabChange?.('direct')}
             />
             <QuickCard
               icon="📊"
               label="SEO мета-теги"
               desc="Генерация title, description, OG-тегов"
               color="bg-purple-500/10 text-purple-500"
+              onClick={() => onTabChange?.('seo')}
             />
             <QuickCard
               icon="📈"
               label="Аналитика"
               desc="Метрика, ROI-калькулятор, аномалии трафика"
               color="bg-emerald-500/10 text-emerald-500"
+              onClick={() => onTabChange?.('analytics')}
             />
             <QuickCard
               icon="📅"
               label="Медиаплан"
               desc="Бюджет по месяцам, прогноз кликов и лидов"
               color="bg-amber-500/10 text-amber-500"
+              onClick={() => onTabChange?.('mediaplan')}
             />
           </div>
 
