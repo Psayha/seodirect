@@ -71,7 +71,7 @@ export const seoApi = {
   generateSchema: (projectId: string, pageUrl: string, schemaType: string) =>
     api.post(`/projects/${projectId}/seo/schema/generate`, { page_url: pageUrl, schema_type: schemaType }).then((r) => r.data),
 
-  generateSchemaBulk: (projectId: string, opts: { schema_type: string; page_urls?: string[]; only_missing?: boolean }) =>
+  generateSchemaBulk: (projectId: string, opts: { schema_types?: string[]; page_urls?: string[]; only_missing?: boolean }) =>
     api.post<{ task_id: string }>(`/projects/${projectId}/seo/schema/generate-bulk`, opts).then((r) => r.data),
 
   getSchema: (projectId: string, pageUrl: string) =>
