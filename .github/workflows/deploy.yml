@@ -8,8 +8,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  BACKEND_IMAGE: ghcr.io/${{ github.repository }}/backend
-  FRONTEND_IMAGE: ghcr.io/${{ github.repository }}/frontend
 
 jobs:
   deploy:
@@ -22,6 +20,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+
+      # ── Lowercase repo name (GHCR requires it) ────────────────────────────
+      - name: Set image names
+        id: vars
+        run: |
+          REPO="${{ github.repository }}"
+          REPO_LC="${REPO,,}"
+          echo "backend_image=ghcr.io/${REPO_LC}/backend" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=ghcr.io/${REPO_LC}/frontend" >> "$GITHUB_OUTPUT"
+          echo "repo_lc=${REPO_LC}" >> "$GITHUB_OUTPUT"
 
       # ── Login to GitHub Container Registry ──────────────────────────────────
       - name: Login to GHCR
@@ -38,8 +46,8 @@ jobs:
           context: ./backend
           push: true
           tags: |
-            ${{ env.BACKEND_IMAGE }}:latest
-            ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+            ${{ steps.vars.outputs.backend_image }}:latest
+            ${{ steps.vars.outputs.backend_image }}:${{ github.sha }}
 
       # ── Build & push frontend image (prod multi-stage) ─────────────────────
       - name: Build and push frontend
@@ -49,8 +57,8 @@ jobs:
           file: ./frontend/Dockerfile.prod
           push: true
           tags: |
-            ${{ env.FRONTEND_IMAGE }}:latest
-            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+            ${{ steps.vars.outputs.frontend_image }}:latest
+            ${{ steps.vars.outputs.frontend_image }}:${{ github.sha }}
 
       # ── Deploy to server via SSH ───────────────────────────────────────────
       - name: Deploy to server
