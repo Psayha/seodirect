@@ -78,6 +78,9 @@ function AdCard({ ad, onUpdate }: { ad: Ad; onUpdate: () => void }) {
   const saveMutation = useMutation({
     mutationFn: () => directApi.updateAd(ad.id, form),
     onSuccess: () => { setEditing(false); onUpdate() },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   if (!editing) {
@@ -169,22 +172,37 @@ function GroupContent({ group }: { group: AdGroup }) {
   const genKwMut = useMutation({
     mutationFn: () => directApi.generateKeywords(group.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['keywords', group.id] }),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const checkFreqMut = useMutation({
     mutationFn: () => directApi.checkFrequencies(group.id),
     onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: ['keywords', group.id] }), 5000),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const addKwMut = useMutation({
     mutationFn: () => directApi.addKeyword(group.id, newKw.trim(), newKwTemp),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['keywords', group.id] }); setNewKw('') },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const delKwMut = useMutation({
     mutationFn: (id: string) => directApi.deleteKeyword(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['keywords', group.id] }),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const genAdsMut = useMutation({
     mutationFn: () => directApi.generateAds(group.id, 2),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ads', group.id] }),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   return (
@@ -303,6 +321,9 @@ function CampaignBlock({ campaign, projectId }: { campaign: Campaign; projectId:
   const createGroupMut = useMutation({
     mutationFn: () => directApi.createGroup(campaign.id, newGroupName.trim() || 'Новая группа'),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['groups', campaign.id] }); setNewGroupName(''); setAddingGroup(false) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const updateMut = useMutation({
     mutationFn: () => directApi.updateCampaign(campaign.id, {
@@ -311,14 +332,23 @@ function CampaignBlock({ campaign, projectId }: { campaign: Campaign; projectId:
       budget_monthly: editForm.budget_monthly ? Number(editForm.budget_monthly) : undefined,
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['campaigns', projectId] }); setEditing(false) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const saveSitelinksMut = useMutation({
     mutationFn: () => directApi.updateCampaign(campaign.id, { sitelinks }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['campaigns', projectId] }); setEditingSitelinks(false) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const deleteMut = useMutation({
     mutationFn: () => directApi.deleteCampaign(campaign.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['campaigns', projectId] }),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const toggleGroup = (id: string) =>
@@ -627,6 +657,9 @@ function AbSection({ projectId }: { projectId: string }) {
   const winnerMut = useMutation({
     mutationFn: (adId: string) => directApi.markAdWinner(adId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ab-stats', projectId] }),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const groups: any[] = data?.groups || []
@@ -682,6 +715,9 @@ function SearchQueriesModal({ projectId, onClose }: { projectId: string; onClose
   const analyzeMut = useMutation({
     mutationFn: () => directApi.analyzeSearchQueries(projectId, queries.split('\n').map(q => q.trim()).filter(Boolean)),
     onSuccess: (d: any) => { setResults(d.suggestions || []); setSelected(new Set()) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const addNegMut = useMutation({
@@ -694,6 +730,9 @@ function SearchQueriesModal({ projectId, onClose }: { projectId: string; onClose
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['neg-kws', projectId] })
       onClose()
+    },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
     },
   })
 
@@ -806,6 +845,9 @@ function LocalClusterSection({ projectId }: { projectId: string }) {
   const clusterMut = useMutation({
     mutationFn: () => directApi.clusterLocal(projectId),
     onSuccess: (d: any) => setClusters(d.clusters || []),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   return (
@@ -876,26 +918,44 @@ export default function DirectTab({ projectId }: { projectId: string }) {
       }, 4000)
       setTimeout(() => { setIsGenerating(false); clearInterval(interval) }, 120000)
     },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const updateStrategyMut = useMutation({
     mutationFn: () => directApi.updateStrategy(projectId, strategyText),
     onSuccess: () => { setEditingStrategy(false); qc.invalidateQueries({ queryKey: ['direct-strategy', projectId] }) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const createCampaignMut = useMutation({
     mutationFn: () => directApi.createCampaign(projectId, { name: newCampaignName.trim() || 'Новая кампания' }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['campaigns', projectId] }); setNewCampaignName(''); setAddingCampaign(false) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const genNegMut = useMutation({
     mutationFn: () => directApi.generateNegativeKeywords(projectId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['neg-kws', projectId] }),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const addNegMut = useMutation({
     mutationFn: () => directApi.addNegativeKeyword(projectId, negInput.trim()),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['neg-kws', projectId] }); setNegInput('') },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const delNegMut = useMutation({
     mutationFn: (id: string) => directApi.deleteNegativeKeyword(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['neg-kws', projectId] }),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   return (

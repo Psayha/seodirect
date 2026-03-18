@@ -73,7 +73,7 @@ fi
 
 # Auto-renewal cron (renew + reload nginx)
 cat > /etc/cron.d/certbot-renew << 'CRON'
-0 3 * * * root certbot renew --quiet --deploy-hook "docker compose -f /opt/seodirect/docker-compose.prod.yml exec -T nginx nginx -s reload" 2>/dev/null
+0 3 * * * root cd /opt/seodirect && certbot renew --quiet --deploy-hook "docker compose -f /opt/seodirect/docker-compose.prod.yml exec -T nginx nginx -s reload" 2>&1 | logger -t certbot-renew
 CRON
 echo "  SSL auto-renewal configured"
 

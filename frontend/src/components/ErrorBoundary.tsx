@@ -19,7 +19,9 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: { componentStack: string }) {
-    console.error('[ErrorBoundary]', this.props.label ?? '', error, info.componentStack)
+    if (import.meta.env.DEV) {
+      console.error('[ErrorBoundary]', this.props.label ?? '', error, info.componentStack)
+    }
   }
 
   render() {

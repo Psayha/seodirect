@@ -133,11 +133,17 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
   const tvProjectsMut = useMutation({
     mutationFn: () => api.get(`/projects/${projectId}/topvisor/projects`).then((r) => r.data),
     onSuccess: (d: any) => setTvProjects(d.projects || []),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const tvLinkMut = useMutation({
     mutationFn: (id: number | null) => api.post(`/projects/${projectId}/topvisor/link`, { topvisor_project_id: id }).then((r) => r.data),
     onSuccess: (d: any) => { setTvProjectId(d.topvisor_project_id); qc.invalidateQueries({ queryKey: ['topvisor-link', projectId] }) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const tvPositionsMut = useMutation({
@@ -145,6 +151,9 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
       params: { date_from: dateFrom, date_to: dateTo, region_index: posRegion },
     }).then((r) => r.data),
     onSuccess: (d: any) => setPositions(d.keywords || []),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const { data: counterData } = useQuery({
@@ -170,6 +179,9 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
   const setCounterMut = useMutation({
     mutationFn: (id: number) => analyticsApi.setCounter(projectId, id),
     onSuccess: (_, id) => { setSelectedCounter(id); qc.invalidateQueries({ queryKey: ['analytics-counter', projectId] }) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const formatDuration = (seconds: number) => {

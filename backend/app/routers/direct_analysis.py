@@ -38,6 +38,16 @@ def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> P
     return project
 
 
+def _get_project_keywords(project_id: uuid.UUID, db: Session) -> list[Keyword]:
+    """Load all keywords for a project via a single JOIN query (avoids N+1)."""
+    return list(db.scalars(
+        select(Keyword)
+        .join(AdGroup, Keyword.ad_group_id == AdGroup.id)
+        .join(Campaign, AdGroup.campaign_id == Campaign.id)
+        .where(Campaign.project_id == project_id)
+    ).all())
+
+
 # ─── N-gram Analysis ──────────────────────────────────────────────────────────
 
 @router.get("/projects/{project_id}/direct/ngrams")
@@ -57,16 +67,9 @@ def get_ngrams(
     if n not in (2, 3):
         raise HTTPException(status_code=400, detail="n must be 2 or 3")
 
-    campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
-    campaign_ids = [c.id for c in campaigns]
-    if not campaign_ids:
+    keywords = _get_project_keywords(project_id, db)
+    if not keywords:
         return {"ngrams": [], "total_keywords": 0}
-
-    group_ids = db.scalars(select(AdGroup.id).where(AdGroup.campaign_id.in_(campaign_ids))).all()
-    if not group_ids:
-        return {"ngrams": [], "total_keywords": 0}
-
-    keywords = db.scalars(select(Keyword).where(Keyword.ad_group_id.in_(group_ids))).all()
     phrases = [kw.phrase for kw in keywords]
 
     def tokenize(phrase: str) -> list[str]:
@@ -117,16 +120,9 @@ def keywords_heatmap(
 ):
     """Heatmap: temperature × frequency range."""
     _check_project_access(project_id, current_user, db)
-    campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
-    campaign_ids = [c.id for c in campaigns]
-    if not campaign_ids:
+    keywords = _get_project_keywords(project_id, db)
+    if not keywords:
         return {"matrix": [], "totals": {}}
-
-    group_ids = db.scalars(select(AdGroup.id).where(AdGroup.campaign_id.in_(campaign_ids))).all()
-    if not group_ids:
-        return {"matrix": [], "totals": {}}
-
-    keywords = db.scalars(select(Keyword).where(Keyword.ad_group_id.in_(group_ids))).all()
 
     FREQ_RANGES = [
         ("0", 0, 0),
@@ -184,22 +180,34 @@ def ab_ad_stats(
 ):
     """Show ads grouped by ad group for A/B comparison."""
     _check_project_access(project_id, current_user, db)
-    campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
-    campaign_ids = [c.id for c in campaigns]
-    if not campaign_ids:
+    # Single JOIN query: load all ads for the project's groups
+    groups = db.scalars(
+        select(AdGroup)
+        .join(Campaign, AdGroup.campaign_id == Campaign.id)
+        .where(Campaign.project_id == project_id)
+    ).all()
+    if not groups:
         return []
 
-    groups = db.scalars(select(AdGroup).where(AdGroup.campaign_id.in_(campaign_ids))).all()
+    group_ids = [g.id for g in groups]
+    ads = db.scalars(
+        select(Ad).where(Ad.ad_group_id.in_(group_ids)).order_by(Ad.ad_group_id, Ad.variant)
+    ).all()
+
+    # Group ads by ad_group_id
+    ads_by_group: dict[uuid.UUID, list] = {}
+    for ad in ads:
+        ads_by_group.setdefault(ad.ad_group_id, []).append(ad)
+
     result = []
-    for group in groups:
-        ads = db.scalars(
-            select(Ad).where(Ad.ad_group_id == group.id).order_by(Ad.variant)
-        ).all()
-        if len(ads) >= 2:
+    group_map = {g.id: g for g in groups}
+    for gid, group_ads in ads_by_group.items():
+        if len(group_ads) >= 2:
+            g = group_map[gid]
             result.append({
-                "group_id": str(group.id),
-                "group_name": group.name,
-                "ads": [_ad_dict(a) for a in ads],
+                "group_id": str(g.id),
+                "group_name": g.name,
+                "ads": [_ad_dict(a) for a in group_ads],
             })
     return result
 

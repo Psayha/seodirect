@@ -119,7 +119,7 @@ og:description: 150-200 символов, интригующий анонс ст
 
         generated = 0
         for i, page in enumerate(pages):
-            if task:
+            if task and i % 10 == 0:
                 task.progress = round(i / len(pages) * 100)
                 db.commit()
 

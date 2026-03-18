@@ -89,6 +89,9 @@ function SchemaSection({ projectId, pageUrl }: { projectId: string; pageUrl: str
     onSuccess: () => {
       // refetch via query invalidation
     },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const schemaJson = genMut.data?.json_ld || existing?.json_ld || ''
@@ -137,6 +140,9 @@ function FaqSection({ projectId, pageUrl }: { projectId: string; pageUrl: string
   const genMut = useMutation({
     mutationFn: () => seoApi.generateFaq(projectId, pageUrl, count),
     onSuccess: (d: any) => setEditedFaqs(d.faqs || []),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const faqs = editedFaqs || existing?.faqs || []
@@ -259,6 +265,9 @@ function ContentGapSection({ projectId }: { projectId: string }) {
   const analyzeMut = useMutation({
     mutationFn: () => seoApi.analyzeContentGap(projectId, urls.filter(u => u.trim())),
     onSuccess: (d: any) => setResults(d),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const PRIORITY_CONFIG = [
@@ -352,6 +361,9 @@ function SeoPageRow({ page, projectId, onUpdate, onShowHistory }: { page: SeoPag
   const saveMut = useMutation({
     mutationFn: () => seoApi.updateMeta(projectId, page.page_url, form),
     onSuccess: () => { setExpanded(false); onUpdate() },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const hasIssue = page.has_title_issue || page.has_desc_issue || page.has_og_issue
@@ -453,6 +465,9 @@ export default function SeoTab({ projectId }: { projectId: string }) {
   const clusterMut = useMutation({
     mutationFn: () => api.post(`/projects/${projectId}/seo/cluster`).then((r) => r.data),
     onSuccess: (data: any) => { setClusters(data.clusters); setClusterSource(data.source) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const { data: checklist, isLoading: clLoading } = useQuery({
@@ -482,6 +497,9 @@ export default function SeoTab({ projectId }: { projectId: string }) {
       page_urls: selectedPageUrls.size > 0 ? Array.from(selectedPageUrls) : undefined,
     }),
     onSuccess: (data: any) => setGenerateTaskId(data.task_id),
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   const isRunning = taskStatus?.status === 'running' || taskStatus?.status === 'pending'

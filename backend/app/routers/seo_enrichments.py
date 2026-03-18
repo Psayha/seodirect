@@ -338,7 +338,11 @@ async def content_gap_analysis(
                         "title": title_tag.get_text(strip=True) if title_tag else None,
                         "h1": h1_tag.get_text(strip=True) if h1_tag else None,
                     }
+        except httpx.TimeoutException:
+            logger.warning("Timeout fetching competitor page %s", url)
+            return None
         except Exception:
+            logger.warning("Failed to fetch competitor page %s", url, exc_info=True)
             return None
 
     for comp_url in body.competitor_urls[:3]:

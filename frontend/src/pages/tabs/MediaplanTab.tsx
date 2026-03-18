@@ -21,10 +21,16 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
   const saveMut = useMutation({
     mutationFn: () => mediaplanApi.update(projectId, rows!),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['mediaplan', projectId] }); setSaved(true); setTimeout(() => setSaved(false), 2000); setRows(null) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
   const resetMut = useMutation({
     mutationFn: () => mediaplanApi.reset(projectId, new Date().getFullYear()),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['mediaplan', projectId] }); setRows(null) },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Ошибка операции')
+    },
   })
 
   if (isLoading) return <div className="p-6 text-gray-500">Загрузка...</div>

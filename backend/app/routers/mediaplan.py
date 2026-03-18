@@ -79,9 +79,11 @@ def get_mediaplan(
 ):
     project = _check_project_access(project_id, current_user, db)
 
-    plan = db.scalar(select(MediaPlan).where(MediaPlan.project_id == project_id))
+    plan = db.scalar(
+        select(MediaPlan).where(MediaPlan.project_id == project_id).with_for_update()
+    )
 
-    # If no plan exists yet — generate default
+    # If no plan exists yet — generate default (atomic with FOR UPDATE above)
     if not plan:
         total_budget = float(project.budget or 0)
         rows = _default_rows(total_budget)
@@ -138,7 +140,9 @@ def update_mediaplan(
     db: Annotated[Session, Depends(get_db)],
 ):
     _check_project_access(project_id, current_user, db)
-    plan = db.scalar(select(MediaPlan).where(MediaPlan.project_id == project_id))
+    plan = db.scalar(
+        select(MediaPlan).where(MediaPlan.project_id == project_id).with_for_update()
+    )
     if not plan:
         plan = MediaPlan(project_id=project_id)
         db.add(plan)
