@@ -10,13 +10,50 @@ function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
 }
 
+function Spinner() {
+  return (
+    <div className="flex items-center gap-2 py-6 text-muted text-sm">
+      <span className="w-4 h-4 rounded-full border-2 border-accent border-t-transparent animate-spin inline-block" />
+      Загрузка...
+    </div>
+  )
+}
+
+function SaveFeedback({ ok }: { ok: boolean }) {
+  return (
+    <span className={cx('text-sm', ok ? 'text-emerald-600' : 'text-red-500')}>
+      {ok ? '✓ Сохранено' : '✗ Ошибка'}
+    </span>
+  )
+}
+
+// ── Card wrapper with optional section title ───────────────────────────────
+function Section({ title, children }: { title?: string; children: React.ReactNode }) {
+  return (
+    <div className="card-bordered overflow-hidden">
+      {title && (
+        <div className="px-5 py-3.5 bg-surface-raised border-b border-[var(--border)]">
+          <h4 className="text-xs font-semibold uppercase tracking-widest text-muted">{title}</h4>
+        </div>
+      )}
+      <div className="p-5 space-y-4">{children}</div>
+    </div>
+  )
+}
+
+// ── Field label ────────────────────────────────────────────────────────────
+function Label({ children }: { children: React.ReactNode }) {
+  return <label className="block text-xs font-medium text-muted mb-1.5">{children}</label>
+}
+
+// ── API Keys ────────────────────────────────────────────────────────────────
 function ApiKeysTab() {
   const qc = useQueryClient()
   const { data: services = [], isLoading } = useQuery({
     queryKey: ['api-keys'],
     queryFn: () => api.get('/settings/api-keys').then((r) => r.data),
   })
-  const [editing, setEditing] = useState<Record<string, string>>({})
+  const [editing, setEditing]     = useState<Record<string, string>>({})
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({})
 
   const saveMut = useMutation({
@@ -34,59 +71,79 @@ function ApiKeysTab() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
   })
 
-  if (isLoading) return <div className="text-gray-500 py-4">Загрузка...</div>
+  if (isLoading) return <Spinner />
 
   return (
     <div className="space-y-4">
       {(services as any[]).map((svc) => (
-        <div key={svc.service} className="bg-white rounded-lg border p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="font-medium">{svc.label}</h4>
+        <div key={svc.service} className="card-bordered overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3.5 bg-surface-raised border-b border-[var(--border)]">
+            <h4 className="text-sm font-semibold text-primary">{svc.label}</h4>
             <div className="flex gap-2">
-              <button onClick={() => {
+              <button
+                onClick={() => testMut.mutate(svc.service)}
+                disabled={testMut.isPending}
+                className="btn-ghost py-1.5 px-3 text-xs"
+              >
+                Проверить
+              </button>
+              <button
+                onClick={() => {
                   const vals: Record<string, string> = {}
-                  svc.keys.forEach((k: any) => { const v = editing[`${svc.service}.${k.key}`]; if (v) vals[k.key] = v })
+                  svc.keys.forEach((k: any) => {
+                    const v = editing[`${svc.service}.${k.key}`]
+                    if (v) vals[k.key] = v
+                  })
                   if (Object.keys(vals).length) saveMut.mutate({ service: svc.service, values: vals })
                 }}
-                className="text-sm bg-primary-600 text-white px-3 py-1 rounded-lg hover:bg-primary-700">Сохранить</button>
-              <button onClick={() => testMut.mutate(svc.service)} disabled={testMut.isPending}
-                className="text-sm border px-3 py-1 rounded-lg hover:bg-gray-50 disabled:opacity-50">Проверить</button>
+                className="btn-accent py-1.5 px-3 text-xs"
+              >
+                Сохранить
+              </button>
             </div>
           </div>
-          {svc.keys.map((k: any) => (
-            <div key={k.key} className="mb-2">
-              <label className="block text-xs text-gray-500 mb-1">{k.key}</label>
-              <div className="flex items-center gap-2">
-                <input type="password"
-                  className="flex-1 border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder={k.masked || 'Не задан'}
-                  value={editing[`${svc.service}.${k.key}`] || ''}
-                  onChange={(e) => setEditing((ed) => ({ ...ed, [`${svc.service}.${k.key}`]: e.target.value }))} />
-                {k.is_set && (
-                  <>
-                    <span className="text-green-500 text-xs shrink-0">✓ задан</span>
-                    <button
-                      onClick={() => { if (confirm(`Удалить ключ ${k.key}?`)) deleteMut.mutate({ service: svc.service, keyName: k.key }) }}
-                      title="Удалить ключ"
-                      className="text-red-400 hover:text-red-600 text-xs shrink-0 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50">
-                      ✕
-                    </button>
-                  </>
-                )}
+          <div className="p-5 space-y-3">
+            {svc.keys.map((k: any) => (
+              <div key={k.key}>
+                <Label>{k.key}</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    className="field flex-1"
+                    placeholder={k.masked || 'Не задан'}
+                    value={editing[`${svc.service}.${k.key}`] || ''}
+                    onChange={(e) => setEditing((ed) => ({ ...ed, [`${svc.service}.${k.key}`]: e.target.value }))}
+                  />
+                  {k.is_set && (
+                    <>
+                      <span className="text-emerald-600 text-xs shrink-0 font-medium">✓ задан</span>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Удалить ключ ${k.key}?`))
+                            deleteMut.mutate({ service: svc.service, keyName: k.key })
+                        }}
+                        className="btn-danger py-1 px-2 text-xs rounded-lg"
+                      >
+                        ✕
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-          {testResults[svc.service] && (
-            <p className={cx('text-sm mt-2', testResults[svc.service].ok ? 'text-green-600' : 'text-red-500')}>
-              {testResults[svc.service].ok ? '✅' : '❌'} {testResults[svc.service].message}
-            </p>
-          )}
+            ))}
+            {testResults[svc.service] && (
+              <p className={cx('text-sm mt-1', testResults[svc.service].ok ? 'text-emerald-600' : 'text-red-500')}>
+                {testResults[svc.service].ok ? '✅' : '❌'} {testResults[svc.service].message}
+              </p>
+            )}
+          </div>
         </div>
       ))}
     </div>
   )
 }
 
+// ── Crawler ─────────────────────────────────────────────────────────────────
 function CrawlerTab() {
   const qc = useQueryClient()
   const { data, isLoading } = useQuery({ queryKey: ['crawler-settings'], queryFn: () => settingsApi.getCrawler() })
@@ -95,60 +152,64 @@ function CrawlerTab() {
 
   const saveMut = useMutation({
     mutationFn: (d: CrawlerSettings) => settingsApi.updateCrawler(d),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['crawler-settings'] }); setSaved(true); setTimeout(() => setSaved(false), 2000) },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['crawler-settings'] })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    },
   })
 
-  if (isLoading) return <div className="text-gray-500 py-4">Загрузка...</div>
+  if (isLoading) return <Spinner />
 
   const cur = { ...data, ...form } as CrawlerSettings
 
   return (
-    <div className="bg-white rounded-lg border p-4 space-y-4">
-      <h4 className="font-medium text-sm text-gray-700 uppercase tracking-wide">Параметры парсера</h4>
+    <Section title="Параметры парсера">
       <div className="grid grid-cols-2 gap-4">
         {[
-          { key: 'crawl_delay_ms', label: 'Задержка (мс)', type: 'number' },
+          { key: 'crawl_delay_ms',        label: 'Задержка (мс)', type: 'number' },
           { key: 'crawl_timeout_seconds', label: 'Таймаут (сек)', type: 'number' },
-          { key: 'crawl_max_pages', label: 'Макс. страниц', type: 'number' },
+          { key: 'crawl_max_pages',       label: 'Макс. страниц', type: 'number' },
         ].map(({ key, label }) => (
           <div key={key}>
-            <label className="block text-sm text-gray-600 mb-1">{label}</label>
-            <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            <Label>{label}</Label>
+            <input type="number" className="field"
               value={(cur as any)[key] ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, [key]: Number(e.target.value) }))} />
           </div>
         ))}
       </div>
       <div>
-        <label className="block text-sm text-gray-600 mb-1">User-Agent</label>
-        <input className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+        <Label>User-Agent</Label>
+        <input className="field"
           value={cur.crawl_user_agent ?? ''}
           onChange={(e) => setForm((f) => ({ ...f, crawl_user_agent: e.target.value }))} />
       </div>
-      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+      <label className="flex items-center gap-2.5 text-sm text-primary cursor-pointer">
         <input type="checkbox" className="rounded"
           checked={cur.crawl_respect_robots ?? true}
           onChange={(e) => setForm((f) => ({ ...f, crawl_respect_robots: e.target.checked }))} />
         Соблюдать robots.txt
       </label>
-      <div className="flex gap-3 pt-1">
-        <button onClick={() => saveMut.mutate(cur)} disabled={saveMut.isPending}
-          className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+      <div className="flex items-center gap-3 pt-1">
+        <button onClick={() => saveMut.mutate(cur)} disabled={saveMut.isPending} className="btn-accent">
           {saveMut.isPending ? 'Сохранение...' : 'Сохранить'}
         </button>
-        {saved && <span className="text-green-600 text-sm py-2">✅ Сохранено</span>}
+        {saved && <SaveFeedback ok />}
       </div>
-    </div>
+    </Section>
   )
 }
 
+// ── AI ───────────────────────────────────────────────────────────────────────
 function AITab() {
   const qc = useQueryClient()
   const { data, isLoading } = useQuery({ queryKey: ['ai-settings'], queryFn: () => settingsApi.getAI() })
   const [form, setForm] = useState<Partial<AISettings>>({})
   const [saved, setSaved] = useState(false)
 
-  const { data: modelsData, isLoading: modelsLoading, isError: modelsError, refetch: refetchModels, isFetching: modelsFetching } = useQuery({
+  const { data: modelsData, isLoading: modelsLoading, isError: modelsError,
+          refetch: refetchModels, isFetching: modelsFetching } = useQuery({
     queryKey: ['ai-models'],
     queryFn: () => api.get('/settings/ai/models').then((r) => r.data as { provider: string; models: { id: string; name: string }[] }),
     retry: false,
@@ -156,51 +217,50 @@ function AITab() {
 
   const saveMut = useMutation({
     mutationFn: (d: AISettings) => settingsApi.updateAI(d),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ai-settings'] }); setSaved(true); setTimeout(() => setSaved(false), 2000) },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-settings'] })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    },
   })
 
-  if (isLoading) return <div className="text-gray-500 py-4">Загрузка...</div>
+  if (isLoading) return <Spinner />
 
-  const cur = { ...data, ...form } as AISettings
+  const cur        = { ...data, ...form } as AISettings
   const isOpenRouter = cur.active_provider === 'openrouter'
-  const models = modelsData?.models ?? []
+  const models     = modelsData?.models ?? []
 
   return (
-    <div className="bg-white rounded-lg border p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h4 className="font-medium text-sm text-gray-700 uppercase tracking-wide">Параметры ИИ</h4>
-        <span className={cx('text-xs px-2 py-1 rounded-full font-medium',
-          isOpenRouter ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700')}>
+    <Section title="Параметры ИИ">
+      <div className="flex items-center gap-3">
+        <span className={cx('badge', isOpenRouter ? 'badge-purple' : 'badge-yellow')}>
           {isOpenRouter ? '⚡ OpenRouter' : '🟠 Anthropic (прямой)'}
         </span>
       </div>
+
       <div>
-        <div className="flex items-center justify-between mb-1">
-          <label className="text-sm text-gray-600">
-            {isOpenRouter ? 'Модель (OpenRouter)' : 'Модель Claude'}
-          </label>
+        <div className="flex items-center justify-between mb-1.5">
+          <Label>{isOpenRouter ? 'Модель (OpenRouter)' : 'Модель Claude'}</Label>
           <button
             onClick={() => refetchModels()}
             disabled={modelsFetching}
-            className="text-xs text-primary-600 hover:text-primary-800 disabled:opacity-40 flex items-center gap-1">
-            {modelsFetching ? 'Загрузка...' : '↻ Обновить список'}
+            className="text-xs text-accent hover:opacity-70 disabled:opacity-40 flex items-center gap-1 transition"
+          >
+            {modelsFetching ? 'Загрузка...' : '↻ Обновить'}
           </button>
         </div>
         {modelsLoading || modelsFetching ? (
-          <div className="w-full border rounded-lg px-3 py-2 text-sm text-gray-400 bg-gray-50">Загрузка моделей...</div>
+          <div className="field text-muted bg-surface-raised">Загрузка моделей...</div>
         ) : modelsError || models.length === 0 ? (
-          <div className="space-y-1">
-            <input
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+          <div className="space-y-1.5">
+            <input className="field"
               value={cur.ai_model ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, ai_model: e.target.value }))}
-              placeholder={isOpenRouter ? 'anthropic/claude-sonnet-4-6' : 'claude-sonnet-4-6'}
-            />
-            <p className="text-xs text-amber-600">Не удалось загрузить список — введите ID модели вручную или нажмите «Обновить список»</p>
+              placeholder={isOpenRouter ? 'anthropic/claude-sonnet-4-6' : 'claude-sonnet-4-6'} />
+            <p className="text-xs text-amber-600">Введите ID модели вручную или нажмите «Обновить»</p>
           </div>
         ) : (
-          <select
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+          <select className="field"
             value={cur.ai_model ?? ''}
             onChange={(e) => setForm((f) => ({ ...f, ai_model: e.target.value }))}>
             {cur.ai_model && !models.find((m) => m.id === cur.ai_model) && (
@@ -212,49 +272,51 @@ function AITab() {
           </select>
         )}
         {isOpenRouter && (
-          <p className="text-xs text-gray-400 mt-1">
-            Формат: <code>provider/model-name</code>. Если нет «/» — автоматически добавится prefix «anthropic/».
+          <p className="text-xs text-muted mt-1">
+            Формат: <code className="bg-surface-raised px-1 rounded">provider/model-name</code>
           </p>
         )}
       </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm text-gray-600 mb-1">Макс. токенов</label>
-          <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+          <Label>Макс. токенов</Label>
+          <input type="number" className="field"
             value={cur.ai_max_tokens ?? 4000}
             onChange={(e) => setForm((f) => ({ ...f, ai_max_tokens: Number(e.target.value) }))} />
         </div>
         <div>
-          <label className="block text-sm text-gray-600 mb-1">Язык</label>
-          <select className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+          <Label>Язык</Label>
+          <select className="field"
             value={cur.ai_language ?? 'Русский'}
             onChange={(e) => setForm((f) => ({ ...f, ai_language: e.target.value }))}>
-            <option>Русский</option><option>English</option>
+            <option>Русский</option>
+            <option>English</option>
           </select>
         </div>
       </div>
+
       <div>
-        <label className="block text-sm text-gray-600 mb-1">
-          Температура: <strong>{(cur.ai_temperature ?? 0.7).toFixed(1)}</strong>
-        </label>
-        <input type="range" min="0" max="1" step="0.1" className="w-full"
+        <Label>Температура: <strong className="text-primary">{(cur.ai_temperature ?? 0.7).toFixed(1)}</strong></Label>
+        <input type="range" min="0" max="1" step="0.1" className="w-full accent-accent"
           value={cur.ai_temperature ?? 0.7}
           onChange={(e) => setForm((f) => ({ ...f, ai_temperature: Number(e.target.value) }))} />
-        <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+        <div className="flex justify-between text-xs text-muted mt-0.5">
           <span>0 — точно</span><span>1 — творчески</span>
         </div>
       </div>
-      <div className="flex gap-3 pt-1">
-        <button onClick={() => saveMut.mutate(cur)} disabled={saveMut.isPending}
-          className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+
+      <div className="flex items-center gap-3 pt-1">
+        <button onClick={() => saveMut.mutate(cur)} disabled={saveMut.isPending} className="btn-accent">
           {saveMut.isPending ? 'Сохранение...' : 'Сохранить'}
         </button>
-        {saved && <span className="text-green-600 text-sm py-2">✅ Сохранено</span>}
+        {saved && <SaveFeedback ok />}
       </div>
-    </div>
+    </Section>
   )
 }
 
+// ── White Label ──────────────────────────────────────────────────────────────
 function WhiteLabelTab() {
   const qc = useQueryClient()
   const { data, isLoading } = useQuery({
@@ -266,56 +328,59 @@ function WhiteLabelTab() {
 
   const saveMut = useMutation({
     mutationFn: (d: any) => api.put('/settings/white-label', d),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['white-label-settings'] }); setSaved(true); setTimeout(() => setSaved(false), 2000) },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['white-label-settings'] })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    },
   })
 
-  if (isLoading) return <div className="text-gray-500 py-4">Загрузка...</div>
+  if (isLoading) return <Spinner />
 
   const cur = { ...data, ...form }
 
   return (
-    <div className="bg-white rounded-lg border p-4 space-y-4">
-      <h4 className="font-medium text-sm text-gray-700 uppercase tracking-wide">White Label — брендинг PDF</h4>
-      <p className="text-xs text-gray-500">Эти настройки используются при экспорте HTML/PDF стратегии для клиента.</p>
+    <Section title="White Label — брендинг PDF">
+      <p className="text-sm text-muted -mt-1">Используется при экспорте HTML/PDF стратегии для клиента.</p>
       <div>
-        <label className="block text-sm text-gray-600 mb-1">Название агентства</label>
-        <input className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+        <Label>Название агентства</Label>
+        <input className="field"
           value={cur.white_label_agency_name ?? ''}
           onChange={(e) => setForm((f) => ({ ...f, white_label_agency_name: e.target.value }))} />
       </div>
       <div>
-        <label className="block text-sm text-gray-600 mb-1">URL логотипа</label>
-        <input placeholder="https://agency.ru/logo.png"
-          className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+        <Label>URL логотипа</Label>
+        <input placeholder="https://agency.ru/logo.png" className="field"
           value={cur.white_label_logo_url ?? ''}
           onChange={(e) => setForm((f) => ({ ...f, white_label_logo_url: e.target.value }))} />
         {cur.white_label_logo_url && (
-          <img src={cur.white_label_logo_url} alt="logo preview" className="mt-2 h-10 object-contain border rounded" />
+          <img src={cur.white_label_logo_url} alt="logo preview"
+               className="mt-2 h-10 object-contain border border-[var(--border)] rounded-lg" />
         )}
       </div>
       <div>
-        <label className="block text-sm text-gray-600 mb-1">Цвет бренда (hex)</label>
+        <Label>Цвет бренда (hex)</Label>
         <div className="flex items-center gap-2">
           <input type="color"
             value={cur.white_label_primary_color ?? '#1e40af'}
             onChange={(e) => setForm((f) => ({ ...f, white_label_primary_color: e.target.value }))}
-            className="w-10 h-10 rounded border cursor-pointer" />
-          <input className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            className="w-10 h-10 rounded-lg border border-[var(--border)] cursor-pointer p-0.5" />
+          <input className="field flex-1"
             value={cur.white_label_primary_color ?? '#1e40af'}
             onChange={(e) => setForm((f) => ({ ...f, white_label_primary_color: e.target.value }))} />
         </div>
       </div>
-      <div className="flex gap-3 pt-1">
-        <button onClick={() => saveMut.mutate(cur)} disabled={saveMut.isPending}
-          className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+      <div className="flex items-center gap-3 pt-1">
+        <button onClick={() => saveMut.mutate(cur)} disabled={saveMut.isPending} className="btn-accent">
           {saveMut.isPending ? 'Сохранение...' : 'Сохранить'}
         </button>
-        {saved && <span className="text-green-600 text-sm py-2">✅ Сохранено</span>}
+        {saved && <SaveFeedback ok />}
       </div>
-    </div>
+    </Section>
   )
 }
 
+// ── Users ────────────────────────────────────────────────────────────────────
 const ROLE_LABELS: Record<string, string> = {
   specialist: 'Специалист', admin: 'Администратор', viewer: 'Просмотр', super_admin: 'Супер-admin',
 }
@@ -325,13 +390,18 @@ function UsersTab() {
   const { data: users = [], isLoading } = useQuery({ queryKey: ['users'], queryFn: () => settingsApi.listUsers() })
   const [showCreate, setShowCreate] = useState(false)
   const [createForm, setCreateForm] = useState({ login: '', email: '', password: '', role: 'specialist' })
-  const [resetId, setResetId] = useState<string | null>(null)
-  const [resetPw, setResetPw] = useState('')
+  const [resetId, setResetId]       = useState<string | null>(null)
+  const [resetPw, setResetPw]       = useState('')
   const [createError, setCreateError] = useState('')
 
   const createMut = useMutation({
     mutationFn: () => settingsApi.createUser(createForm),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); setShowCreate(false); setCreateForm({ login: '', email: '', password: '', role: 'specialist' }); setCreateError('') },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] })
+      setShowCreate(false)
+      setCreateForm({ login: '', email: '', password: '', role: 'specialist' })
+      setCreateError('')
+    },
     onError: (e: any) => setCreateError(e.response?.data?.detail || 'Ошибка'),
   })
   const updateMut = useMutation({
@@ -343,78 +413,111 @@ function UsersTab() {
     onSuccess: () => { setResetId(null); setResetPw('') },
   })
 
-  if (isLoading) return <div className="text-gray-500 py-4">Загрузка...</div>
+  if (isLoading) return <Spinner />
 
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h4 className="font-medium text-sm">Пользователи ({(users as UserRecord[]).length})</h4>
-        <button onClick={() => setShowCreate(true)} className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700">+ Добавить</button>
+        <p className="text-sm text-muted">
+          {(users as UserRecord[]).length} пользователей
+        </p>
+        <button onClick={() => setShowCreate(true)} className="btn-accent py-2 px-4 text-sm">
+          + Добавить
+        </button>
       </div>
+
       {showCreate && (
-        <div className="bg-white border rounded-lg p-4 space-y-3">
-          <h5 className="font-medium text-sm">Новый пользователь</h5>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { k: 'login', l: 'Логин', t: 'text' },
-              { k: 'email', l: 'Email', t: 'email' },
-              { k: 'password', l: 'Пароль', t: 'password' },
-            ].map(({ k, l, t }) => (
-              <div key={k}>
-                <label className="block text-xs text-gray-500 mb-1">{l}</label>
-                <input type={t} className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  value={(createForm as any)[k]}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, [k]: e.target.value }))} />
-              </div>
-            ))}
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Роль</label>
-              <select className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={createForm.role} onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value }))}>
-                {['specialist','admin','viewer'].map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-              </select>
-            </div>
+        <div className="card-bordered overflow-hidden">
+          <div className="px-5 py-3.5 bg-surface-raised border-b border-[var(--border)]">
+            <h5 className="text-sm font-semibold text-primary">Новый пользователь</h5>
           </div>
-          {createError && <p className="text-red-500 text-sm">{createError}</p>}
-          <div className="flex gap-2">
-            <button onClick={() => createMut.mutate()} disabled={createMut.isPending || !createForm.login || !createForm.password}
-              className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
-              {createMut.isPending ? 'Создание...' : 'Создать'}
-            </button>
-            <button onClick={() => { setShowCreate(false); setCreateError('') }} className="border px-4 py-2 rounded-lg text-sm">Отмена</button>
+          <div className="p-5 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { k: 'login',    l: 'Логин',  t: 'text' },
+                { k: 'email',    l: 'Email',  t: 'email' },
+                { k: 'password', l: 'Пароль', t: 'password' },
+              ].map(({ k, l, t }) => (
+                <div key={k}>
+                  <Label>{l}</Label>
+                  <input type={t} className="field"
+                    value={(createForm as any)[k]}
+                    onChange={(e) => setCreateForm((f) => ({ ...f, [k]: e.target.value }))} />
+                </div>
+              ))}
+              <div>
+                <Label>Роль</Label>
+                <select className="field"
+                  value={createForm.role}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value }))}>
+                  {['specialist','admin','viewer'].map((r) => (
+                    <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {createError && <p className="text-red-500 text-sm">{createError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => createMut.mutate()}
+                disabled={createMut.isPending || !createForm.login || !createForm.password}
+                className="btn-accent"
+              >
+                {createMut.isPending ? 'Создание...' : 'Создать'}
+              </button>
+              <button onClick={() => { setShowCreate(false); setCreateError('') }} className="btn-ghost">
+                Отмена
+              </button>
+            </div>
           </div>
         </div>
       )}
-      <div className="bg-white border rounded-lg overflow-hidden">
+
+      <div className="card-bordered overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
+          <thead>
             <tr>
               {['Логин','Email','Роль','Статус',''].map((h) => (
-                <th key={h} className="text-left px-4 py-2 text-xs text-gray-500 font-medium">{h}</th>
+                <th key={h} className="table-head">{h}</th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y">
+          <tbody className="divide-y divide-[var(--border)]">
             {(users as UserRecord[]).map((u) => (
-              <tr key={u.id} className="hover:bg-gray-50">
-                <td className="px-4 py-2.5 font-medium">{u.login}</td>
-                <td className="px-4 py-2.5 text-gray-500 text-xs">{u.email}</td>
-                <td className="px-4 py-2.5">
-                  <select className="border rounded px-2 py-0.5 text-xs"
-                    value={u.role} onChange={(e) => updateMut.mutate({ id: u.id, data: { role: e.target.value } })}>
-                    {['specialist','admin','viewer','super_admin'].map((r) => <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>)}
+              <tr key={u.id} className="table-row">
+                <td className="table-cell font-medium">{u.login}</td>
+                <td className="table-cell text-muted text-xs">{u.email}</td>
+                <td className="table-cell">
+                  <select
+                    className="field py-1 px-2 text-xs rounded-lg"
+                    value={u.role}
+                    onChange={(e) => updateMut.mutate({ id: u.id, data: { role: e.target.value } })}
+                  >
+                    {['specialist','admin','viewer','super_admin'].map((r) => (
+                      <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>
+                    ))}
                   </select>
                 </td>
-                <td className="px-4 py-2.5">
-                  <span className={cx('text-xs px-2 py-0.5 rounded-full font-medium', u.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500')}>
+                <td className="table-cell">
+                  <span className={cx('badge', u.is_active ? 'badge-green' : 'badge-gray')}>
                     {u.is_active ? 'активен' : 'отключён'}
                   </span>
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="table-cell">
                   <div className="flex gap-2 justify-end">
-                    <button onClick={() => setResetId(u.id)} className="text-xs text-gray-500 hover:text-gray-700 border px-2 py-0.5 rounded">🔑</button>
-                    <button onClick={() => updateMut.mutate({ id: u.id, data: { is_active: !u.is_active } })}
-                      className={cx('text-xs border px-2 py-0.5 rounded', u.is_active ? 'text-red-500 border-red-200 hover:bg-red-50' : 'text-green-600 border-green-200 hover:bg-green-50')}>
+                    <button onClick={() => setResetId(u.id)}
+                      className="btn-ghost py-1 px-2.5 text-xs rounded-lg">
+                      🔑
+                    </button>
+                    <button
+                      onClick={() => updateMut.mutate({ id: u.id, data: { is_active: !u.is_active } })}
+                      className={cx(
+                        'btn py-1 px-2.5 text-xs rounded-lg border transition',
+                        u.is_active
+                          ? 'text-red-500 border-red-200 hover:bg-red-50'
+                          : 'text-emerald-600 border-emerald-200 hover:bg-emerald-50'
+                      )}
+                    >
                       {u.is_active ? 'Откл.' : 'Вкл.'}
                     </button>
                   </div>
@@ -424,18 +527,25 @@ function UsersTab() {
           </tbody>
         </table>
       </div>
+
       {resetId && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-72 space-y-4">
-            <h3 className="font-semibold">Сброс пароля</h3>
-            <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="Новый пароль" value={resetPw} onChange={(e) => setResetPw(e.target.value)} />
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="card p-6 w-80 space-y-4 shadow-card-lg">
+            <h3 className="font-semibold text-primary">Сброс пароля</h3>
+            <input type="password" className="field"
+              placeholder="Новый пароль" value={resetPw}
+              onChange={(e) => setResetPw(e.target.value)} />
             <div className="flex gap-2">
-              <button onClick={() => resetPwMut.mutate()} disabled={!resetPw || resetPwMut.isPending}
-                className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm flex-1 disabled:opacity-50">
+              <button
+                onClick={() => resetPwMut.mutate()}
+                disabled={!resetPw || resetPwMut.isPending}
+                className="btn-accent flex-1"
+              >
                 {resetPwMut.isPending ? '...' : 'Сохранить'}
               </button>
-              <button onClick={() => { setResetId(null); setResetPw('') }} className="border px-4 py-2 rounded-lg text-sm">✕</button>
+              <button onClick={() => { setResetId(null); setResetPw('') }} className="btn-ghost px-4">
+                ✕
+              </button>
             </div>
           </div>
         </div>
@@ -444,14 +554,15 @@ function UsersTab() {
   )
 }
 
+// ── Prompts ──────────────────────────────────────────────────────────────────
 function PromptsTab() {
   const qc = useQueryClient()
   const { data: prompts = [], isLoading } = useQuery({ queryKey: ['prompts'], queryFn: () => settingsApi.listPrompts() })
-  const [selected, setSelected] = useState<string | null>(null)
-  const [editText, setEditText] = useState('')
-  const [saved, setSaved] = useState(false)
-  const [showCreate, setShowCreate] = useState(false)
-  const [createForm, setCreateForm] = useState({ name: '', module: 'custom', prompt_text: '' })
+  const [selected, setSelected]       = useState<string | null>(null)
+  const [editText, setEditText]       = useState('')
+  const [saved, setSaved]             = useState(false)
+  const [showCreate, setShowCreate]   = useState(false)
+  const [createForm, setCreateForm]   = useState({ name: '', module: 'custom', prompt_text: '' })
   const [createError, setCreateError] = useState('')
 
   const { data: promptData, isLoading: promptLoading } = useQuery({
@@ -462,7 +573,11 @@ function PromptsTab() {
 
   const saveMut = useMutation({
     mutationFn: () => settingsApi.updatePrompt(selected!, editText),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['prompts'] }); setSaved(true); setTimeout(() => setSaved(false), 2000) },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['prompts'] })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    },
   })
   const createMut = useMutation({
     mutationFn: () => settingsApi.createPrompt(createForm),
@@ -480,98 +595,126 @@ function PromptsTab() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['prompts'] }); setSelected(null); setEditText('') },
   })
 
-  if (isLoading) return <div className="text-gray-500 py-4">Загрузка...</div>
+  if (isLoading) return <Spinner />
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Системные промпты управляют генерацией через ИИ. Редактируйте осторожно.</p>
-        <button onClick={() => setShowCreate(true)}
-          className="text-sm bg-primary-600 text-white px-3 py-1.5 rounded-lg hover:bg-primary-700 shrink-0">
+        <p className="text-sm text-muted">Системные промпты для генерации ИИ. Редактируйте осторожно.</p>
+        <button onClick={() => setShowCreate(true)} className="btn-accent py-2 px-4 text-sm shrink-0">
           + Добавить
         </button>
       </div>
 
       {showCreate && (
-        <div className="bg-white border rounded-lg p-4 space-y-3">
-          <h5 className="font-medium text-sm">Новый промпт</h5>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Название (уникальное)</label>
-              <input className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={createForm.name}
-                onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="my_custom_prompt" />
+        <div className="card-bordered overflow-hidden">
+          <div className="px-5 py-3.5 bg-surface-raised border-b border-[var(--border)]">
+            <h5 className="text-sm font-semibold text-primary">Новый промпт</h5>
+          </div>
+          <div className="p-5 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Название (уникальное)</Label>
+                <input className="field"
+                  value={createForm.name}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="my_custom_prompt" />
+              </div>
+              <div>
+                <Label>Модуль</Label>
+                <input className="field"
+                  value={createForm.module}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, module: e.target.value }))}
+                  placeholder="direct / seo / custom" />
+              </div>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Модуль</label>
-              <input className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={createForm.module}
-                onChange={(e) => setCreateForm((f) => ({ ...f, module: e.target.value }))}
-                placeholder="direct / seo / custom" />
+              <Label>Текст промпта</Label>
+              <textarea rows={8} className="field font-mono"
+                value={createForm.prompt_text}
+                onChange={(e) => setCreateForm((f) => ({ ...f, prompt_text: e.target.value }))}
+                placeholder="Вы — эксперт по..." />
             </div>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Текст промпта</label>
-            <textarea rows={8} className="w-full border rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500"
-              value={createForm.prompt_text}
-              onChange={(e) => setCreateForm((f) => ({ ...f, prompt_text: e.target.value }))}
-              placeholder="Вы — эксперт по..." />
-          </div>
-          {createError && <p className="text-red-500 text-sm">{createError}</p>}
-          <div className="flex gap-2">
-            <button onClick={() => createMut.mutate()} disabled={createMut.isPending || !createForm.name || !createForm.prompt_text}
-              className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
-              {createMut.isPending ? 'Создание...' : 'Создать'}
-            </button>
-            <button onClick={() => { setShowCreate(false); setCreateError('') }} className="border px-4 py-2 rounded-lg text-sm">Отмена</button>
+            {createError && <p className="text-red-500 text-sm">{createError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => createMut.mutate()}
+                disabled={createMut.isPending || !createForm.name || !createForm.prompt_text}
+                className="btn-accent"
+              >
+                {createMut.isPending ? 'Создание...' : 'Создать'}
+              </button>
+              <button onClick={() => { setShowCreate(false); setCreateError('') }} className="btn-ghost">
+                Отмена
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       <div className="grid grid-cols-3 gap-4" style={{ minHeight: 400 }}>
+        {/* List */}
         <div className="space-y-1">
           {(prompts as any[]).map((p) => (
-            <div key={p.name} className="flex items-center gap-1">
+            <div key={p.name} className="flex items-center gap-1.5">
               <button
                 onClick={() => { setSelected(p.name); setEditText(''); setSaved(false) }}
-                className={cx('flex-1 text-left px-3 py-2 rounded-lg text-sm transition',
-                  selected === p.name ? 'bg-primary-600 text-white' : 'bg-white border hover:bg-gray-50')}>
+                className={cx(
+                  'flex-1 text-left px-3 py-2.5 rounded-xl text-sm transition',
+                  selected === p.name
+                    ? 'text-white font-medium'
+                    : 'card-bordered hover:shadow-card-md'
+                )}
+                style={selected === p.name
+                  ? { background: 'var(--accent)' }
+                  : undefined}
+              >
                 <p className="font-medium truncate">{p.name}</p>
-                <p className={cx('text-xs', selected === p.name ? 'text-primary-200' : 'text-gray-400')}>{p.module}</p>
+                <p className={cx('text-xs mt-0.5', selected === p.name ? 'text-white/60' : 'text-muted')}>
+                  {p.module}
+                </p>
               </button>
-              <button onClick={() => { if (confirm(`Удалить промпт "${p.name}"?`)) deleteMut.mutate(p.name) }}
-                className="text-red-400 hover:text-red-600 text-xs border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50 shrink-0">
+              <button
+                onClick={() => { if (confirm(`Удалить промпт "${p.name}"?`)) deleteMut.mutate(p.name) }}
+                className="btn-danger py-1 px-2 text-xs rounded-lg shrink-0"
+              >
                 ✕
               </button>
             </div>
           ))}
-          {prompts.length === 0 && <p className="text-gray-400 text-sm">Нет промптов</p>}
+          {prompts.length === 0 && <p className="text-muted text-sm py-4">Нет промптов</p>}
         </div>
+
+        {/* Editor */}
         <div className="col-span-2">
-          {selected && (promptLoading ? <div className="text-gray-500">Загрузка...</div> :
+          {selected && (promptLoading ? <Spinner /> :
             promptData ? (
-              <div className="space-y-2 h-full flex flex-col">
+              <div className="space-y-3 h-full flex flex-col">
                 <div className="flex justify-between items-center">
-                  <p className="text-sm font-medium text-gray-700">{promptData.name}
-                    <span className="ml-2 text-xs text-gray-400 font-normal">{promptData.module}</span>
+                  <p className="text-sm font-semibold text-primary">
+                    {promptData.name}
+                    <span className="ml-2 text-xs font-normal text-muted">{promptData.module}</span>
                   </p>
-                  {saved && <span className="text-green-600 text-sm">✅ Сохранено</span>}
+                  {saved && <SaveFeedback ok />}
                 </div>
-                <textarea rows={16}
-                  className="flex-1 w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500"
+                <textarea
+                  rows={16}
+                  className="field flex-1 font-mono text-xs"
                   value={editText || (promptData as SystemPromptFull).prompt_text}
-                  onChange={(e) => setEditText(e.target.value)} />
-                <button onClick={() => { if (!editText) setEditText((promptData as SystemPromptFull).prompt_text); saveMut.mutate() }}
+                  onChange={(e) => setEditText(e.target.value)}
+                />
+                <button
+                  onClick={() => { if (!editText) setEditText((promptData as SystemPromptFull).prompt_text); saveMut.mutate() }}
                   disabled={saveMut.isPending}
-                  className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50 self-start">
+                  className="btn-accent self-start"
+                >
                   {saveMut.isPending ? 'Сохранение...' : 'Сохранить промпт'}
                 </button>
               </div>
             ) : null
           )}
           {!selected && (
-            <div className="h-full flex items-center justify-center text-gray-400 text-sm border rounded-lg bg-white">
+            <div className="h-full flex items-center justify-center text-muted text-sm card-bordered rounded-2xl">
               Выберите промпт из списка слева
             </div>
           )}
@@ -581,42 +724,47 @@ function PromptsTab() {
   )
 }
 
+// ── Page ─────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
-  const user = useAuthStore((s) => s.user)
+  const user       = useAuthStore((s) => s.user)
   const [tab, setTab] = useState<Tab>('api-keys')
 
   const isSuperAdmin = user?.role === 'super_admin'
-  const isAdmin = user?.role === 'admin' || isSuperAdmin
+  const isAdmin      = user?.role === 'admin' || isSuperAdmin
 
   const allTabs: { key: Tab; label: string; show: boolean }[] = [
-    { key: 'api-keys', label: 'API ключи', show: true },
-    { key: 'crawler', label: 'Парсер', show: true },
-    { key: 'ai', label: 'ИИ параметры', show: true },
-    { key: 'white-label', label: 'White Label', show: isAdmin },
-    { key: 'users', label: 'Пользователи', show: isAdmin },
-    { key: 'prompts', label: 'Промпты', show: isSuperAdmin },
+    { key: 'api-keys',    label: 'API ключи',     show: true },
+    { key: 'crawler',     label: 'Парсер',         show: true },
+    { key: 'ai',          label: 'ИИ параметры',   show: true },
+    { key: 'white-label', label: 'White Label',    show: isAdmin },
+    { key: 'users',       label: 'Пользователи',   show: isAdmin },
+    { key: 'prompts',     label: 'Промпты',        show: isSuperAdmin },
   ]
   const tabs = allTabs.filter((t) => t.show)
 
   return (
     <div className="p-6">
-      <h2 className="text-xl font-semibold mb-4">Настройки</h2>
-      <div className="flex gap-1 mb-6 border-b">
+      <h2 className="page-title mb-5">Настройки</h2>
+
+      <div className="tab-bar mb-6">
         {tabs.map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={cx('px-4 py-2 text-sm font-medium border-b-2 transition -mb-px',
-              tab === t.key ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-600 hover:text-gray-900')}>
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={cx('tab-item', tab === t.key ? 'active' : '')}
+          >
             {t.label}
           </button>
         ))}
       </div>
+
       <div className="max-w-2xl">
-        {tab === 'api-keys' && <ApiKeysTab />}
-        {tab === 'crawler' && <CrawlerTab />}
-        {tab === 'ai' && <AITab />}
+        {tab === 'api-keys'    && <ApiKeysTab />}
+        {tab === 'crawler'     && <CrawlerTab />}
+        {tab === 'ai'          && <AITab />}
         {tab === 'white-label' && <WhiteLabelTab />}
-        {tab === 'users' && <UsersTab />}
-        {tab === 'prompts' && <PromptsTab />}
+        {tab === 'users'       && <UsersTab />}
+        {tab === 'prompts'     && <PromptsTab />}
       </div>
     </div>
   )
