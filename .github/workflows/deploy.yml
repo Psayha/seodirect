@@ -92,7 +92,7 @@ jobs:
 
             # Pull latest compose and config files from repo
             if [ ! -d .git ]; then
-              git clone --depth 1 https://github.com/${GITHUB_REPO}.git .tmp_repo
+              git clone --depth 1 https://${GITHUB_ACTOR}:${GHCR_TOKEN}@github.com/${GITHUB_REPO}.git .tmp_repo
               cp .tmp_repo/docker-compose.prod.yml .
               cp -r .tmp_repo/nginx .
               cp -r .tmp_repo/scripts .
