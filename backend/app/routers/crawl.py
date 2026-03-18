@@ -1,6 +1,8 @@
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
@@ -121,6 +123,8 @@ def get_pages(
 
     q = select(Page).where(Page.crawl_session_id == session.id)
 
+    all_pages = db.scalars(select(Page).where(Page.crawl_session_id == session.id)).all()
+
     if issue == "no_title":
         q = q.where(Page.title.is_(None))
     elif issue == "no_description":
@@ -131,6 +135,24 @@ def get_pages(
         q = q.where(Page.robots_meta.like("%noindex%"))
     elif issue == "slow":
         q = q.where(Page.load_time_ms > 3000)
+    elif issue == "orphan":
+        orphan_urls = _get_orphan_urls(all_pages)
+        if orphan_urls:
+            q = q.where(Page.url.in_(list(orphan_urls)))
+        else:
+            q = q.where(False)
+    elif issue == "dup_title":
+        dup_titles = _get_duplicate_values([p.title for p in all_pages if p.title])
+        if dup_titles:
+            q = q.where(Page.title.in_(list(dup_titles)))
+        else:
+            q = q.where(False)
+    elif issue == "dup_description":
+        dup_descs = _get_duplicate_values([p.description for p in all_pages if p.description])
+        if dup_descs:
+            q = q.where(Page.description.in_(list(dup_descs)))
+        else:
+            q = q.where(False)
 
     total = db.scalar(select(func.count()).select_from(q.subquery()))
     pages = db.scalars(q.offset(offset).limit(limit)).all()
@@ -176,6 +198,10 @@ def crawl_report(
     pages = db.scalars(select(Page).where(Page.crawl_session_id == session.id)).all()
     total = len(pages)
 
+    title_counts = Counter(p.title for p in pages if p.title)
+    desc_counts = Counter(p.description for p in pages if p.description)
+    orphan_urls = _get_orphan_urls(pages)
+
     return {
         "session_id": str(session.id),
         "pages_total": total,
@@ -186,4 +212,69 @@ def crawl_report(
         "slow_pages": sum(1 for p in pages if p.load_time_ms > 3000),
         "images_without_alt": sum(p.images_without_alt for p in pages),
         "no_og_image": sum(1 for p in pages if not p.og_image),
+        "dup_title": sum(1 for t, c in title_counts.items() if c > 1),
+        "dup_description": sum(1 for d, c in desc_counts.items() if c > 1),
+        "orphan_pages": len(orphan_urls),
     }
+
+
+def _get_orphan_urls(pages: list) -> set:
+    """Return set of page URLs that have no incoming internal links."""
+    linked_to: set[str] = set()
+    for p in pages:
+        for link in (p.internal_links or []):
+            normalized = link.split("#")[0].split("?")[0].rstrip("/")
+            linked_to.add(normalized)
+    orphans = set()
+    for i, p in enumerate(pages):
+        if i == 0:
+            continue  # skip root
+        normalized = p.url.split("#")[0].split("?")[0].rstrip("/")
+        if normalized not in linked_to:
+            orphans.add(p.url)
+    return orphans
+
+
+def _get_duplicate_values(values: list[str]) -> set[str]:
+    """Return set of values that appear more than once."""
+    counts = Counter(values)
+    return {v for v, c in counts.items() if c > 1}
+
+
+@router.get("/projects/{project_id}/crawl/tree")
+def crawl_tree(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Return URL tree structure for crawled pages."""
+    _check_project_access(project_id, current_user, db)
+    session = db.scalar(
+        select(CrawlSession)
+        .where(CrawlSession.project_id == project_id, CrawlSession.status == CrawlStatus.DONE)
+        .order_by(CrawlSession.finished_at.desc())
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="No completed crawl found")
+
+    pages = db.scalars(select(Page).where(Page.crawl_session_id == session.id)).all()
+
+    def build_tree(url_list: list) -> dict:
+        tree: dict = {}
+        for url, title, status_code in url_list:
+            parsed = urlparse(url)
+            parts = [p for p in parsed.path.split("/") if p]
+            if not parts:
+                parts = ["(root)"]
+            node = tree
+            for i, part in enumerate(parts):
+                if part not in node:
+                    node[part] = {"children": {}, "pages": []}
+                if i == len(parts) - 1:
+                    node[part]["pages"].append({"url": url, "title": title, "status_code": status_code})
+                node = node[part]["children"]
+        return tree
+
+    url_list = [(p.url, p.title, p.status_code) for p in pages]
+    tree = build_tree(url_list)
+    return {"tree": tree, "total": len(pages)}

@@ -106,3 +106,73 @@ def reset_password(
         raise HTTPException(status_code=400, detail="Password required")
     user.password_hash = hash_password(new_password)
     db.commit()
+
+
+# ─── Project assignment ────────────────────────────────────────────────────────
+
+@router.get("/all-projects")
+def all_projects(
+    _: Annotated[User, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Return all projects with their current specialist assignment."""
+    from app.models.project import Project
+    projects = db.scalars(select(Project).order_by(Project.name)).all()
+    return [
+        {
+            "id": str(p.id),
+            "name": p.name,
+            "client_name": p.client_name,
+            "status": p.status.value,
+            "specialist_id": str(p.specialist_id) if p.specialist_id else None,
+        }
+        for p in projects
+    ]
+
+
+@router.get("/{user_id}/projects")
+def get_user_projects(
+    user_id: uuid.UUID,
+    _: Annotated[User, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """List projects assigned to a user."""
+    from app.models.project import Project
+    projects = db.scalars(select(Project).where(Project.specialist_id == user_id)).all()
+    return [
+        {"id": str(p.id), "name": p.name, "client_name": p.client_name, "status": p.status.value}
+        for p in projects
+    ]
+
+
+@router.post("/{user_id}/projects/{project_id}/assign", status_code=status.HTTP_204_NO_CONTENT)
+def assign_project(
+    user_id: uuid.UUID,
+    project_id: uuid.UUID,
+    _: Annotated[User, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Assign a project to a user (set specialist_id)."""
+    from app.models.project import Project
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    project.specialist_id = user_id
+    db.commit()
+
+
+@router.delete("/{user_id}/projects/{project_id}/assign", status_code=status.HTTP_204_NO_CONTENT)
+def unassign_project(
+    user_id: uuid.UUID,
+    project_id: uuid.UUID,
+    _: Annotated[User, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Unassign a project from a user."""
+    from app.models.project import Project
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if str(project.specialist_id) == str(user_id):
+        project.specialist_id = None
+        db.commit()

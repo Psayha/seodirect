@@ -4,7 +4,7 @@ import { api } from '../api/client'
 import { settingsApi, type CrawlerSettings, type AISettings, type UserRecord, type SystemPromptFull } from '../api/settings'
 import { useAuthStore } from '../store/auth'
 
-type Tab = 'api-keys' | 'crawler' | 'ai' | 'users' | 'prompts'
+type Tab = 'api-keys' | 'crawler' | 'ai' | 'users' | 'prompts' | 'white-label'
 
 function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
@@ -180,6 +180,67 @@ function AITab() {
           onChange={(e) => setForm((f) => ({ ...f, ai_temperature: Number(e.target.value) }))} />
         <div className="flex justify-between text-xs text-gray-400 mt-0.5">
           <span>0 — точно</span><span>1 — творчески</span>
+        </div>
+      </div>
+      <div className="flex gap-3 pt-1">
+        <button onClick={() => saveMut.mutate(cur)} disabled={saveMut.isPending}
+          className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          {saveMut.isPending ? 'Сохранение...' : 'Сохранить'}
+        </button>
+        {saved && <span className="text-green-600 text-sm py-2">✅ Сохранено</span>}
+      </div>
+    </div>
+  )
+}
+
+function WhiteLabelTab() {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ['white-label-settings'],
+    queryFn: () => api.get('/settings/white-label').then((r) => r.data),
+  })
+  const [form, setForm] = useState<{ white_label_agency_name?: string; white_label_logo_url?: string; white_label_primary_color?: string }>({})
+  const [saved, setSaved] = useState(false)
+
+  const saveMut = useMutation({
+    mutationFn: (d: any) => api.put('/settings/white-label', d),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['white-label-settings'] }); setSaved(true); setTimeout(() => setSaved(false), 2000) },
+  })
+
+  if (isLoading) return <div className="text-gray-500 py-4">Загрузка...</div>
+
+  const cur = { ...data, ...form }
+
+  return (
+    <div className="bg-white rounded-lg border p-4 space-y-4">
+      <h4 className="font-medium text-sm text-gray-700 uppercase tracking-wide">White Label — брендинг PDF</h4>
+      <p className="text-xs text-gray-500">Эти настройки используются при экспорте HTML/PDF стратегии для клиента.</p>
+      <div>
+        <label className="block text-sm text-gray-600 mb-1">Название агентства</label>
+        <input className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+          value={cur.white_label_agency_name ?? ''}
+          onChange={(e) => setForm((f) => ({ ...f, white_label_agency_name: e.target.value }))} />
+      </div>
+      <div>
+        <label className="block text-sm text-gray-600 mb-1">URL логотипа</label>
+        <input placeholder="https://agency.ru/logo.png"
+          className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+          value={cur.white_label_logo_url ?? ''}
+          onChange={(e) => setForm((f) => ({ ...f, white_label_logo_url: e.target.value }))} />
+        {cur.white_label_logo_url && (
+          <img src={cur.white_label_logo_url} alt="logo preview" className="mt-2 h-10 object-contain border rounded" />
+        )}
+      </div>
+      <div>
+        <label className="block text-sm text-gray-600 mb-1">Цвет бренда (hex)</label>
+        <div className="flex items-center gap-2">
+          <input type="color"
+            value={cur.white_label_primary_color ?? '#1e40af'}
+            onChange={(e) => setForm((f) => ({ ...f, white_label_primary_color: e.target.value }))}
+            className="w-10 h-10 rounded border cursor-pointer" />
+          <input className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            value={cur.white_label_primary_color ?? '#1e40af'}
+            onChange={(e) => setForm((f) => ({ ...f, white_label_primary_color: e.target.value }))} />
         </div>
       </div>
       <div className="flex gap-3 pt-1">
@@ -399,6 +460,7 @@ export default function SettingsPage() {
     { key: 'api-keys', label: 'API ключи', show: true },
     { key: 'crawler', label: 'Парсер', show: true },
     { key: 'ai', label: 'ИИ параметры', show: true },
+    { key: 'white-label', label: 'White Label', show: isAdmin },
     { key: 'users', label: 'Пользователи', show: isAdmin },
     { key: 'prompts', label: 'Промпты', show: isSuperAdmin },
   ]
@@ -420,6 +482,7 @@ export default function SettingsPage() {
         {tab === 'api-keys' && <ApiKeysTab />}
         {tab === 'crawler' && <CrawlerTab />}
         {tab === 'ai' && <AITab />}
+        {tab === 'white-label' && <WhiteLabelTab />}
         {tab === 'users' && <UsersTab />}
         {tab === 'prompts' && <PromptsTab />}
       </div>

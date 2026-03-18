@@ -29,6 +29,9 @@ PLAIN_FIELDS = {
     "ai_max_tokens",
     "ai_temperature",
     "ai_language",
+    "white_label_agency_name",
+    "white_label_logo_url",
+    "white_label_primary_color",
 }
 
 # Дефолтные промпты

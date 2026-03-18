@@ -516,45 +516,81 @@ def export_copywriter_docx(project_id, db: "Session") -> bytes:
 # HTML: Стратегия для печати / PDF
 # ─────────────────────────────────────────────────────────────────────────────
 
-_PRINT_CSS = """
-body { font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 860px;
-       margin: 0 auto; padding: 40px 20px; color: #111; line-height: 1.6; }
-h1 { color: #1e40af; border-bottom: 2px solid #1e40af; padding-bottom: 8px; }
-h2 { color: #1e3a8a; margin-top: 32px; }
-h3 { color: #374151; }
-h4 { color: #6b7280; }
-table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-th, td { border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; font-size: 13px; }
-th { background: #eff6ff; font-weight: 600; }
-code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
-blockquote { border-left: 4px solid #93c5fd; padding-left: 12px; color: #374151; margin: 12px 0; }
-@media print {
-  @page { margin: 20mm; }
-  h1, h2 { page-break-after: avoid; }
-  table { page-break-inside: avoid; }
-}
+def _get_print_css(primary_color: str = "#1e40af") -> str:
+    return f"""
+body {{ font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 860px;
+       margin: 0 auto; padding: 40px 20px; color: #111; line-height: 1.6; }}
+h1 {{ color: {primary_color}; border-bottom: 2px solid {primary_color}; padding-bottom: 8px; }}
+h2 {{ color: {primary_color}; margin-top: 32px; }}
+h3 {{ color: #374151; }}
+h4 {{ color: #6b7280; }}
+table {{ border-collapse: collapse; width: 100%; margin: 16px 0; }}
+th, td {{ border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; font-size: 13px; }}
+th {{ background: #eff6ff; font-weight: 600; }}
+code {{ background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 12px; }}
+blockquote {{ border-left: 4px solid #93c5fd; padding-left: 12px; color: #374151; margin: 12px 0; }}
+.cover {{ text-align: center; padding: 60px 20px; border-bottom: 2px solid {primary_color}; margin-bottom: 40px; }}
+.cover h1 {{ border: none; font-size: 2em; }}
+.cover .subtitle {{ color: #6b7280; margin-top: 8px; }}
+.agency-logo {{ max-height: 60px; margin-bottom: 20px; }}
+@media print {{
+  @page {{ margin: 20mm; }}
+  h1, h2 {{ page-break-after: avoid; }}
+  table {{ page-break-inside: avoid; }}
+  .cover {{ page-break-after: always; }}
+}}
 """
 
 
 def export_strategy_html(project_id, db: "Session") -> str:
-    """Convert the Markdown strategy to a print-ready HTML page."""
+    """Convert the Markdown strategy to a print-ready HTML page with white label."""
     import markdown as md_lib
+    from app.services.settings_service import get_setting
+
+    agency_name = get_setting("white_label_agency_name", db) or "SEODirect Tool"
+    logo_url = get_setting("white_label_logo_url", db) or ""
+    primary_color = get_setting("white_label_primary_color", db) or "#1e40af"
+
+    from sqlalchemy import select
+    from app.models.project import Project
+    import uuid as _uuid
+    if not isinstance(project_id, _uuid.UUID):
+        project_id = _uuid.UUID(str(project_id))
+    project = db.get(Project, project_id)
+    project_name = project.name if project else ""
+    client_name = project.client_name if project else ""
 
     md_text = export_strategy_md(project_id, db)
     body = md_lib.markdown(md_text, extensions=["tables", "fenced_code"])
+
+    logo_html = f'<img src="{logo_url}" alt="{agency_name}" class="agency-logo">' if logo_url else ""
+
+    from datetime import date
+    today = date.today().strftime("%d.%m.%Y")
+
+    cover = f"""<div class="cover">
+  {logo_html}
+  <h1>Стратегия Яндекс Директ</h1>
+  <p class="subtitle"><strong>{project_name}</strong> · {client_name}</p>
+  <p class="subtitle">Подготовлено: {agency_name} · {today}</p>
+  <p style="margin-top:16px;font-size:12px;color:#9ca3af">Откройте Ctrl+P → Сохранить как PDF</p>
+</div>"""
+
+    css = _get_print_css(primary_color)
     return f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Стратегия Яндекс Директ</title>
-  <style>{_PRINT_CSS}</style>
+  <title>Стратегия — {project_name}</title>
+  <style>{css}</style>
 </head>
 <body>
+{cover}
 {body}
 <hr style="margin-top:40px;border-color:#e5e7eb">
 <p style="font-size:11px;color:#9ca3af;text-align:right">
-  Сформировано SEODirect Tool
+  Подготовлено {agency_name} · {today}
 </p>
 </body>
 </html>"""
