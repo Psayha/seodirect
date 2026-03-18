@@ -181,8 +181,12 @@ async def test_api_key(
                     json={},
                 )
                 if r.status_code == 200:
-                    result = r.json()
-                    count = len(result.get("result", []))
+                    data = r.json()
+                    errors = data.get("errors")
+                    if errors:
+                        msg = errors[0].get("string", "Неверный API ключ") if isinstance(errors, list) else "Неверный API ключ"
+                        return {"ok": False, "message": msg}
+                    count = len(data.get("result") or [])
                     return {"ok": True, "message": f"Подключено. Проектов: {count}"}
                 if r.status_code in (401, 403):
                     return {"ok": False, "message": "Неверный API ключ"}
