@@ -150,7 +150,7 @@ export default function ProjectPage() {
       <div className="flex-1 bg-page">
         <ErrorBoundary label={tab}>
           <Suspense fallback={<TabFallback />}>
-            {tab === 'overview'     && <OverviewTab    projectId={id!} onTabChange={setTab} />}
+            {tab === 'overview'     && <OverviewTab    projectId={id!} onTabChange={(t) => setTab(t as Tab)} />}
             {tab === 'brief'        && <BriefTab        projectId={id!} />}
             {tab === 'crawl'        && <CrawlTab        projectId={id!} />}
             {tab === 'direct'       && <DirectTab       projectId={id!} />}
