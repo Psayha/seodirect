@@ -14,15 +14,15 @@ function UrlTreeNode({ node, depth = 0 }: { node: Record<string, any>; depth?: n
   const entries = Object.entries(node)
   if (!entries.length) return null
   return (
-    <ul className={depth === 0 ? '' : 'ml-4 border-l border-gray-200 pl-2'}>
+    <ul className={depth === 0 ? '' : 'ml-4 border-l border-[var(--border)] pl-2'}>
       {entries.map(([key, val]) => (
         <li key={key} className="py-0.5">
           <div
-            className="flex items-center gap-1 cursor-pointer hover:text-primary-600 text-sm"
+            className="flex items-center gap-1 cursor-pointer hover:text-accent text-sm"
             onClick={() => setExpanded((v) => !v)}
           >
-            <span className="text-gray-400 text-xs w-3">{Object.keys(val.children || {}).length > 0 ? (expanded ? '▾' : '▸') : '·'}</span>
-            <span className="font-medium text-gray-700">{key}</span>
+            <span className="text-muted text-xs w-3">{Object.keys(val.children || {}).length > 0 ? (expanded ? '▾' : '▸') : '·'}</span>
+            <span className="font-medium text-primary">{key}</span>
             {(val.pages || []).map((p: any) => (
               <a key={p.url} href={p.url} target="_blank" rel="noreferrer"
                 className="text-xs text-blue-500 hover:underline truncate max-w-xs"
@@ -62,7 +62,7 @@ function LinkingSection({ projectId }: { projectId: string }) {
     if (type === 'orphan') return 'text-red-600 bg-red-50'
     if (type === 'hub') return 'text-green-600 bg-green-50'
     if (type === 'isolated') return 'text-orange-600 bg-orange-50'
-    return 'text-gray-600 bg-gray-50'
+    return 'text-muted bg-surface-raised'
   }
 
   const typeLabel = (type: string) => {
@@ -73,11 +73,11 @@ function LinkingSection({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="border rounded-lg bg-white p-4 mt-6">
+    <div className="border border-[var(--border)] rounded-xl bg-surface p-4 mt-6">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold">Перелинковка</h3>
         <button onClick={() => refetch()} disabled={isLoading}
-          className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          className="btn-accent px-3 py-1.5 rounded-xl text-sm hover:bg-accent disabled:opacity-50">
           {isLoading ? '⏳ Загрузка...' : 'Проанализировать'}
         </button>
       </div>
@@ -85,13 +85,13 @@ function LinkingSection({ projectId }: { projectId: string }) {
       {stats.total > 0 && (
         <div className="grid grid-cols-4 gap-3 mb-4 text-sm">
           {[
-            { label: 'Всего страниц', value: stats.total, color: 'text-gray-700' },
+            { label: 'Всего страниц', value: stats.total, color: 'text-primary' },
             { label: 'Сирот', value: stats.orphans || 0, color: 'text-red-600' },
             { label: 'Хабов', value: stats.hubs || 0, color: 'text-green-600' },
             { label: 'Изолированных', value: stats.isolated || 0, color: 'text-orange-600' },
           ].map(({ label, value, color }) => (
-            <div key={label} className="bg-gray-50 rounded-lg p-3 text-center">
-              <p className="text-xs text-gray-500 mb-1">{label}</p>
+            <div key={label} className="bg-surface-raised rounded-xl p-3 text-center">
+              <p className="text-xs text-muted mb-1">{label}</p>
               <p className={cx('text-xl font-bold', color)}>{value}</p>
             </div>
           ))}
@@ -104,7 +104,7 @@ function LinkingSection({ projectId }: { projectId: string }) {
             {(['all', 'orphan', 'hub', 'isolated'] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)}
                 className={cx('px-3 py-1 text-xs rounded-full border transition',
-                  filter === f ? 'bg-primary-600 text-white border-primary-600' : 'border-gray-300 text-gray-600 hover:border-gray-400')}>
+                  filter === f ? 'bg-accent text-white border-accent' : 'border-[var(--border)] text-muted hover:border-[var(--border)]')}>
                 {f === 'all' ? 'Все' : typeLabel(f)}
               </button>
             ))}
@@ -112,21 +112,21 @@ function LinkingSection({ projectId }: { projectId: string }) {
           <div className="overflow-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="bg-gray-50 border-b">
-                  <th className="px-3 py-2 text-left text-gray-500">URL</th>
-                  <th className="px-3 py-2 text-left text-gray-500 w-48">Title</th>
-                  <th className="px-3 py-2 text-center text-gray-500 w-16">Вход</th>
-                  <th className="px-3 py-2 text-center text-gray-500 w-16">Исход</th>
-                  <th className="px-3 py-2 text-center text-gray-500 w-24">Тип</th>
+                <tr className="bg-surface-raised border-b">
+                  <th className="px-3 py-2 text-left text-muted">URL</th>
+                  <th className="px-3 py-2 text-left text-muted w-48">Title</th>
+                  <th className="px-3 py-2 text-center text-muted w-16">Вход</th>
+                  <th className="px-3 py-2 text-center text-muted w-16">Исход</th>
+                  <th className="px-3 py-2 text-center text-muted w-24">Тип</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.slice(0, 100).map((p: any, i: number) => (
-                  <tr key={i} className="border-b hover:bg-gray-50">
+                  <tr key={i} className="border-b hover:bg-surface-raised">
                     <td className="px-3 py-2">
                       <a href={p.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate block max-w-xs">{p.url}</a>
                     </td>
-                    <td className="px-3 py-2 text-gray-600 truncate max-w-xs">{p.title || '—'}</td>
+                    <td className="px-3 py-2 text-muted truncate max-w-xs">{p.title || '—'}</td>
                     <td className="px-3 py-2 text-center tabular-nums">{p.incoming}</td>
                     <td className="px-3 py-2 text-center tabular-nums">{p.outgoing}</td>
                     <td className="px-3 py-2 text-center">
@@ -161,11 +161,11 @@ function RedirectsSection({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="border rounded-lg bg-white p-4 mt-6">
+    <div className="border border-[var(--border)] rounded-xl bg-surface p-4 mt-6">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold">Редиректы</h3>
         <button onClick={() => refetch()} disabled={isLoading}
-          className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          className="btn-accent px-3 py-1.5 rounded-xl text-sm hover:bg-accent disabled:opacity-50">
           {isLoading ? '⏳ Загрузка...' : 'Проанализировать'}
         </button>
       </div>
@@ -173,13 +173,13 @@ function RedirectsSection({ projectId }: { projectId: string }) {
       {stats.total > 0 && (
         <div className="grid grid-cols-4 gap-3 mb-4 text-sm">
           {[
-            { label: 'Всего редиректов', value: stats.total || 0, color: 'text-gray-700' },
+            { label: 'Всего редиректов', value: stats.total || 0, color: 'text-primary' },
             { label: 'Нормальных (1 хоп)', value: stats.normal || 0, color: 'text-green-600' },
             { label: 'Предупреждений (2)', value: stats.warnings || 0, color: 'text-yellow-600' },
             { label: 'Ошибок (3+)', value: stats.errors || 0, color: 'text-red-600' },
           ].map(({ label, value, color }) => (
-            <div key={label} className="bg-gray-50 rounded-lg p-3 text-center">
-              <p className="text-xs text-gray-500 mb-1">{label}</p>
+            <div key={label} className="bg-surface-raised rounded-xl p-3 text-center">
+              <p className="text-xs text-muted mb-1">{label}</p>
               <p className={cx('text-xl font-bold', color)}>{value}</p>
             </div>
           ))}
@@ -187,7 +187,7 @@ function RedirectsSection({ projectId }: { projectId: string }) {
       )}
 
       {stats.loops > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3 text-sm text-red-700">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-3 text-sm text-red-700">
           ⚠️ Обнаружено петель редиректов: <strong>{stats.loops}</strong>
         </div>
       )}
@@ -196,16 +196,16 @@ function RedirectsSection({ projectId }: { projectId: string }) {
         <div className="overflow-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="bg-gray-50 border-b">
-                <th className="px-3 py-2 text-left text-gray-500">Исходный URL</th>
-                <th className="px-3 py-2 text-left text-gray-500">Финальный URL</th>
-                <th className="px-3 py-2 text-center text-gray-500 w-16">Хопов</th>
-                <th className="px-3 py-2 text-center text-gray-500 w-24">Статус</th>
+              <tr className="bg-surface-raised border-b">
+                <th className="px-3 py-2 text-left text-muted">Исходный URL</th>
+                <th className="px-3 py-2 text-left text-muted">Финальный URL</th>
+                <th className="px-3 py-2 text-center text-muted w-16">Хопов</th>
+                <th className="px-3 py-2 text-center text-muted w-24">Статус</th>
               </tr>
             </thead>
             <tbody>
               {redirects.map((r: any, i: number) => (
-                <tr key={i} className="border-b hover:bg-gray-50">
+                <tr key={i} className="border-b hover:bg-surface-raised">
                   <td className="px-3 py-2 truncate max-w-xs">
                     <a href={r.source} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{r.source}</a>
                   </td>
@@ -240,11 +240,11 @@ function RobotsAuditSection({ projectId }: { projectId: string }) {
   const audit: any = data || {}
 
   return (
-    <div className="border rounded-lg bg-white p-4 mt-6">
+    <div className="border border-[var(--border)] rounded-xl bg-surface p-4 mt-6">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold">Robots.txt & Sitemap</h3>
         <button onClick={() => refetch()} disabled={isLoading}
-          className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          className="btn-accent px-3 py-1.5 rounded-xl text-sm hover:bg-accent disabled:opacity-50">
           {isLoading ? '⏳ Загрузка...' : 'Проверить'}
         </button>
       </div>
@@ -254,30 +254,30 @@ function RobotsAuditSection({ projectId }: { projectId: string }) {
           {audit.robots_txt && (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-medium text-gray-700">robots.txt</h4>
-                <button onClick={() => setShowRobots(v => !v)} className="text-xs text-primary-600 hover:text-primary-700">
+                <h4 className="text-sm font-medium text-primary">robots.txt</h4>
+                <button onClick={() => setShowRobots(v => !v)} className="text-xs text-accent hover:text-accent">
                   {showRobots ? 'Скрыть ▲' : 'Показать ▼'}
                 </button>
               </div>
               {showRobots && (
-                <pre className="bg-gray-50 border rounded-lg p-3 text-xs font-mono overflow-auto max-h-48">{audit.robots_txt}</pre>
+                <pre className="bg-surface-raised border rounded-xl p-3 text-xs font-mono overflow-auto max-h-48">{audit.robots_txt}</pre>
               )}
             </div>
           )}
 
           {(audit.disallow_rules || []).length > 0 && (
             <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-2">Правила Disallow ({audit.disallow_rules.length})</h4>
+              <h4 className="text-sm font-medium text-primary mb-2">Правила Disallow ({audit.disallow_rules.length})</h4>
               <div className="flex flex-wrap gap-1">
                 {audit.disallow_rules.slice(0, 30).map((r: string, i: number) => (
-                  <span key={i} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono">{r}</span>
+                  <span key={i} className="text-xs bg-surface-raised text-muted px-2 py-0.5 rounded font-mono">{r}</span>
                 ))}
               </div>
             </div>
           )}
 
           {(audit.blocked_important || []).length > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3">
               <p className="text-sm font-medium text-red-700 mb-1">⚠️ Важные страницы заблокированы robots.txt:</p>
               <div className="space-y-0.5">
                 {audit.blocked_important.map((url: string, i: number) => (
@@ -288,19 +288,19 @@ function RobotsAuditSection({ projectId }: { projectId: string }) {
           )}
 
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs text-gray-500 mb-1">URL в sitemap</p>
-              <p className="text-xl font-bold text-gray-800">{audit.sitemap_urls ?? '—'}</p>
+            <div className="bg-surface-raised rounded-xl p-3">
+              <p className="text-xs text-muted mb-1">URL в sitemap</p>
+              <p className="text-xl font-bold text-primary">{audit.sitemap_urls ?? '—'}</p>
             </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs text-gray-500 mb-1">Проиндексировано</p>
-              <p className="text-xl font-bold text-gray-800">{audit.crawled_urls ?? '—'}</p>
+            <div className="bg-surface-raised rounded-xl p-3">
+              <p className="text-xs text-muted mb-1">Проиндексировано</p>
+              <p className="text-xl font-bold text-primary">{audit.crawled_urls ?? '—'}</p>
             </div>
           </div>
 
           {(audit.sitemap_not_crawled || []).length > 0 && (
             <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-2">В sitemap, но не в краулере ({audit.sitemap_not_crawled.length})</h4>
+              <h4 className="text-sm font-medium text-primary mb-2">В sitemap, но не в краулере ({audit.sitemap_not_crawled.length})</h4>
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 {audit.sitemap_not_crawled.map((url: string, i: number) => (
                   <a key={i} href={url} target="_blank" rel="noreferrer"
@@ -336,27 +336,27 @@ function CwvSection({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="border rounded-lg bg-white p-4 mt-6">
+    <div className="border border-[var(--border)] rounded-xl bg-surface p-4 mt-6">
       <h3 className="font-semibold mb-3">Core Web Vitals</h3>
       <div className="space-y-3 mb-4">
         <div>
-          <label className="block text-sm text-gray-600 mb-1">URL для проверки (по одному на строке)</label>
+          <label className="block text-sm text-muted mb-1">URL для проверки (по одному на строке)</label>
           <textarea rows={4} value={urlsText} onChange={e => setUrlsText(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500"
+            className="field font-mono"
             placeholder="https://example.com/&#10;https://example.com/about/" />
         </div>
         <div className="flex items-center gap-4">
           <div className="flex gap-1">
             {(['mobile', 'desktop'] as const).map(s => (
               <button key={s} onClick={() => setStrategy(s)}
-                className={cx('px-3 py-1.5 text-sm rounded-lg transition',
-                  strategy === s ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+                className={cx('px-3 py-1.5 text-sm rounded-xl transition',
+                  strategy === s ? 'bg-accent text-white' : 'bg-surface-raised text-muted hover:bg-surface-raised')}>
                 {s === 'mobile' ? '📱 Mobile' : '🖥 Desktop'}
               </button>
             ))}
           </div>
           <button onClick={() => checkMut.mutate()} disabled={checkMut.isPending || !urlsText.trim()}
-            className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+            className="btn-accent px-4 py-2 rounded-xl text-sm hover:bg-accent disabled:opacity-50">
             {checkMut.isPending ? '⏳ Проверка...' : 'Проверить'}
           </button>
         </div>
@@ -366,18 +366,18 @@ function CwvSection({ projectId }: { projectId: string }) {
         <div className="overflow-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="bg-gray-50 border-b">
-                <th className="px-3 py-2 text-left text-gray-500">URL</th>
-                <th className="px-3 py-2 text-center text-gray-500 w-20">Score</th>
-                <th className="px-3 py-2 text-center text-gray-500 w-20">LCP</th>
-                <th className="px-3 py-2 text-center text-gray-500 w-16">CLS</th>
-                <th className="px-3 py-2 text-center text-gray-500 w-16">FID</th>
-                <th className="px-3 py-2 text-center text-gray-500 w-16">FCP</th>
+              <tr className="bg-surface-raised border-b">
+                <th className="px-3 py-2 text-left text-muted">URL</th>
+                <th className="px-3 py-2 text-center text-muted w-20">Score</th>
+                <th className="px-3 py-2 text-center text-muted w-20">LCP</th>
+                <th className="px-3 py-2 text-center text-muted w-16">CLS</th>
+                <th className="px-3 py-2 text-center text-muted w-16">FID</th>
+                <th className="px-3 py-2 text-center text-muted w-16">FCP</th>
               </tr>
             </thead>
             <tbody>
               {results.map((r: any, i: number) => (
-                <tr key={i} className="border-b hover:bg-gray-50">
+                <tr key={i} className="border-b hover:bg-surface-raised">
                   <td className="px-3 py-2 truncate max-w-xs">
                     <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{r.url}</a>
                   </td>
@@ -478,7 +478,7 @@ export default function CrawlTab({ projectId }: { projectId: string }) {
     ? Math.max(0, 100 - issues.length * 12 - (report.slow_pages > 5 ? 10 : 0))
     : null
 
-  const scoreColor = score === null ? 'text-gray-400' : score >= 80 ? 'text-green-600' : score >= 50 ? 'text-yellow-600' : 'text-red-600'
+  const scoreColor = score === null ? 'text-muted' : score >= 80 ? 'text-green-600' : score >= 50 ? 'text-yellow-600' : 'text-red-600'
 
   return (
     <div className="p-6 max-w-4xl">
@@ -486,26 +486,26 @@ export default function CrawlTab({ projectId }: { projectId: string }) {
         <h3 className="font-semibold text-lg">Технический SEO аудит</h3>
         <button onClick={() => startMutation.mutate()}
           disabled={startMutation.isPending || status?.status === 'running'}
-          className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 transition disabled:opacity-50">
+          className="btn-accent px-4 py-2 rounded-xl text-sm hover:bg-accent transition disabled:opacity-50">
           {status?.status === 'running' ? '⏳ Парсинг...' : 'Запустить сканирование'}
         </button>
         {score !== null && (
           <div className="ml-auto text-center">
             <p className={cx('text-3xl font-bold', scoreColor)}>{score}</p>
-            <p className="text-xs text-gray-400">SEO-score</p>
+            <p className="text-xs text-muted">SEO-score</p>
           </div>
         )}
       </div>
 
       {status && status.status !== 'not_started' && (
-        <div className="bg-gray-50 rounded-lg p-4 mb-4">
+        <div className="bg-surface-raised rounded-xl p-4 mb-4">
           <div className="flex justify-between text-sm mb-2">
             <span>Статус: <strong>{status.status}</strong></span>
             <span>{status.pages_done} / {status.pages_total} страниц</span>
           </div>
           {status.status === 'running' && (
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div className="bg-primary-600 h-2 rounded-full transition-all"
+            <div className="w-full bg-surface-raised rounded-full h-2">
+              <div className="bg-accent h-2 rounded-full transition-all"
                 style={{ width: `${status.pages_total ? Math.round((status.pages_done / status.pages_total) * 100) : 0}%` }} />
             </div>
           )}
@@ -521,13 +521,13 @@ export default function CrawlTab({ projectId }: { projectId: string }) {
                 key={item.key}
                 onClick={() => item.issue && item.bad ? setActiveIssue(item.issue === activeIssue ? null : item.issue) : null}
                 className={cx(
-                  'bg-white rounded-xl p-3 border transition',
-                  item.bad ? 'border-red-200 cursor-pointer hover:border-red-400' : 'border-gray-200',
+                  'bg-surface rounded-xl p-3 border transition',
+                  item.bad ? 'border-red-200 cursor-pointer hover:border-red-400' : 'border-[var(--border)]',
                   activeIssue === item.issue ? 'ring-2 ring-red-400' : ''
                 )}
               >
-                <p className="text-gray-500 text-xs">{item.label}</p>
-                <p className={cx('text-xl font-bold mt-1', item.bad ? 'text-red-600' : 'text-gray-900')}>{item.value}</p>
+                <p className="text-muted text-xs">{item.label}</p>
+                <p className={cx('text-xl font-bold mt-1', item.bad ? 'text-red-600' : 'text-primary')}>{item.value}</p>
                 {item.issue && item.bad && <p className="text-xs text-red-400 mt-0.5">нажмите для деталей</p>}
               </div>
             ))}
@@ -549,32 +549,32 @@ export default function CrawlTab({ projectId }: { projectId: string }) {
           )}
 
           {activeIssue && (
-            <div className="bg-white rounded-xl border mt-4 overflow-hidden">
-              <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">
+            <div className="bg-surface rounded-xl border border-[var(--border)] mt-4 overflow-hidden">
+              <div className="px-4 py-3 border-b bg-surface-raised flex items-center justify-between">
+                <span className="text-sm font-medium text-primary">
                   Страницы с проблемой: {ISSUE_LABELS[activeIssue]}
                 </span>
-                <button onClick={() => setActiveIssue(null)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+                <button onClick={() => setActiveIssue(null)} className="text-muted hover:text-muted text-lg leading-none">×</button>
               </div>
               {seoPages?.pages?.length ? (
                 <>
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="bg-gray-50 border-b">
-                        <th className="px-4 py-2 text-left text-gray-500">URL</th>
-                        <th className="px-4 py-2 text-left text-gray-500 w-48">Title</th>
-                        <th className="px-4 py-2 text-left text-gray-500 w-24">Статус</th>
+                      <tr className="bg-surface-raised border-b">
+                        <th className="px-4 py-2 text-left text-muted">URL</th>
+                        <th className="px-4 py-2 text-left text-muted w-48">Title</th>
+                        <th className="px-4 py-2 text-left text-muted w-24">Статус</th>
                       </tr>
                     </thead>
                     <tbody>
                       {seoPages.pages.map((p: any) => (
-                        <tr key={p.page_url} className="border-b last:border-0 hover:bg-gray-50">
+                        <tr key={p.page_url} className="border-b last:border-0 hover:bg-surface-raised">
                           <td className="px-4 py-2">
                             <a href={p.page_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate block max-w-xs">
                               {p.page_url}
                             </a>
                           </td>
-                          <td className="px-4 py-2 text-gray-600 truncate max-w-xs">{p.current_title || '—'}</td>
+                          <td className="px-4 py-2 text-muted truncate max-w-xs">{p.current_title || '—'}</td>
                           <td className="px-4 py-2">
                             {p.has_title_issue && <span className="text-red-500 mr-1">T</span>}
                             {p.has_desc_issue && <span className="text-orange-500 mr-1">D</span>}
@@ -589,11 +589,11 @@ export default function CrawlTab({ projectId }: { projectId: string }) {
                       className="px-2 py-1 border rounded disabled:opacity-40">← Назад</button>
                     <button disabled={seoPages.pages.length < PAGE_SIZE} onClick={() => setAuditPage((p) => p + 1)}
                       className="px-2 py-1 border rounded disabled:opacity-40">Далее →</button>
-                    <span className="text-gray-400 py-1">Стр. {auditPage + 1}</span>
+                    <span className="text-muted py-1">Стр. {auditPage + 1}</span>
                   </div>
                 </>
               ) : (
-                <p className="px-4 py-4 text-sm text-gray-400">Нет данных (запустите сканирование)</p>
+                <p className="px-4 py-4 text-sm text-muted">Нет данных (запустите сканирование)</p>
               )}
             </div>
           )}
@@ -601,18 +601,18 @@ export default function CrawlTab({ projectId }: { projectId: string }) {
           <div className="mt-6">
             <button
               onClick={() => setShowTree((v) => !v)}
-              className="text-sm text-primary-600 hover:underline flex items-center gap-1"
+              className="text-sm text-accent hover:underline flex items-center gap-1"
             >
               <span>{showTree ? '▾' : '▸'}</span>
               Структура сайта (дерево URL)
-              {treeData && <span className="text-gray-400 text-xs ml-1">({treeData.total} страниц)</span>}
+              {treeData && <span className="text-muted text-xs ml-1">({treeData.total} страниц)</span>}
             </button>
             {showTree && (
-              <div className="mt-3 bg-white rounded-xl border p-4 overflow-auto max-h-96 text-xs">
+              <div className="mt-3 bg-surface rounded-xl border border-[var(--border)] p-4 overflow-auto max-h-96 text-xs">
                 {treeData ? (
                   <UrlTreeNode node={treeData.tree} />
                 ) : (
-                  <p className="text-gray-400">Загрузка...</p>
+                  <p className="text-muted">Загрузка...</p>
                 )}
               </div>
             )}

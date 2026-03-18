@@ -32,7 +32,7 @@ export default function HistoryTab({ projectId }: { projectId: string }) {
     refetchInterval: 30000,
   })
 
-  if (isLoading) return <div className="p-6 text-gray-500">Загрузка...</div>
+  if (isLoading) return <div className="p-6 text-muted">Загрузка...</div>
 
   const events: any[] = data?.events ?? []
 
@@ -40,29 +40,29 @@ export default function HistoryTab({ projectId }: { projectId: string }) {
     <div className="p-6 max-w-2xl">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold">История действий</h3>
-        <span className="text-sm text-gray-500">{data?.total ?? 0} событий</span>
+        <span className="text-sm text-muted">{data?.total ?? 0} событий</span>
       </div>
       {events.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16 text-muted">
           <p className="text-4xl mb-3">📋</p>
           <p>История пока пуста. Действия появятся здесь по мере работы с проектом.</p>
         </div>
       ) : (
         <div className="relative">
-          <div className="absolute left-4 top-0 bottom-0 w-px bg-gray-200" />
+          <div className="absolute left-4 top-0 bottom-0 w-px bg-surface-raised" />
           <div className="space-y-1">
             {events.map((e: any, i: number) => (
               <div key={e.id} className="flex gap-4 relative pl-10">
-                <div className="absolute left-2.5 top-2 w-3 h-3 rounded-full bg-white border-2 border-primary-400" />
-                <div className="flex-1 bg-white border rounded-lg px-3 py-2 text-sm hover:border-gray-300 transition">
+                <div className="absolute left-2.5 top-2 w-3 h-3 rounded-full bg-surface border-2 border-accent" />
+                <div className="flex-1 bg-surface border rounded-xl px-3 py-2 text-sm hover:border-[var(--border)] transition">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">{EVENT_LABELS[e.event_type] || e.event_type}</span>
-                    <span className="text-xs text-gray-400 shrink-0">
+                    <span className="text-xs text-muted shrink-0">
                       {new Date(e.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
-                  <p className="text-gray-500 text-xs mt-0.5">{e.description}</p>
-                  {e.user_login && <p className="text-xs text-gray-400 mt-0.5">👤 {e.user_login}</p>}
+                  <p className="text-muted text-xs mt-0.5">{e.description}</p>
+                  {e.user_login && <p className="text-xs text-muted mt-0.5">👤 {e.user_login}</p>}
                 </div>
               </div>
             ))}

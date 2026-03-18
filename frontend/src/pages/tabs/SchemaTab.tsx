@@ -108,9 +108,9 @@ function TypeSelector({
           <div key={group.label}>
             <button
               onClick={() => toggleGroup(group.types)}
-              className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5 hover:text-gray-700">
+              className="flex items-center gap-2 text-xs font-semibold text-muted uppercase tracking-wide mb-1.5 hover:text-primary">
               <span className={cx('w-3 h-3 rounded border flex items-center justify-center shrink-0 transition',
-                allOn ? 'bg-primary-600 border-primary-600' : someOn ? 'bg-primary-200 border-primary-400' : 'border-gray-300')}>
+                allOn ? 'bg-accent border-accent' : someOn ? 'bg-accent-subtle border-accent' : 'border-[var(--border)]')}>
                 {(allOn || someOn) && <span className="text-white text-[8px] leading-none">{'✓'}</span>}
               </span>
               {group.label}
@@ -120,8 +120,8 @@ function TypeSelector({
                 <label key={t}
                   className={cx('flex items-center gap-1.5 text-sm px-3 py-1 rounded-full border cursor-pointer transition select-none',
                     selected.has(t)
-                      ? 'bg-primary-600 text-white border-primary-600'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-primary-400 hover:text-primary-600')}>
+                      ? 'bg-accent text-white border-accent'
+                      : 'bg-surface text-muted border-[var(--border)] hover:border-accent hover:text-accent')}>
                   <input type="checkbox" className="sr-only" checked={selected.has(t)} onChange={() => toggle(t)} />
                   {t}
                 </label>
@@ -198,17 +198,17 @@ export default function SchemaTab({ projectId }: { projectId: string }) {
   return (
     <div className="p-6 max-w-4xl space-y-6">
       {/* Generator */}
-      <div className="bg-white border rounded-lg p-5">
+      <div className="bg-surface border rounded-xl p-5">
         <h3 className="font-semibold text-lg mb-1">Генератор Schema.org</h3>
-        <p className="text-xs text-gray-500 mb-4">
+        <p className="text-xs text-muted mb-4">
           Выберите страницу и один или несколько типов схемы — ИИ сгенерирует JSON-LD на основе данных страницы и брифа.
-          При нескольких типах результат объединяется через <code className="bg-gray-100 px-1 rounded">@graph</code>.
+          При нескольких типах результат объединяется через <code className="bg-surface-raised px-1 rounded">@graph</code>.
         </p>
 
         <div className="mb-4">
-          <label className="block text-xs text-gray-500 mb-1">Страница</label>
+          <label className="block text-xs text-muted mb-1">Страница</label>
           <select value={pageUrl} onChange={e => setPageUrl(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+            className="field">
             <option value="">— выберите страницу —</option>
             {pages.map(p => (
               <option key={p.page_url} value={p.page_url}>{p.page_url}</option>
@@ -221,16 +221,16 @@ export default function SchemaTab({ projectId }: { projectId: string }) {
 
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
-            <label className="block text-xs text-gray-500">Типы Schema ({selectedTypes.size} выбрано)</label>
+            <label className="block text-xs text-muted">Типы Schema ({selectedTypes.size} выбрано)</label>
             <div className="flex gap-2">
               <button onClick={() => setSelectedTypes(new Set(ALL_SCHEMA_TYPES))}
-                className="text-xs text-primary-600 hover:text-primary-700">Все</button>
-              <span className="text-gray-300">|</span>
+                className="text-xs text-accent hover:text-accent">Все</button>
+              <span className="text-muted">|</span>
               <button onClick={() => setSelectedTypes(new Set())}
-                className="text-xs text-gray-500 hover:text-gray-700">Сбросить</button>
+                className="text-xs text-muted hover:text-primary">Сбросить</button>
             </div>
           </div>
-          <div className="border rounded-lg p-3 bg-gray-50">
+          <div className="border rounded-xl p-3 bg-surface-raised">
             <TypeSelector selected={selectedTypes} onChange={setSelectedTypes} />
           </div>
         </div>
@@ -240,7 +240,7 @@ export default function SchemaTab({ projectId }: { projectId: string }) {
         )}
 
         <button onClick={handleGenerate} disabled={generating || !pageUrl || selectedTypes.size === 0}
-          className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          className="btn-accent px-4 py-2 rounded-xl text-sm hover:bg-accent disabled:opacity-50">
           {generating
             ? `⏳ Генерация ${selectedTypes.size > 1 ? `(${selectedTypes.size} типов)` : ''}...`
             : `✨ Сгенерировать JSON-LD${selectedTypes.size > 1 ? ` (${selectedTypes.size} типа)` : ''}`}
@@ -249,39 +249,39 @@ export default function SchemaTab({ projectId }: { projectId: string }) {
         {generatedJson && (
           <div className="mt-4">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-medium text-gray-600">
+              <p className="text-xs font-medium text-muted">
                 Результат{selectedTypes.size > 1 ? ` — @graph с ${selectedTypes.size} схемами` : ''}:
               </p>
               <div className="flex gap-2">
                 <button onClick={copyToValidator}
-                  className="text-xs text-primary-600 hover:text-primary-700 border border-primary-200 rounded px-2 py-1">
+                  className="text-xs text-accent hover:text-accent border border-primary-200 rounded px-2 py-1">
                   → Проверить в валидаторе
                 </button>
                 <button onClick={copy}
                   className={cx('text-xs px-2 py-1 rounded transition border',
-                    copied ? 'bg-green-600 text-white border-green-600' : 'text-gray-600 border-gray-300 hover:bg-gray-50')}>
+                    copied ? 'bg-green-600 text-white border-green-600' : 'text-muted border-[var(--border)] hover:bg-surface-raised')}>
                   {copied ? '✅ Скопировано' : '📋 Копировать'}
                 </button>
               </div>
             </div>
-            <pre className="bg-gray-900 text-green-300 text-xs rounded-lg p-4 overflow-auto max-h-80 font-mono">{generatedJson}</pre>
-            <p className="text-xs text-gray-400 mt-2">
-              Вставьте в <code className="bg-gray-100 px-1 rounded">&lt;head&gt;</code> внутри тега{' '}
-              <code className="bg-gray-100 px-1 rounded">&lt;script type="application/ld+json"&gt;</code>
+            <pre className="bg-gray-900 text-green-300 text-xs rounded-xl p-4 overflow-auto max-h-80 font-mono">{generatedJson}</pre>
+            <p className="text-xs text-muted mt-2">
+              Вставьте в <code className="bg-surface-raised px-1 rounded">&lt;head&gt;</code> внутри тега{' '}
+              <code className="bg-surface-raised px-1 rounded">&lt;script type="application/ld+json"&gt;</code>
             </p>
           </div>
         )}
       </div>
 
       {/* Validator */}
-      <div className="bg-white border rounded-lg p-5">
+      <div className="bg-surface border rounded-xl p-5">
         <h3 className="font-semibold text-lg mb-1">Валидатор Schema.org</h3>
-        <p className="text-xs text-gray-500 mb-4">
-          Вставьте JSON-LD (включая <code className="bg-gray-100 px-1 rounded">@graph</code>) для проверки
+        <p className="text-xs text-muted mb-4">
+          Вставьте JSON-LD (включая <code className="bg-surface-raised px-1 rounded">@graph</code>) для проверки
         </p>
         <textarea
           rows={12}
-          className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500 mb-3"
+          className="field font-mono"
           placeholder={'{\n  "@context": "https://schema.org",\n  "@type": "Organization",\n  "name": "Моя компания",\n  "url": "https://example.com"\n}'}
           value={validatorInput}
           onChange={e => { setValidatorInput(e.target.value); setValidationResult(null) }}
@@ -289,18 +289,18 @@ export default function SchemaTab({ projectId }: { projectId: string }) {
         <div className="flex gap-2 mb-4">
           <button onClick={() => setValidationResult(validateSchemaOrg(validatorInput))}
             disabled={!validatorInput.trim()}
-            className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+            className="btn-accent px-4 py-2 rounded-xl text-sm hover:bg-accent disabled:opacity-50">
             Проверить
           </button>
           <button onClick={() => { setValidatorInput(''); setValidationResult(null) }}
-            className="border px-4 py-2 rounded-lg text-sm hover:bg-gray-50">
+            className="border px-4 py-2 rounded-xl text-sm hover:bg-surface-raised">
             Очистить
           </button>
         </div>
 
         {validationResult && (
           <div className="space-y-3">
-            <div className={cx('flex items-center gap-2 px-4 py-3 rounded-lg font-medium',
+            <div className={cx('flex items-center gap-2 px-4 py-3 rounded-xl font-medium',
               validationResult.valid ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200')}>
               {validationResult.valid ? '✅ Разметка валидна' : '❌ Обнаружены ошибки'}
             </div>
@@ -332,13 +332,13 @@ export default function SchemaTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* Reference */}
-      <div className="bg-gray-50 border rounded-lg p-5">
-        <h4 className="text-sm font-semibold text-gray-700 mb-3">Справочник типов и обязательных полей</h4>
+      <div className="bg-surface-raised border rounded-xl p-5">
+        <h4 className="text-sm font-semibold text-primary mb-3">Справочник типов и обязательных полей</h4>
         <div className="grid grid-cols-2 gap-2 text-xs">
           {Object.entries(SCHEMA_REQUIRED_FIELDS).map(([type, fields]) => (
-            <div key={type} className="bg-white border rounded px-3 py-2 flex items-center gap-2">
-              <span className="font-medium text-gray-800 shrink-0">{type}</span>
-              <span className="text-gray-400 truncate">{fields.join(', ')}</span>
+            <div key={type} className="bg-surface border rounded px-3 py-2 flex items-center gap-2">
+              <span className="font-medium text-primary shrink-0">{type}</span>
+              <span className="text-muted truncate">{fields.join(', ')}</span>
             </div>
           ))}
         </div>
