@@ -14,6 +14,7 @@ API_KEY_FIELDS = {
     "openrouter_api_key",
     "wordstat_oauth_token",
     "topvisor_api_key",
+    "topvisor_user_id",
     "metrika_oauth_token",
     "direct_oauth_token",
     "direct_client_login",
@@ -139,6 +140,14 @@ def set_setting(key: str, value: str, db: Session, updated_by=None) -> None:
         )
         db.add(setting)
     db.commit()
+
+
+def delete_setting(key: str, db: Session) -> None:
+    """Delete a setting record from DB (clears the key)."""
+    setting = db.scalar(select(Setting).where(Setting.key == key))
+    if setting:
+        db.delete(setting)
+        db.commit()
 
 
 def get_api_key(service: str, db: Session) -> str | None:

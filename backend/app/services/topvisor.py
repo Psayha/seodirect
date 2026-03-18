@@ -6,38 +6,46 @@ import httpx
 BASE_URL = "https://api.topvisor.com/v2/json"
 
 
-def _headers(api_key: str) -> dict:
-    return {
+def _headers(api_key: str, user_id: str = "") -> dict:
+    headers = {
         "Authorization": f"bearer {api_key}",
         "Content-Type": "application/json",
     }
+    if user_id:
+        headers["User-Id"] = user_id
+    return headers
 
 
-async def check_connection(api_key: str) -> dict:
+async def check_connection(api_key: str, user_id: str = "") -> dict:
     """Return {ok, message, projects_count}."""
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.post(
             f"{BASE_URL}/get/projects_2/index",
-            headers=_headers(api_key),
+            headers=_headers(api_key, user_id),
             json={},
         )
     if r.status_code == 200:
-        projects = r.json().get("result", [])
+        data = r.json()
+        errors = data.get("errors")
+        if errors:
+            msg = errors[0].get("string", "Ошибка авторизации") if isinstance(errors, list) else "Ошибка авторизации"
+            return {"ok": False, "message": msg, "projects_count": 0}
+        projects = data.get("result") or []
         return {"ok": True, "message": "Connected", "projects_count": len(projects)}
     return {"ok": False, "message": f"HTTP {r.status_code}", "projects_count": 0}
 
 
-async def list_projects(api_key: str) -> list[dict]:
+async def list_projects(api_key: str, user_id: str = "") -> list[dict]:
     """Return list of Topvisor projects [{id, name, site, ...}]."""
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(
             f"{BASE_URL}/get/projects_2/index",
-            headers=_headers(api_key),
+            headers=_headers(api_key, user_id),
             json={"fields": ["id", "name", "site", "searchers"]},
         )
     if r.status_code != 200:
         return []
-    return r.json().get("result", [])
+    return r.json().get("result") or []
 
 
 async def get_positions(
@@ -47,6 +55,7 @@ async def get_positions(
     date_to: str,
     searcher_id: int = 0,
     region_index: int = 0,
+    user_id: str = "",
 ) -> list[dict]:
     """Return positions for all keywords in a Topvisor project.
 
@@ -55,7 +64,7 @@ async def get_positions(
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
             f"{BASE_URL}/get/positions_2/history",
-            headers=_headers(api_key),
+            headers=_headers(api_key, user_id),
             json={
                 "project_id": project_id,
                 "regions_indexes": [region_index],
@@ -73,7 +82,7 @@ async def get_positions(
     return r.json().get("result", {}).get("keywords", [])
 
 
-async def get_keyword_volumes(api_key: str, project_id: int, phrases: list[str]) -> dict[str, int]:
+async def get_keyword_volumes(api_key: str, project_id: int, phrases: list[str], user_id: str = "") -> dict[str, int]:
     """Get search volumes for keywords via Topvisor.
 
     Returns {phrase: monthly_volume}.
@@ -84,7 +93,7 @@ async def get_keyword_volumes(api_key: str, project_id: int, phrases: list[str])
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
             f"{BASE_URL}/get/keywords_2/forecast",
-            headers=_headers(api_key),
+            headers=_headers(api_key, user_id),
             json={
                 "project_id": project_id,
                 "keywords": phrases,
@@ -106,6 +115,7 @@ async def get_snapshots(
     date: str = "",
     searcher_id: int = 0,
     region_index: int = 0,
+    user_id: str = "",
 ) -> list[dict]:
     """Get SERP snapshots (competitor positions in search results).
 
@@ -124,7 +134,7 @@ async def get_snapshots(
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
             f"{BASE_URL}/get/snapshots_2/index",
-            headers=_headers(api_key),
+            headers=_headers(api_key, user_id),
             json=body,
         )
     if r.status_code != 200:
@@ -136,3 +146,9 @@ def get_topvisor_client_key(db) -> str | None:
     """Return Topvisor API key from settings, or None."""
     from app.services.settings_service import get_setting
     return get_setting("topvisor_api_key", db)
+
+
+def get_topvisor_user_id(db) -> str | None:
+    """Return Topvisor User-Id from settings, or None."""
+    from app.services.settings_service import get_setting
+    return get_setting("topvisor_user_id", db)

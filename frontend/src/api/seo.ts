@@ -69,13 +69,13 @@ export const seoApi = {
     api.get(`/projects/${projectId}/seo/meta-history`, { params: { page_url: pageUrl } }).then((r) => r.data),
 
   generateSchema: (projectId: string, pageUrl: string, schemaType: string) =>
-    api.post(`/projects/${projectId}/seo/schema`, { page_url: pageUrl, schema_type: schemaType }).then((r) => r.data),
+    api.post(`/projects/${projectId}/seo/schema/generate`, { page_url: pageUrl, schema_type: schemaType }).then((r) => r.data),
 
   getSchema: (projectId: string, pageUrl: string) =>
     api.get(`/projects/${projectId}/seo/schema`, { params: { page_url: pageUrl } }).then((r) => r.data),
 
   generateFaq: (projectId: string, pageUrl: string, count: number = 8) =>
-    api.post(`/projects/${projectId}/seo/faq`, { page_url: pageUrl, count }).then((r) => r.data),
+    api.post(`/projects/${projectId}/seo/faq/generate`, { page_url: pageUrl, count }).then((r) => r.data),
 
   getFaq: (projectId: string, pageUrl: string) =>
     api.get(`/projects/${projectId}/seo/faq`, { params: { page_url: pageUrl } }).then((r) => r.data),
