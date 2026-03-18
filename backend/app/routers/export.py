@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import Annotated
 
@@ -8,13 +9,15 @@ from sqlalchemy.orm import Session
 from app.auth.deps import CurrentUser
 from app.db.session import get_db
 from app.services.exporter import (
-    export_direct_xls,
-    export_strategy_md,
-    export_strategy_html,
     export_copywriter_docx,
+    export_direct_xls,
     export_mediaplan_xlsx,
+    export_strategy_html,
+    export_strategy_md,
     validate_export,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -60,6 +63,7 @@ def download_direct_xls(
     db: Annotated[Session, Depends(get_db)],
 ):
     from sqlalchemy import select
+
     from app.models.project import Project
     project = db.get(Project, project_id)
     if not project:

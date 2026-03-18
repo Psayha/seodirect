@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
@@ -16,10 +17,12 @@ from app.models.user import UserRole
 from app.services.encryption import mask_value
 from app.services.settings_service import (
     API_KEY_FIELDS,
+    get_prompt,
     get_setting,
     set_setting,
-    get_prompt,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 AdminDep = require_roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)

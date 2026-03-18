@@ -1,9 +1,9 @@
 """ProjectEvent — audit log of all actions per project."""
-import uuid
 import enum
+import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, Enum
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 

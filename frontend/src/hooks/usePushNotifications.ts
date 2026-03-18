@@ -36,7 +36,7 @@ export function usePushNotifications() {
     try {
       const sub = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        ...(vapidKey ? { applicationServerKey: urlBase64ToUint8Array(vapidKey) } : {}),
+        ...(vapidKey ? { applicationServerKey: urlBase64ToUint8Array(vapidKey) as unknown as ArrayBuffer } : {}),
       })
       const json = sub.toJSON() as any
       await api.post('/push/subscribe', {

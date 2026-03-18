@@ -8,7 +8,27 @@ from datetime import datetime, timezone
 from app.celery_app import celery_app
 
 
-@celery_app.task(bind=True, name="tasks.seo.generate_seo_meta")
+def _run_async(coro):
+    """Safely run async coroutine from sync Celery worker thread."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, coro)
+                return future.result()
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
+
+
+@celery_app.task(
+    bind=True,
+    name="tasks.seo.generate_seo_meta",
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3},
+    default_retry_delay=60,
+)
 def task_generate_seo_meta(
     self,
     task_id: str,
@@ -18,13 +38,14 @@ def task_generate_seo_meta(
     only_missing: bool = False,
     only_issues: bool = False,
 ):
+    from sqlalchemy import select
+
     from app.db.session import SessionLocal
-    from app.models.task import Task, TaskStatus
     from app.models.crawl import CrawlSession, CrawlStatus, Page
     from app.models.seo import SeoPageMeta
-    from app.services.settings_service import get_setting
+    from app.models.task import Task, TaskStatus
     from app.services.claude import ClaudeClient
-    from sqlalchemy import select
+    from app.services.settings_service import get_setting
 
     db = SessionLocal()
     try:
@@ -60,7 +81,8 @@ def task_generate_seo_meta(
 
         # Apply only_issues filter
         if only_issues:
-            from sqlalchemy import or_, func as sqlfunc
+            from sqlalchemy import func as sqlfunc
+            from sqlalchemy import or_
             page_query = page_query.where(
                 or_(
                     Page.title.is_(None),
@@ -134,9 +156,10 @@ H2: {', '.join((page.h2_list or [])[:3])}
             user_msg += "}"
 
             try:
-                response_text = asyncio.run(claude.generate(system_prompt, user_msg))
+                response_text = _run_async(claude.generate(system_prompt, user_msg))
                 # Parse JSON from response
-                import json, re
+                import json
+                import re
                 json_match = re.search(r'\{[^{}]+\}', response_text, re.DOTALL)
                 if json_match:
                     data = json.loads(json_match.group())

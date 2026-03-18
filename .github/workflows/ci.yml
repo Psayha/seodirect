@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, 'claude/**']
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  backend-lint:
+    name: Backend lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install ruff
+        run: pip install ruff==0.4.4
+      - name: Lint
+        run: ruff check backend/app
+
+  backend-test:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    env:
+      DATABASE_URL: postgresql+psycopg://test:test@localhost:5432/test
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: testsecretkey-must-be-at-least-32-chars-long
+      ENCRYPTION_KEY: testencrkey32charslong123456789a
+      SUPER_ADMIN_LOGIN: admin
+      SUPER_ADMIN_PASSWORD_HASH: $2b$12$placeholder
+      SUPER_ADMIN_EMAIL: admin@test.local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio httpx
+      - name: Run tests
+        run: |
+          cd backend
+          pytest tests/ -v --tb=short
+
+  frontend-typecheck:
+    name: Frontend typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: cd frontend && npm install
+      - name: Type check
+        run: cd frontend && npx tsc --noEmit

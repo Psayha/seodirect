@@ -1,5 +1,9 @@
 """Brief templates by niche — static data."""
+import logging
+
 from fastapi import APIRouter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

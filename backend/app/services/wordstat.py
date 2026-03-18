@@ -1,6 +1,7 @@
 """Яндекс Wordstat API client."""
-import httpx
 from typing import Any
+
+import httpx
 
 
 class WordstatClient:

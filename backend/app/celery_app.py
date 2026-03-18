@@ -1,4 +1,5 @@
 from celery import Celery
+
 from app.config import get_settings
 
 
@@ -24,6 +25,22 @@ def make_celery() -> Celery:
         task_track_started=True,
         task_acks_late=True,
         worker_prefetch_multiplier=1,
+        task_soft_time_limit=600,
+        task_time_limit=900,
+        broker_connection_retry_on_startup=True,
+        # Reject tasks back to broker if worker dies mid-task (prevents silent loss)
+        task_reject_on_worker_lost=True,
+        # Dead letter queue: failed tasks go to a separate queue for inspection
+        task_queues={
+            "celery": {
+                "exchange": "celery",
+                "routing_key": "celery",
+                "queue_arguments": {
+                    "x-dead-letter-exchange": "dlx",
+                    "x-dead-letter-routing-key": "dead_letter",
+                },
+            }
+        },
     )
     return celery
 

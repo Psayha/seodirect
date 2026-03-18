@@ -3,10 +3,9 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.encryption import encrypt, decrypt, mask_value
+from app.auth.encryption import decrypt, encrypt, mask_value
 from app.config import get_settings
 from app.models.settings import Setting
-
 
 # Известные API сервисы и их поля
 API_SERVICES = {

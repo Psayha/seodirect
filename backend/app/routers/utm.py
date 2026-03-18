@@ -1,9 +1,10 @@
 """UTM Constructor — manage UTM templates and build UTM URLs."""
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Annotated
-from urllib.parse import urlencode, urlparse, urlunparse, parse_qs, urljoin
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -13,6 +14,8 @@ from sqlalchemy.orm import Session
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.models.utm import UtmTemplate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

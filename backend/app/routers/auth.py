@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -11,6 +12,8 @@ from app.auth.security import create_access_token, create_refresh_token, decode_
 from app.config import get_settings
 from app.db.session import get_db
 from app.models.user import User, UserRole
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -121,9 +124,10 @@ def refresh_token(body: RefreshRequest, db: Annotated[Session, Depends(get_db)])
 
 @router.get("/me", response_model=MeResponse)
 def get_me(request: Request, db: Annotated[Session, Depends(get_db)]):
-    from app.auth.deps import bearer_scheme, _get_token_payload, get_current_user
     # Inline to avoid circular import complexity
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.auth.deps import _get_token_payload, bearer_scheme, get_current_user
     auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Not authenticated")

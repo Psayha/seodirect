@@ -7,13 +7,33 @@ from datetime import datetime, timezone
 from app.celery_app import celery_app
 
 
-@celery_app.task(bind=True, name="tasks.direct.generate_strategy")
+def _run_async(coro):
+    """Safely run async coroutine from sync Celery worker thread."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, coro)
+                return future.result()
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
+
+
+@celery_app.task(
+    bind=True,
+    name="tasks.direct.generate_strategy",
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3},
+    default_retry_delay=60,
+)
 def task_generate_strategy(self, task_id: str, project_id: str):
     from app.db.session import SessionLocal
-    from app.models.task import Task, TaskStatus
-    from app.models.project import Project
-    from app.models.direct import Campaign
     from app.direct.service import generate_strategy
+    from app.models.direct import Campaign
+    from app.models.project import Project
+    from app.models.task import Task, TaskStatus
 
     db = SessionLocal()
     try:
@@ -22,7 +42,7 @@ def task_generate_strategy(self, task_id: str, project_id: str):
             task.status = TaskStatus.RUNNING
             db.commit()
 
-        strategy_text = asyncio.run(generate_strategy(uuid.UUID(project_id), db))
+        strategy_text = _run_async(generate_strategy(uuid.UUID(project_id), db))
 
         # Save strategy to first campaign or create one
         campaign = db.scalar(
@@ -60,13 +80,20 @@ def task_generate_strategy(self, task_id: str, project_id: str):
         db.close()
 
 
-@celery_app.task(bind=True, name="tasks.direct.check_frequencies")
+@celery_app.task(
+    bind=True,
+    name="tasks.direct.check_frequencies",
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 2},
+    default_retry_delay=30,
+)
 def task_check_frequencies(self, task_id: str, keyword_ids: list[str]):
-    from app.db.session import SessionLocal
-    from app.models.task import Task, TaskStatus
-    from app.models.direct import Keyword, KeywordStatus
-    from app.services.wordstat import get_wordstat_client
     from sqlalchemy import select
+
+    from app.db.session import SessionLocal
+    from app.models.direct import Keyword, KeywordStatus
+    from app.models.task import Task, TaskStatus
+    from app.services.wordstat import get_wordstat_client
 
     db = SessionLocal()
     try:
@@ -83,7 +110,7 @@ def task_check_frequencies(self, task_id: str, keyword_ids: list[str]):
         keywords = db.scalars(select(Keyword).where(Keyword.id.in_(ids))).all()
         phrases = [kw.phrase for kw in keywords]
 
-        frequencies = asyncio.run(client.get_frequencies(phrases))
+        frequencies = _run_async(client.get_frequencies(phrases))
 
         updated = 0
         for kw in keywords:

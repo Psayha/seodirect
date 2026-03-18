@@ -14,6 +14,7 @@ from app.db.session import get_db
 from app.models.push_subscription import PushSubscription
 
 logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -81,8 +82,10 @@ def send_self(
         raise HTTPException(status_code=400, detail="No push subscriptions found for this user")
 
     try:
-        from pywebpush import webpush, WebPushException
         import json
+
+        from pywebpush import WebPushException, webpush
+
         from app.config import get_settings
         settings = get_settings()
         vapid_private = getattr(settings, "vapid_private_key", None)

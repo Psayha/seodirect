@@ -1,16 +1,20 @@
+import logging
 import uuid
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
-from sqlalchemy import select, or_
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.auth.deps import CurrentUser, require_roles, NonViewerRequired
+from app.auth.deps import CurrentUser, NonViewerRequired, require_roles
 from app.db.session import get_db
 from app.models.brief import Brief
 from app.models.project import Project, ProjectStatus
 from app.models.user import User, UserRole
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -18,22 +22,50 @@ router = APIRouter()
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
 class ProjectCreate(BaseModel):
-    name: str
-    client_name: str
-    url: str
+    name: str = Field(..., min_length=1, max_length=255)
+    client_name: str = Field(..., min_length=1, max_length=255)
+    url: str = Field(..., max_length=2048)
     specialist_id: uuid.UUID | None = None
-    budget: float | None = None
-    notes: str | None = None
+    budget: float | None = Field(None, ge=0)
+    notes: str | None = Field(None, max_length=10000)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not v:
+            return v
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("Only http/https URLs are allowed")
+        host = (parsed.hostname or "").lower()
+        blocked = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254")
+        if host in blocked:
+            raise ValueError("Cannot use internal/loopback addresses")
+        return v
 
 
 class ProjectUpdate(BaseModel):
-    name: str | None = None
-    client_name: str | None = None
-    url: str | None = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    client_name: str | None = Field(None, min_length=1, max_length=255)
+    url: str | None = Field(None, max_length=2048)
     specialist_id: uuid.UUID | None = None
-    budget: float | None = None
+    budget: float | None = Field(None, ge=0)
     status: ProjectStatus | None = None
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=10000)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        if not v:
+            return v
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("Only http/https URLs are allowed")
+        host = (parsed.hostname or "").lower()
+        blocked = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254")
+        if host in blocked:
+            raise ValueError("Cannot use internal/loopback addresses")
+        return v
 
 
 class ProjectResponse(BaseModel):
@@ -235,20 +267,29 @@ async def brief_chat(
     project = _get_project_or_404(project_id, current_user, db)
     brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
 
-    from app.services.claude import get_claude_client
     import httpx
+
+    from app.services.claude import get_claude_client
     client = get_claude_client(db)
 
     brief_parts = []
     if brief:
-        if brief.niche:           brief_parts.append(f"Ниша: {brief.niche}")
-        if brief.products:        brief_parts.append(f"Продукты/услуги: {brief.products}")
-        if brief.usp:             brief_parts.append(f"УТП: {brief.usp}")
-        if brief.target_audience: brief_parts.append(f"Целевая аудитория: {brief.target_audience}")
-        if brief.pains:           brief_parts.append(f"Боли клиентов: {brief.pains}")
-        if brief.campaign_goal:   brief_parts.append(f"Цель кампании: {brief.campaign_goal}")
-        if brief.monthly_budget:  brief_parts.append(f"Месячный бюджет: {brief.monthly_budget} ₽")
-        if brief.geo:             brief_parts.append(f"Гео: {brief.geo}")
+        if brief.niche:
+            brief_parts.append(f"Ниша: {brief.niche}")
+        if brief.products:
+            brief_parts.append(f"Продукты/услуги: {brief.products}")
+        if brief.usp:
+            brief_parts.append(f"УТП: {brief.usp}")
+        if brief.target_audience:
+            brief_parts.append(f"Целевая аудитория: {brief.target_audience}")
+        if brief.pains:
+            brief_parts.append(f"Боли клиентов: {brief.pains}")
+        if brief.campaign_goal:
+            brief_parts.append(f"Цель кампании: {brief.campaign_goal}")
+        if brief.monthly_budget:
+            brief_parts.append(f"Месячный бюджет: {brief.monthly_budget} ₽")
+        if brief.geo:
+            brief_parts.append(f"Гео: {brief.geo}")
 
     brief_context = "\n".join(brief_parts) if brief_parts else "Бриф не заполнен"
 
@@ -297,7 +338,7 @@ def duplicate_project(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Duplicate a project with its brief and campaign/group structure (no keywords/ads)."""
-    from app.models.direct import Campaign, AdGroup
+    from app.models.direct import AdGroup, Campaign
 
     original = _get_project_or_404(project_id, current_user, db)
 

@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import Annotated
 
@@ -8,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.auth.deps import CurrentUser
 from app.db.session import get_db
 from app.models.task import Task
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

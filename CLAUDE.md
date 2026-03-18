@@ -24,60 +24,69 @@
 seodirect/
 ├── backend/
 │   ├── app/
-│   │   ├── auth/          # JWT, deps (CurrentUser, NonViewerRequired, AdminRequired)
-│   │   ├── crawl/         # crawler.py — парсинг сайта
-│   │   ├── direct/        # service.py — генерация ключей/объявлений через Claude
-│   │   ├── models/        # SQLAlchemy модели
-│   │   ├── routers/       # FastAPI роутеры
-│   │   ├── services/      # claude.py, wordstat.py, topvisor.py, metrika.py, exporter.py
-│   │   ├── tasks/         # Celery задачи (crawl, direct, seo)
-│   │   └── main.py        # подключение всех роутеров
-│   └── alembic/versions/  # миграции БД
+│   │   ├── auth/              # JWT, deps (CurrentUser, NonViewerRequired, AdminRequired)
+│   │   ├── crawl/             # crawler.py — парсинг сайта
+│   │   ├── direct/            # service.py — генерация ключей/объявлений через Claude
+│   │   ├── models/            # SQLAlchemy модели
+│   │   ├── routers/           # FastAPI роутеры
+│   │   ├── services/          # claude.py, wordstat.py, topvisor.py, metrika.py, exporter.py, pagespeed.py
+│   │   ├── tasks/             # Celery задачи (crawl, direct, seo, reports)
+│   │   └── main.py            # подключение всех роутеров
+│   └── alembic/versions/      # миграции БД (0001–0009)
 └── frontend/
     └── src/
-        ├── api/           # HTTP-клиенты (auth, projects, direct, seo, og, analytics, mediaplan)
-        └── pages/         # LoginPage, ProjectsPage, ProjectPage, SettingsPage, AdminUsersPage
+        ├── api/               # HTTP-клиенты
+        └── pages/
+            ├── tabs/          # компоненты вкладок ProjectPage (после рефакторинга)
+            ├── ProjectPage.tsx
+            ├── PortalPage.tsx # публичный портал для клиентов (/portal/:token)
+            └── ...
 ```
 
 ---
 
 ## Роутеры (backend/app/routers/)
 
-| Файл | Префикс | Что делает |
-|------|---------|------------|
-| `auth.py` | `/auth` | login, refresh token |
-| `projects.py` | `/projects` | CRUD проектов + бриф + AI-чат |
-| `brief_templates.py` | `/briefs` | 8 шаблонов брифов по нишам |
-| `crawl.py` | — | парсинг сайта, отчёт, страницы |
-| `direct.py` | — | стратегия, кампании, группы, ключи, объявления, минус-слова |
-| `seo.py` | — | мета-теги, генерация, чеклист (19 пунктов), кластеризация |
-| `og.py` | — | OG аудит, генерация, экспорт HTML |
-| `mediaplan.py` | — | медиаплан (GET/PUT/reset) |
-| `analytics.py` | — | Яндекс Метрика (counters, summary, sources, goals) |
-| `topvisor.py` | — | link, позиции, снимки выдачи (конкуренты) |
-| `content_plan.py` | — | контент-план (CRUD статей) |
-| `export.py` | — | скачивание файлов (XLS, XLSX, DOCX, MD, HTML) |
-| `reports.py` | — | автоотчёт клиенту (HTML preview + download) |
-| `settings.py` | `/settings` | API-ключи, параметры парсера/ИИ, пользователи (admin only) |
-| `users.py` | `/users` | CRUD пользователей (admin only) |
-| `history.py` | — | лог событий по проекту |
-| `tasks.py` | — | статус Celery-задач |
+| Файл | Что делает |
+|------|------------|
+| `auth.py` | login, refresh token |
+| `projects.py` | CRUD проектов + бриф + AI-чат + `POST /duplicate` |
+| `brief_templates.py` | 8 шаблонов брифов по нишам |
+| `crawl.py` | парсинг, отчёт, страницы, перелинковка, редиректы, robots-audit, CWV |
+| `direct.py` | стратегия, кампании, группы, ключи, объявления, минус-слова |
+| `direct_analysis.py` | n-граммы, тепловая карта, A/B статистика, кластеризация, анализ запросов |
+| `seo.py` | мета-теги, генерация (batch), чеклист (19 пунктов), кластеризация, история |
+| `seo_enrichments.py` | Schema.org, FAQ генерация, контентные пробелы |
+| `og.py` | OG аудит, генерация, экспорт HTML |
+| `mediaplan.py` | медиаплан (GET/PUT/reset) |
+| `analytics.py` | Яндекс Метрика + ROI-калькулятор + аномалии трафика |
+| `topvisor.py` | link, позиции, снимки выдачи (конкуренты) |
+| `content_plan.py` | контент-план (CRUD статей) |
+| `utm.py` | UTM-шаблоны (CRUD + генерация URL) |
+| `portal.py` | клиентский портал (токены + публичные эндпоинты) |
+| `export.py` | скачивание файлов (XLS, XLSX, DOCX, MD, HTML) |
+| `reports.py` | автоотчёт клиенту (HTML preview + download + ручной запуск) |
+| `settings.py` | API-ключи, параметры парсера/ИИ (admin only) |
+| `users.py` | CRUD пользователей (admin only) |
+| `history.py` | лог событий по проекту |
+| `tasks.py` | статус Celery-задач |
+| `push.py` | Web Push уведомления (subscribe/unsubscribe) |
 
 ---
 
 ## Модели БД (backend/app/models/)
 
-### Ключевые модели
+### Основные модели
 
-**`User`** — `id, login, email, password_hash, role (super_admin/admin/specialist/viewer), is_active`
+**`User`** — `id, login, email, password_hash, role (super_admin/admin/specialist/viewer), is_active, last_login`
 
-**`Project`** — `id, name, client_name, url, specialist_id→User, budget, status, notes`
+**`Project`** — `id, name, client_name, url, specialist_id→User, budget, status, notes, topvisor_project_id`
 
-**`Brief`** — `id, project_id→Project, niche, products, price_segment, geo, target_audience, pains, usp, competitors_urls (JSON), campaign_goal, ad_geo, excluded_geo, monthly_budget, restrictions, raw_data (JSON)`
+**`Brief`** — `id, project_id, niche, products, price_segment, geo, target_audience, pains, usp, competitors_urls (JSON), campaign_goal, ad_geo, excluded_geo, monthly_budget, restrictions, raw_data (JSON)`
 
-**`CrawlSession`** — `id, project_id, status (pending/running/done/failed), pages_total, pages_done`
+**`CrawlSession`** — `id, project_id, status (pending/running/done/failed), pages_total, pages_done, started_at, finished_at`
 
-**`Page`** — `id, crawl_session_id, url, status_code, title, description, h1, h1_count, h2_list (JSON), canonical, og_title, og_description, og_image, og_type, robots_meta, word_count, internal_links (JSON), external_links (JSON), images_without_alt, load_time_ms, last_modified, priority`
+**`Page`** — `id, crawl_session_id, url, status_code, title, description, h1, h1_count, h2_list (JSON), canonical, og_title, og_description, og_image, og_type, robots_meta, word_count, internal_links (JSON), external_links (JSON), images_without_alt, load_time_ms, priority, redirect_chain (JSON), cwv_lcp, cwv_cls, cwv_fid`
 
 **`Campaign`** — `id, project_id, name, type, priority, status, geo (JSON), budget_monthly, sitelinks (JSON), strategy_text`
 
@@ -87,21 +96,31 @@ seodirect/
 
 **`NegativeKeyword`** — `id, project_id, campaign_id, phrase, block`
 
-**`Ad`** — `id, ad_group_id, headline1/2/3 (56/30/30 chars), text (81 chars), display_url, utm, status, variant`
+**`Ad`** — `id, ad_group_id, headline1/2/3 (56/30/30 chars), text (81 chars), display_url, utm, status (draft/ready/review/paused), variant`
 
-**`SeoPageMeta`** — `id, project_id, page_url, rec_title, rec_description, rec_og_title, rec_og_description, twitter_card, twitter_title, twitter_description, manually_edited`
+**`SeoPageMeta`** — `id, project_id, page_url, rec_title, rec_description, rec_og_title, rec_og_description, twitter_card, twitter_title, twitter_description, schema_org_json, faq_json, manually_edited, generated_at`
 
-**`MediaPlan`** — `id, project_id, rows (JSON — список из 12 месяцев), updated_at`
+**`MediaPlan`** — `id, project_id, rows (JSON), updated_at`
 ⚠️ Строки хранятся как JSON в одном поле `rows`, НЕ в отдельных записях БД.
 Структура строки: `{month, month_name, pct, budget, forecast_clicks, forecast_leads, cpa}`
 
-**`ContentPlanArticle`** — `id, project_id, title, target_keyword, cluster, intent, status (idea/outline/writing/review/published), priority, due_date, assigned_to, notes, word_count_target`
+**`ContentPlanArticle`** — `id, project_id, title, target_keyword, cluster, intent, status (idea/outline/writing/review/published), priority, due_date, assigned_to, notes, url, word_count_target`
 
 **`Task`** — `id, project_id, type, status (pending/running/success/failed), progress (0–100), celery_task_id, result (JSON), error, created_at, finished_at`
 
-**`ProjectEvent`** — `id, project_id, user_id, event_type, description, created_at` — история действий
+**`ProjectEvent`** — `id, project_id, user_id, user_login, event_type, description, created_at` — история действий
 
 **`Setting`** — `id, key, value_encrypted` — API-ключи и настройки в зашифрованном виде (AES-256)
+
+**`SystemPrompt`** — `id, name, prompt_text, module` — редактируемые системные промпты
+
+### Новые модели (с версии 0009)
+
+**`UtmTemplate`** — `id, project_id, name, source, medium, campaign, content, term`
+
+**`SeoMetaHistory`** — `id, project_id, page_url, field_name, old_value, new_value, changed_by, changed_at` — история изменений мета-тегов
+
+**`ProjectAccessToken`** — `id, project_id, token (unique), label, created_by, expires_at, is_active, created_at` — токены клиентского портала
 
 ---
 
@@ -109,10 +128,15 @@ seodirect/
 
 | Файл | Что делает |
 |------|------------|
-| `0001_initial.py` | Базовые таблицы |
-| `0002_...py` | ... |
-| `0007_twitter_card.py` | Добавляет `twitter_card, twitter_title, twitter_description` в `seo_page_meta` |
-| `0008_page_h1_count.py` | Добавляет `h1_count` в `pages` |
+| `0001_initial.py` | Базовые таблицы: users, projects, briefs, crawl_sessions, pages, campaigns, ad_groups, keywords, negative_keywords, ads, tasks, settings |
+| `0002_seo_meta.py` | Таблица seo_page_meta |
+| `0003_mediaplan_history.py` | Таблицы media_plans, project_events |
+| `0004_topvisor_project_id.py` | projects.topvisor_project_id |
+| `0005_content_plan_push.py` | Таблицы content_plan_articles, push_subscriptions |
+| `0006_campaign_sitelinks.py` | campaigns.sitelinks (JSON) |
+| `0007_twitter_card.py` | seo_page_meta.twitter_card/title/description |
+| `0008_page_h1_count.py` | pages.h1_count |
+| `0009_new_features.py` | Таблицы: utm_templates, seo_meta_history, project_access_tokens. Колонки: seo_page_meta.schema_org_json/faq_json, pages.redirect_chain/cwv_lcp/cwv_cls/cwv_fid |
 
 Применять: `alembic upgrade head`
 
@@ -122,70 +146,130 @@ seodirect/
 
 ```python
 # backend/app/auth/deps.py
-CurrentUser       # любой авторизованный — Annotated[User, Depends(get_current_user)]
-NonViewerRequired # specialist/admin/super_admin — блокирует viewer на write-операциях
-AdminRequired     # admin/super_admin
+CurrentUser        # любой авторизованный
+NonViewerRequired  # specialist/admin/super_admin — блокирует viewer на write-операциях
+AdminRequired      # admin/super_admin
 SuperAdminRequired # только super_admin
 ```
 
-**Роли:**
-- `super_admin` — полный доступ, управление всем
-- `admin` — все проекты, управление пользователями
-- `specialist` — только свои проекты (фильтрация по `specialist_id`)
-- `viewer` — только чтение, все POST/PUT/PATCH/DELETE → 403
+**Роли:** `super_admin` → `admin` → `specialist` → `viewer` (только чтение, все POST/PUT/DELETE → 403)
 
-Super admin создаётся из `.env` (не через БД): `SUPER_ADMIN_LOGIN`, `SUPER_ADMIN_PASSWORD_HASH`.
+Super admin создаётся из `.env`: `SUPER_ADMIN_LOGIN`, `SUPER_ADMIN_PASSWORD_HASH`.
 
 ---
 
 ## Внешние API
 
-| Сервис | Где используется | Файл |
-|--------|-----------------|------|
-| Anthropic Claude | Генерация стратегии, ключей, объявлений, мета-тегов, OG, бриф-чат | `services/claude.py` |
-| Яндекс Wordstat | Частотности ключей, динамика по месяцам | `services/wordstat.py` |
-| Topvisor | Кластеризация, позиции, снимки выдачи | `services/topvisor.py` |
-| Яндекс Метрика | Трафик, источники, цели | `services/metrika.py` |
+| Сервис | Файл | Используется для |
+|--------|------|-----------------|
+| Anthropic Claude | `services/claude.py` | Стратегия, ключи, объявления, мета-теги, OG, Schema.org, FAQ, Content Gap, анализ запросов |
+| Яндекс Wordstat | `services/wordstat.py` | Частотности ключей, динамика по месяцам |
+| Topvisor | `services/topvisor.py` | Кластеризация, позиции, снимки выдачи |
+| Яндекс Метрика | `services/metrika.py` | Трафик, источники, цели, аномалии |
+| Google PageSpeed | `services/pagespeed.py` | Core Web Vitals (LCP, CLS, FID) — бесплатно 25K/день |
 
-Ключи хранятся в БД (таблица `settings`) в зашифрованном виде. Получать через `settings_service.get_api_key(db, service, key)`.
+Ключи хранятся зашифрованными в БД. Получать: `settings_service.get_api_key(db, service, key)`.
 
 ---
 
 ## Celery-задачи (backend/app/tasks/)
 
-| Задача | Тип | Что делает |
-|--------|-----|------------|
+| Задача | Файл | Что делает |
+|--------|------|------------|
 | `task_crawl_site` | crawl.py | Парсинг сайта (robots.txt → sitemap → страницы) |
 | `task_generate_strategy` | direct.py | Генерация стратегии Директа через Claude |
 | `task_check_frequencies` | direct.py | Массовая проверка частот через Wordstat |
-| `task_generate_seo_meta` | seo.py | Генерация title/description/OG через Claude |
-
-Фронт опрашивает статус через `GET /tasks/{task_id}`.
+| `task_generate_keywords` | direct.py | Генерация ключей через Claude |
+| `task_generate_ads` | direct.py | Генерация объявлений через Claude |
+| `task_generate_negative_kw` | direct.py | Генерация минус-слов через Claude |
+| `task_generate_seo_meta` | seo.py | Генерация title/description/OG через Claude (поддерживает page_urls, only_missing, only_issues) |
+| `task_monthly_reports` | reports.py | Celery beat: 1-го числа каждого месяца генерирует отчёты по всем активным проектам |
 
 ---
 
-## Экспорт (backend/app/services/exporter.py)
+## Эндпоинты по функциям
 
-| Функция | Формат | Эндпоинт |
-|---------|--------|----------|
-| `export_direct_xls` | XLS или ZIP (несколько кампаний) | `GET /projects/{id}/export/direct-xls` |
-| `export_strategy_md` | Markdown | `GET /projects/{id}/export/strategy-md` |
-| `export_strategy_html` | HTML | `GET /projects/{id}/export/strategy-html` |
-| `export_copywriter_docx` | DOCX | `GET /projects/{id}/export/copywriter-brief` |
-| `export_mediaplan_xlsx` | XLSX | `GET /projects/{id}/export/mediaplan-xlsx` |
-| `validate_export` | JSON | `GET /projects/{id}/export/validate` |
+### Парсинг (`crawl.py`)
+- `POST /projects/{id}/crawl/start` — запуск
+- `GET /projects/{id}/crawl/status` — прогресс
+- `GET /projects/{id}/crawl/pages` — список страниц с фильтрами
+- `GET /projects/{id}/crawl/report` — сводка проблем
+- `GET /projects/{id}/crawl/tree` — дерево URL
+- `GET /projects/{id}/crawl/linking` — анализ внутренней перелинковки (сироты, хабы, изолированные)
+- `GET /projects/{id}/crawl/redirects` — цепочки редиректов с severity (1/2/3+ хопов)
+- `GET /projects/{id}/crawl/robots-audit` — аудит robots.txt + sitemap
+- `POST /projects/{id}/crawl/cwv` — Core Web Vitals через Google PageSpeed API
 
-Отчёт клиенту (отдельный роутер `reports.py`):
+### Яндекс Директ (`direct.py` + `direct_analysis.py`)
+- `POST/GET/PUT /projects/{id}/direct/strategy` — стратегия
+- `GET/POST /projects/{id}/direct/campaigns` — кампании
+- `PATCH/DELETE /direct/campaigns/{id}` — изменение/удаление
+- `GET/POST /direct/campaigns/{id}/groups` — группы объявлений
+- `GET/POST/DELETE /direct/groups/{id}/keywords` — ключи
+- `POST /direct/groups/{id}/keywords/generate` — генерация ключей (Claude)
+- `POST /direct/groups/{id}/keywords/check-frequency` — частоты (Wordstat)
+- `GET /direct/keywords/dynamics` — динамика по 12 месяцам
+- `GET/POST/PATCH/DELETE /direct/groups/{id}/ads` — объявления
+- `POST /direct/groups/{id}/ads/generate` — генерация объявлений (Claude)
+- `POST /direct/ads/{id}/mark-winner` — назначить победителя A/B теста
+- `GET/POST/DELETE /projects/{id}/direct/negative-keywords` — минус-слова
+- `POST /projects/{id}/direct/negative-keywords/generate` — генерация (Claude)
+- `GET /projects/{id}/direct/ngrams?n=2&min_count=3` — N-грамм анализ
+- `GET /projects/{id}/direct/keywords/heatmap` — тепловая карта (температура × частота)
+- `GET /projects/{id}/direct/ads/ab-stats` — A/B сравнение вариантов
+- `POST /projects/{id}/direct/analyze-search-queries` — анализ поисковых запросов → минус-слова
+- `POST /projects/{id}/direct/keywords/cluster-local` — локальная кластеризация (pymorphy2)
+
+### SEO (`seo.py` + `seo_enrichments.py`)
+- `GET /projects/{id}/seo/pages` — страницы с мета-проблемами
+- `PATCH /projects/{id}/seo/meta` — обновление мета (автоматически пишет в историю)
+- `POST /projects/{id}/seo/generate-meta` — генерация мета batch (+ `page_urls`, `only_missing`, `only_issues`)
+- `GET /projects/{id}/seo/checklist` — SEO чеклист 19 пунктов
+- `POST /projects/{id}/seo/cluster` — кластеризация ключей (Topvisor)
+- `GET /projects/{id}/seo/meta-history?page_url=...` — история изменений мета
+- `POST /projects/{id}/seo/schema/generate` — генерация Schema.org JSON-LD (Claude)
+- `GET /projects/{id}/seo/schema?page_url=...` — сохранённый Schema.org
+- `POST /projects/{id}/seo/faq/generate` — генерация FAQ + FAQPage JSON-LD (Claude)
+- `GET /projects/{id}/seo/faq?page_url=...` — сохранённый FAQ
+- `POST /projects/{id}/seo/content-gap` — контентные пробелы vs конкуренты (краулинг + Claude)
+
+### Аналитика (`analytics.py`)
+- `GET /projects/{id}/analytics/counters` — список счётчиков Метрики
+- `POST/GET /projects/{id}/analytics/counter` — привязка счётчика
+- `GET /projects/{id}/analytics/summary` — сводка трафика
+- `GET /projects/{id}/analytics/goals` — цели конверсии
+- `GET /projects/{id}/analytics/roi` — ROI-калькулятор (медиаплан + факт из Метрики)
+- `GET /projects/{id}/analytics/anomalies` — аномалии трафика (±15%/±30% за 7 дней)
+
+### Клиентский портал (`portal.py`)
+- `POST /projects/{id}/portal/tokens` — создать токен доступа
+- `GET /projects/{id}/portal/tokens` — список токенов
+- `DELETE /projects/{id}/portal/tokens/{id}` — отозвать токен
+- `GET /portal/{token}` — обзор проекта (публичный, без авторизации)
+- `GET /portal/{token}/positions` — позиции Topvisor
+- `GET /portal/{token}/analytics` — сводка Метрики
+- `GET /portal/{token}/mediaplan` — медиаплан
+- `GET /portal/{token}/report` — HTML-отчёт
+
+### UTM-конструктор (`utm.py`)
+- `GET /projects/{id}/utm-templates` — список шаблонов
+- `POST /projects/{id}/utm-templates` — создать шаблон
+- `DELETE /projects/{id}/utm-templates/{tid}` — удалить
+- `POST /projects/{id}/utm-templates/build` — сгенерировать UTM-ссылку
+
+### Проекты
+- `POST /projects/{id}/duplicate` — дублирование проекта (копирует бриф + кампании/группы)
+
+### Отчёты
 - `GET /projects/{id}/report/html` — скачать HTML-отчёт
 - `GET /projects/{id}/report/preview` — просмотр в браузере
+- `POST /projects/{id}/report/generate` — ручной запуск генерации
 
 ---
 
 ## SEO чеклист (19 пунктов)
 
-`GET /projects/{id}/seo/checklist` возвращает статус `ok/warn/error` для каждого:
-
-**Мета-теги:** без title, короткий title (<10), длинный title (>70), дублирующийся title, без description, короткое desc (<50), длинное desc (>160), дублирующееся desc
+**Мета-теги:** без title, короткий/длинный title, дублирующийся title, без description, короткое/длинное/дублирующееся description
 
 **Структура:** без H1, несколько H1, noindex, без canonical
 
@@ -193,28 +277,100 @@ Super admin создаётся из `.env` (не через БД): `SUPER_ADMIN_
 
 **Изображения:** без alt
 
-**OpenGraph:** без og:title, без og:description, без og:image
+**OpenGraph:** без og:title, og:description, og:image
 
 **Ошибки:** 4xx, 5xx
 
 ---
 
-## Фронтенд — вкладки проекта (ProjectPage.tsx)
+## Фронтенд — структура
 
-`overview | brief | crawl | direct | seo | og | mediaplan | analytics | topvisor | content-plan | reports | history | export`
+### Вкладки ProjectPage
 
-**DirectTab** включает суб-вкладки: стратегия / кампании (группы → ключи → объявления) / минус-слова
+`overview | brief | crawl | direct | seo | og | mediaplan | analytics | topvisor | content-plan | reports | history | export | utm`
 
-**Wordstat динамика:** кнопка 📈 у каждого ключа → компонент `WordstatSparkline` (CSS бар-чарт, последние 12 месяцев)
+После рефакторинга каждая вкладка — отдельный файл в `frontend/src/pages/tabs/`:
 
-**OG Twitter Card:** поля в редакторе + экспорт в HTML-код
+| Файл | Содержит |
+|------|---------|
+| `CrawlTab.tsx` | LinkingSection, RedirectsSection, RobotsAuditSection, CwvSection |
+| `DirectTab.tsx` | NgramsSection, HeatmapSection, AbSection, SearchQueriesModal, LocalClusterSection |
+| `SeoTab.tsx` | SchemaSection, FaqSection, ContentGapSection, MetaHistoryModal |
+| `AnalyticsTab.tsx` | AnomalyBanner, RoiSection |
+| `ReportsTab.tsx` | ClientPortalSection |
+| `UtmTab.tsx` | UTM-конструктор (новая вкладка) |
+
+### Публичный портал
+
+`frontend/src/pages/PortalPage.tsx` — страница `/portal/:token` без авторизации.
+Вкладки: Позиции | Аналитика | Медиаплан | Отчёт.
+
+### API-модули (`frontend/src/api/`)
+
+| Файл | Что экспортирует |
+|------|-----------------|
+| `auth.ts` | `login`, `getMe` |
+| `projects.ts` | `projectsApi` (CRUD + duplicate) |
+| `direct.ts` | `directApi` (кампании, группы, ключи, объявления, анализ) |
+| `seo.ts` | `seoApi` (мета, чеклист, schema.org, FAQ, content gap, история) |
+| `og.ts` | `ogApi` (аудит, генерация, экспорт) |
+| `mediaplan.ts` | `mediaplanApi` |
+| `analytics.ts` | `analyticsApi` (Метрика + ROI + аномалии) |
+| `crawl.ts` | `crawlApi` (перелинковка, редиректы, robots, CWV) |
+| `utm.ts` | `utmApi` (шаблоны + сборка URL) |
+| `portal.ts` | `portalApi` (токены) |
+| `settings.ts` | `settingsApi` (настройки, пользователи, промпты) |
+| `client.ts` | Axios-инстанс с инжектом токена |
 
 ---
 
-## Шаблоны брифов
+## Паттерны кода
 
-`GET /briefs/templates` — список, `GET /briefs/templates/{id}` — полный шаблон.
-Доступные ниши: `ecommerce, services_local, b2b_saas, real_estate, education, medicine, auto, beauty`
+### Backend — новый эндпоинт
+
+```python
+from app.auth.deps import CurrentUser, NonViewerRequired
+
+@router.post("/projects/{project_id}/something", status_code=201)
+def do_something(
+    project_id: uuid.UUID,
+    body: SomeSchema,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],  # только для write-операций
+    db: Annotated[Session, Depends(get_db)],
+):
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404)
+    if current_user.role == "specialist" and project.specialist_id != current_user.id:
+        raise HTTPException(403)
+    ...
+```
+
+### Backend — новая миграция
+
+Файл: `backend/alembic/versions/NNNN_description.py`
+`revision = "NNNN"`, `down_revision = "NNNN-1"` (последняя — `"0009"`)
+
+### Frontend — новый API-запрос
+
+```typescript
+// src/api/something.ts
+import { api } from './client'
+export const somethingApi = {
+  get: (projectId: string) => api.get(`/projects/${projectId}/something`).then(r => r.data),
+}
+
+// В компоненте:
+const { data } = useQuery({ queryKey: ['something', projectId], queryFn: () => somethingApi.get(projectId) })
+const mutation = useMutation({ mutationFn: ..., onSuccess: () => qc.invalidateQueries(...) })
+```
+
+### Frontend — новая вкладка
+
+1. Создать `frontend/src/pages/tabs/NewTab.tsx` с `export default function NewTab({ projectId })`
+2. Импортировать в `ProjectPage.tsx`
+3. Добавить в тип `Tab` и в JSX switch-блок вкладок
 
 ---
 
@@ -236,6 +392,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 WORDSTAT_OAUTH_TOKEN=
 TOPVISOR_API_KEY=
 METRIKA_OAUTH_TOKEN=
+GOOGLE_PAGESPEED_API_KEY=   # опционально, без него 25K/день бесплатно
 ```
 
 ---
@@ -243,122 +400,12 @@ METRIKA_OAUTH_TOKEN=
 ## Запуск (Docker)
 
 ```bash
-# Первый запуск
-cp .env.example .env  # заполнить
+cp .env.example .env
 docker-compose up -d
 docker-compose exec backend alembic upgrade head
 docker-compose exec backend python init_superadmin.py
 
 # Обновление
-git pull
-docker-compose up -d --build
+git pull && docker-compose up -d --build
 docker-compose exec backend alembic upgrade head
 ```
-
----
-
-## Паттерны кода
-
-### Backend — новый эндпоинт
-```python
-from app.auth.deps import CurrentUser, NonViewerRequired  # добавить NonViewerRequired на write
-
-@router.post("/projects/{project_id}/something", status_code=201)
-def do_something(
-    project_id: uuid.UUID,
-    body: SomeSchema,
-    current_user: CurrentUser,
-    _: Annotated[object, NonViewerRequired],  # только для write-операций
-    db: Annotated[Session, Depends(get_db)],
-):
-    ...
-```
-
-### Backend — новая миграция
-Файл: `backend/alembic/versions/NNNN_description.py`
-`revision = "NNNN"`, `down_revision = "NNNN-1"`
-
-### Frontend — новый API-запрос
-```typescript
-// src/api/something.ts — новый модуль
-import { api } from './client'
-export const somethingApi = {
-  get: (projectId: string) => api.get(`/projects/${projectId}/something`).then(r => r.data),
-}
-
-// В компоненте:
-const { data } = useQuery({ queryKey: ['something', projectId], queryFn: () => somethingApi.get(projectId) })
-const mutation = useMutation({ mutationFn: ..., onSuccess: () => qc.invalidateQueries(...) })
-```
-
----
-
-## Новые функции (features 1-20, 23) — реализованы 2026-03-18
-
-### Новые файлы
-- `backend/app/services/pagespeed.py` — клиент Google PageSpeed Insights API (`get_cwv(url, api_key, strategy)`)
-- `backend/app/routers/utm.py` — UTM-конструктор (CRUD шаблонов + генерация URL)
-- `backend/app/routers/portal.py` — клиентский портал (токены + публичные эндпоинты `/portal/{token}`)
-- `backend/app/tasks/reports.py` — Celery задача ежемесячных автоотчётов (`task_monthly_reports`)
-
-### Новые таблицы БД (миграция 0009)
-- `seo_meta_history` — история изменений мета-тегов
-- `project_access_tokens` — токены клиентского портала
-- `utm_templates` — UTM-шаблоны
-- `seo_page_meta.schema_org_json` + `.faq_json` — Schema.org и FAQ
-- `pages.redirect_chain` + `.cwv_lcp/.cwv_cls/.cwv_fid` — цепочки редиректов и Core Web Vitals
-
-### Новые эндпоинты
-
-**analytics.py:**
-- `GET /projects/{id}/analytics/roi` — ROI-калькулятор (медиаплан + Метрика)
-- `GET /projects/{id}/analytics/anomalies` — обнаружение аномалий трафика
-
-**crawl.py:**
-- `GET /projects/{id}/crawl/linking` — анализ внутренней перелинковки
-- `GET /projects/{id}/crawl/redirects` — анализ цепочек редиректов
-- `GET /projects/{id}/crawl/robots-audit` — аудит robots.txt и sitemap
-- `POST /projects/{id}/crawl/cwv` — замер Core Web Vitals через PageSpeed API
-
-**direct.py:**
-- `GET /projects/{id}/direct/ngrams?n=2&min_count=3` — N-gram анализ ключей
-- `GET /projects/{id}/direct/keywords/heatmap` — тепловая карта ключей
-- `GET /projects/{id}/direct/ads/ab-stats` — A/B статистика объявлений
-- `POST /direct/ads/{ad_id}/mark-winner` — выбор победителя A/B теста
-- `POST /projects/{id}/direct/analyze-search-queries` — анализ поисковых запросов через Claude
-- `POST /projects/{id}/direct/keywords/cluster-local` — локальная кластеризация (pymorphy2)
-
-**seo.py:**
-- `GET /projects/{id}/seo/meta-history` — история изменений мета-тегов
-- `POST /projects/{id}/seo/schema/generate` — генерация Schema.org JSON-LD
-- `GET /projects/{id}/seo/schema` — получение сохранённого Schema.org
-- `POST /projects/{id}/seo/faq/generate` — генерация FAQ + FAQPage Schema.org
-- `GET /projects/{id}/seo/faq` — получение сохранённого FAQ
-- `POST /projects/{id}/seo/content-gap` — анализ контентных пробелов
-- `POST /projects/{id}/seo/generate-meta` расширен полями `page_urls`, `only_missing`, `only_issues`
-
-**utm.py (новый роутер):**
-- `GET/POST /projects/{id}/utm-templates` — список/создание шаблонов
-- `DELETE /projects/{id}/utm-templates/{tid}` — удаление
-- `POST /projects/{id}/utm-templates/build` — генерация UTM URL
-
-**portal.py (новый роутер):**
-- `POST/GET /projects/{id}/portal/tokens` — управление токенами
-- `DELETE /projects/{id}/portal/tokens/{token_id}` — отзыв токена
-- `GET /portal/{token}` — обзор проекта (публичный)
-- `GET /portal/{token}/positions` — позиции Topvisor (публичный)
-- `GET /portal/{token}/analytics` — Метрика (публичный)
-- `GET /portal/{token}/mediaplan` — медиаплан (публичный)
-- `GET /portal/{token}/report` — HTML-отчёт (публичный)
-
-**reports.py:**
-- `POST /projects/{id}/report/generate` — ручной запуск генерации отчёта
-
-**projects.py (уже был):**
-- `POST /projects/{id}/duplicate` — дублирование проекта
-
-### Изменения в существующих файлах
-- `app/models/direct.py` — добавлен `AdStatus.PAUSED`
-- `app/models/history.py` — добавлен `EventType.MONTHLY_REPORT_GENERATED`
-- `app/celery_app.py` — добавлены `app.tasks.seo` и `app.tasks.reports` в `include`
-- `app/tasks/seo.py` — `task_generate_seo_meta` принимает `page_urls`, `only_missing`, `only_issues`

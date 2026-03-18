@@ -1,9 +1,9 @@
 """Яндекс Метрика API client."""
 from __future__ import annotations
 
-import httpx
 from datetime import date, timedelta
 
+import httpx
 
 BASE = "https://api-metrika.yandex.net"
 

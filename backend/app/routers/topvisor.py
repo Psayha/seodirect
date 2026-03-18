@@ -1,6 +1,7 @@
 """Topvisor integration: project linking and position monitoring."""
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Annotated
 
@@ -12,11 +13,13 @@ from app.auth.deps import CurrentUser
 from app.db.session import get_db
 from app.services.topvisor import (
     check_connection,
-    list_projects,
     get_positions,
     get_snapshots,
     get_topvisor_client_key,
+    list_projects,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

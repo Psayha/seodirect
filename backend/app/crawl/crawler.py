@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from io import StringIO
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
-import xml.etree.ElementTree as ET
-from io import StringIO
 
 import httpx
 from bs4 import BeautifulSoup
@@ -117,10 +117,6 @@ class SiteCrawler:
         except Exception:
             return []
 
-        ns = {
-            "sm": "http://www.sitemaps.org/schemas/sitemap/0.9",
-            "si": "http://www.sitemaps.org/schemas/sitemap-image/1.1",
-        }
         try:
             root = ET.fromstring(r.text)
         except ET.ParseError:

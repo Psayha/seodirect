@@ -9,19 +9,31 @@ services:
       POSTGRES_DB: seodirect
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U seodirect"]
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
   backend:
     build: ./backend
@@ -36,6 +48,21 @@ services:
       redis:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   celery:
     build: ./backend
@@ -48,6 +75,21 @@ services:
       redis:
         condition: service_healthy
     command: celery -A app.celery_app worker -l info -c 2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.celery_app", "inspect", "ping", "--timeout", "5"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   frontend:
     build: ./frontend
@@ -57,9 +99,15 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=${VITE_API_URL:-/api}
     depends_on:
       - backend
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
   nginx:
     image: nginx:alpine
@@ -70,6 +118,17 @@ services:
     depends_on:
       - backend
       - frontend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
 
 volumes:
   postgres_data:

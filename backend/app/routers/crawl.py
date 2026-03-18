@@ -1,3 +1,4 @@
+import logging
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
@@ -6,7 +7,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser, NonViewerRequired
@@ -14,7 +15,9 @@ from app.config import get_settings
 from app.db.session import get_db
 from app.models.crawl import CrawlSession, CrawlStatus, Page
 from app.models.project import Project
-from app.models.task import Task, TaskType, TaskStatus
+from app.models.task import Task, TaskStatus, TaskType
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -37,6 +40,16 @@ def start_crawl(
     db: Annotated[Session, Depends(get_db)],
 ):
     project = _check_project_access(project_id, current_user, db)
+
+    # Check if crawl is already running
+    running = db.scalar(
+        select(CrawlSession).where(
+            CrawlSession.project_id == project_id,
+            CrawlSession.status.in_([CrawlStatus.PENDING, CrawlStatus.RUNNING])
+        )
+    )
+    if running:
+        raise HTTPException(status_code=409, detail="Crawl already in progress for this project")
 
     cfg = get_settings()
 
@@ -383,8 +396,9 @@ async def robots_audit(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Audit robots.txt and sitemap against crawled pages."""
-    import httpx
     import re as _re
+
+    import httpx
 
     project = _check_project_access(project_id, current_user, db)
     session = db.scalar(
@@ -426,8 +440,8 @@ async def robots_audit(
                         sitemap_urls.append(sm_url)
                 robots_data["disallow_rules"] = disallow_rules
                 robots_data["sitemap_urls"] = sitemap_urls
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch/parse robots.txt for %s: %s", base_url, str(e)[:200])
 
     # Fetch sitemap
     sitemap_page_urls: set[str] = set()
@@ -439,8 +453,8 @@ async def robots_audit(
                 if r.status_code == 200:
                     found = _re.findall(r"<loc>(.*?)</loc>", r.text)
                     sitemap_page_urls.update(found)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch/parse sitemap for %s: %s", base_url, str(e)[:200])
 
     # Cross-reference
     def is_disallowed(url: str) -> bool:
@@ -485,7 +499,7 @@ async def run_cwv(
     if len(body.urls) > 10:
         raise HTTPException(status_code=400, detail="Max 10 URLs per request")
 
-    project = _check_project_access(project_id, current_user, db)
+    _check_project_access(project_id, current_user, db)
     api_key = get_setting("pagespeed_api_key", db)  # optional
 
     session = db.scalar(

@@ -1,6 +1,7 @@
 """Client auto-reports: HTML snapshot of project state."""
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import date, datetime, timezone
 from typing import Annotated
@@ -12,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -115,10 +118,10 @@ def get_html_report(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Generate an HTML client-facing report for the project."""
-    from app.models.project import Project
     from app.models.brief import Brief
     from app.models.crawl import CrawlSession, CrawlStatus
-    from app.models.direct import Campaign, AdGroup, Keyword, Ad
+    from app.models.direct import Ad, AdGroup, Campaign, Keyword
+    from app.models.project import Project
 
     project = db.get(Project, project_id)
     if not project:
@@ -141,6 +144,7 @@ def get_html_report(
     ads_total = 0
     if campaign_ids:
         from sqlalchemy import func
+
         from app.models.direct import AdGroup as AG
         group_ids = db.scalars(select(AG.id).where(AG.campaign_id.in_(campaign_ids))).all()
         if group_ids:
@@ -165,10 +169,10 @@ def preview_report(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Preview report inline (no download header)."""
-    from app.models.project import Project
     from app.models.brief import Brief
     from app.models.crawl import CrawlSession, CrawlStatus
-    from app.models.direct import Campaign, Keyword, Ad, AdGroup
+    from app.models.direct import Ad, AdGroup, Campaign, Keyword
+    from app.models.project import Project
 
     project = db.get(Project, project_id)
     if not project:
@@ -208,8 +212,8 @@ def generate_report_manually(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Trigger monthly report generation manually for a project."""
+    from app.models.history import EventType, ProjectEvent
     from app.models.project import Project
-    from app.models.history import ProjectEvent, EventType
 
     project = db.get(Project, project_id)
     if not project:

@@ -2,7 +2,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -29,7 +29,6 @@ def get_current_user(
     payload: Annotated[dict, Depends(_get_token_payload)],
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
-    settings = get_settings()
     user_id_str = payload.get("sub")
     if not user_id_str:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")

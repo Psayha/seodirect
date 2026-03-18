@@ -186,8 +186,10 @@ def export_direct_xls(project_id, db: "Session") -> tuple[bytes, str]:
     or ``"zip"`` when multiple campaigns are packed into an archive.
     """
     import uuid
+
     from sqlalchemy import select
-    from app.models.direct import Campaign, AdGroup, Keyword, NegativeKeyword, Ad
+
+    from app.models.direct import Ad, AdGroup, Campaign, Keyword, NegativeKeyword
     from app.models.project import Project
 
     if not isinstance(project_id, uuid.UUID):
@@ -266,11 +268,13 @@ def export_direct_xls(project_id, db: "Session") -> tuple[bytes, str]:
 
 def export_strategy_md(project_id, db: "Session") -> str:
     """Export Direct strategy as Markdown."""
-    from sqlalchemy import select
-    from app.models.direct import Campaign, AdGroup, Keyword
-    from app.models.project import Project
-    from app.models.brief import Brief
     import uuid
+
+    from sqlalchemy import select
+
+    from app.models.brief import Brief
+    from app.models.direct import AdGroup, Campaign, Keyword
+    from app.models.project import Project
 
     if not isinstance(project_id, uuid.UUID):
         project_id = uuid.UUID(str(project_id))
@@ -340,9 +344,11 @@ def export_strategy_md(project_id, db: "Session") -> str:
 
 def validate_export(project_id, db: "Session") -> dict:
     """Pre-export validation summary."""
-    from sqlalchemy import select, func
-    from app.models.direct import Campaign, AdGroup, Keyword, NegativeKeyword, Ad
     import uuid
+
+    from sqlalchemy import func, select
+
+    from app.models.direct import Ad, AdGroup, Campaign, Keyword, NegativeKeyword
 
     if not isinstance(project_id, uuid.UUID):
         project_id = uuid.UUID(str(project_id))
@@ -398,14 +404,16 @@ def validate_export(project_id, db: "Session") -> dict:
 def export_copywriter_docx(project_id, db: "Session") -> bytes:
     """Generate a DOCX copywriting brief for the project."""
     import uuid
+
     from docx import Document
     from docx.shared import Pt, RGBColor
     from sqlalchemy import select
-    from app.models.project import Project
+
     from app.models.brief import Brief
     from app.models.crawl import CrawlSession, CrawlStatus, Page
+    from app.models.direct import AdGroup, Campaign, Keyword, NegativeKeyword
+    from app.models.project import Project
     from app.models.seo import SeoPageMeta
-    from app.models.direct import Campaign, AdGroup, Keyword, NegativeKeyword
 
     if not isinstance(project_id, uuid.UUID):
         project_id = uuid.UUID(str(project_id))
@@ -430,17 +438,29 @@ def export_copywriter_docx(project_id, db: "Session") -> bytes:
     if brief:
         doc.add_heading("О бизнесе", level=1)
         if brief.niche:
-            p = doc.add_paragraph(); p.add_run("Ниша: ").bold = True; p.add_run(brief.niche)
+            p = doc.add_paragraph()
+            p.add_run("Ниша: ").bold = True
+            p.add_run(brief.niche)
         if brief.products:
-            p = doc.add_paragraph(); p.add_run("Продукты/услуги: ").bold = True; p.add_run(brief.products)
+            p = doc.add_paragraph()
+            p.add_run("Продукты/услуги: ").bold = True
+            p.add_run(brief.products)
         if brief.usp:
-            p = doc.add_paragraph(); p.add_run("УТП: ").bold = True; p.add_run(brief.usp)
+            p = doc.add_paragraph()
+            p.add_run("УТП: ").bold = True
+            p.add_run(brief.usp)
         if brief.target_audience:
-            p = doc.add_paragraph(); p.add_run("ЦА: ").bold = True; p.add_run(brief.target_audience)
+            p = doc.add_paragraph()
+            p.add_run("ЦА: ").bold = True
+            p.add_run(brief.target_audience)
         if brief.pains:
-            p = doc.add_paragraph(); p.add_run("Боли клиентов: ").bold = True; p.add_run(brief.pains)
+            p = doc.add_paragraph()
+            p.add_run("Боли клиентов: ").bold = True
+            p.add_run(brief.pains)
         if brief.restrictions:
-            p = doc.add_paragraph(); p.add_run("Ограничения: ").bold = True; p.add_run(brief.restrictions)
+            p = doc.add_paragraph()
+            p.add_run("Ограничения: ").bold = True
+            p.add_run(brief.restrictions)
         doc.add_paragraph("")
 
     # ── Pages with SEO recommendations ────────────────────────────────────────
@@ -545,15 +565,18 @@ blockquote {{ border-left: 4px solid #93c5fd; padding-left: 12px; color: #374151
 def export_strategy_html(project_id, db: "Session") -> str:
     """Convert the Markdown strategy to a print-ready HTML page with white label."""
     import markdown as md_lib
+
     from app.services.settings_service import get_setting
 
     agency_name = get_setting("white_label_agency_name", db) or "SEODirect Tool"
     logo_url = get_setting("white_label_logo_url", db) or ""
     primary_color = get_setting("white_label_primary_color", db) or "#1e40af"
 
-    from sqlalchemy import select
-    from app.models.project import Project
     import uuid as _uuid
+
+    from sqlalchemy import select
+
+    from app.models.project import Project
     if not isinstance(project_id, _uuid.UUID):
         project_id = _uuid.UUID(str(project_id))
     project = db.get(Project, project_id)
@@ -603,9 +626,11 @@ def export_strategy_html(project_id, db: "Session") -> str:
 def export_mediaplan_xlsx(project_id, db: "Session") -> bytes:
     """Export mediaplan rows as XLSX."""
     import uuid
+
     from sqlalchemy import select
-    from app.models.project import Project
+
     from app.models.mediaplan import MediaPlan
+    from app.models.project import Project
 
     if not isinstance(project_id, uuid.UUID):
         project_id = uuid.UUID(str(project_id))
