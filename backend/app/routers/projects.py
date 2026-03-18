@@ -273,7 +273,10 @@ async def brief_chat(
     import httpx
 
     from app.services.claude import get_claude_client
-    client = get_claude_client(db)
+    try:
+        client = get_claude_client(db)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
     brief_parts = []
     if brief:
@@ -343,11 +346,20 @@ async def brief_chat(
             reply = data.get("content", [{}])[0].get("text", "")
         if not reply:
             raise HTTPException(status_code=502, detail="Empty response from AI")
-    except httpx.HTTPStatusError:
-        logger.exception("Claude API HTTP error in brief chat for project %s", project_id)
-        raise HTTPException(status_code=502, detail="AI service temporarily unavailable")
-    except httpx.RequestError:
-        logger.exception("Claude API connection error in brief chat for project %s", project_id)
+    except httpx.HTTPStatusError as exc:
+        body = exc.response.text[:500] if exc.response is not None else ""
+        logger.error(
+            "Claude API HTTP %s error in brief chat for project %s: %s",
+            exc.response.status_code if exc.response is not None else "?",
+            project_id,
+            body,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI service error {exc.response.status_code}: {body}" if exc.response is not None else "AI service temporarily unavailable",
+        )
+    except httpx.RequestError as exc:
+        logger.error("Claude API connection error in brief chat for project %s: %s", project_id, exc)
         raise HTTPException(status_code=502, detail="AI service temporarily unavailable")
     except (KeyError, IndexError):
         logger.exception("Unexpected Claude API response format for project %s", project_id)
