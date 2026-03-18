@@ -9,7 +9,15 @@ from app.celery_app import celery_app
 
 
 @celery_app.task(bind=True, name="tasks.seo.generate_seo_meta")
-def task_generate_seo_meta(self, task_id: str, project_id: str, generate_og: bool = False):
+def task_generate_seo_meta(
+    self,
+    task_id: str,
+    project_id: str,
+    generate_og: bool = False,
+    page_urls: list | None = None,
+    only_missing: bool = False,
+    only_issues: bool = False,
+):
     from app.db.session import SessionLocal
     from app.models.task import Task, TaskStatus
     from app.models.crawl import CrawlSession, CrawlStatus, Page
@@ -37,11 +45,34 @@ def task_generate_seo_meta(self, task_id: str, project_id: str, generate_og: boo
         if not crawl:
             raise RuntimeError("No completed crawl found")
 
-        pages = db.scalars(
-            select(Page)
-            .where(Page.crawl_session_id == crawl.id)
-            .order_by(Page.url)
-        ).all()
+        page_query = select(Page).where(Page.crawl_session_id == crawl.id)
+
+        # Apply page_urls filter
+        if page_urls:
+            page_query = page_query.where(Page.url.in_(page_urls))
+
+        # Apply only_missing filter
+        if only_missing:
+            from sqlalchemy import or_
+            page_query = page_query.where(
+                or_(Page.title.is_(None), Page.description.is_(None))
+            )
+
+        # Apply only_issues filter
+        if only_issues:
+            from sqlalchemy import or_, func as sqlfunc
+            page_query = page_query.where(
+                or_(
+                    Page.title.is_(None),
+                    Page.description.is_(None),
+                    sqlfunc.length(Page.title) < 10,
+                    sqlfunc.length(Page.title) > 70,
+                    sqlfunc.length(Page.description) < 50,
+                    sqlfunc.length(Page.description) > 160,
+                )
+            )
+
+        pages = db.scalars(page_query.order_by(Page.url)).all()
 
         if not pages:
             raise RuntimeError("No pages in crawl")

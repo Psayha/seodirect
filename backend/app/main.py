@@ -62,6 +62,8 @@ def create_app() -> FastAPI:
     from app.routers.reports import router as reports_router
     from app.routers.brief_templates import router as brief_templates_router
     from app.routers.push import router as push_router
+    from app.routers.utm import router as utm_router
+    from app.routers.portal import router as portal_router
 
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
@@ -81,6 +83,8 @@ def create_app() -> FastAPI:
     app.include_router(reports_router, prefix="/api", tags=["reports"])
     app.include_router(brief_templates_router, prefix="/api", tags=["briefs"])
     app.include_router(push_router, prefix="/api", tags=["push"])
+    app.include_router(utm_router, prefix="/api", tags=["utm"])
+    app.include_router(portal_router, prefix="/api", tags=["portal"])
 
     @app.get("/api/health")
     def health():
