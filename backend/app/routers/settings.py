@@ -17,6 +17,7 @@ from app.models.user import UserRole
 from app.services.encryption import mask_value
 from app.services.settings_service import (
     API_KEY_FIELDS,
+    delete_setting,
     get_prompt,
     get_setting,
     set_setting,
@@ -83,6 +84,20 @@ def get_api_keys(
 
 class ApiKeyUpdate(BaseModel):
     values: dict[str, str]  # key_name -> value
+
+
+@router.delete("/api-keys/{service}/{key_name}", status_code=204)
+def delete_api_key(
+    service: str,
+    key_name: str,
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    if service not in SERVICES:
+        raise HTTPException(status_code=404, detail="Unknown service")
+    if key_name not in SERVICES[service]["keys"]:
+        raise HTTPException(status_code=400, detail=f"Key {key_name} not allowed for {service}")
+    delete_setting(key_name, db)
 
 
 @router.put("/api-keys/{service}")
@@ -277,6 +292,7 @@ class AISettings(BaseModel):
     ai_max_tokens: int = 4000
     ai_temperature: float = 0.7
     ai_language: str = "Русский"
+    active_provider: str = "anthropic"  # "anthropic" | "openrouter"
 
 
 @router.get("/ai", response_model=AISettings)
@@ -284,11 +300,13 @@ def get_ai_settings(
     _: Annotated[object, AdminDep],
     db: Annotated[Session, Depends(get_db)],
 ):
+    openrouter_key = get_setting("openrouter_api_key", db)
     return AISettings(
         ai_model=get_setting("ai_model", db) or "claude-sonnet-4-20250514",
         ai_max_tokens=int(get_setting("ai_max_tokens", db) or 4000),
         ai_temperature=float(get_setting("ai_temperature", db) or 0.7),
         ai_language=get_setting("ai_language", db) or "Русский",
+        active_provider="openrouter" if openrouter_key else "anthropic",
     )
 
 
@@ -364,6 +382,46 @@ def get_prompt_by_name(
     if not prompt:
         raise HTTPException(status_code=404, detail="Prompt not found")
     return {"id": str(prompt.id), "name": prompt.name, "module": prompt.module, "prompt_text": prompt.prompt_text}
+
+
+class PromptCreate(BaseModel):
+    name: str
+    module: str
+    prompt_text: str
+
+
+@router.post("/prompts", status_code=201)
+def create_prompt(
+    body: PromptCreate,
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    existing = db.scalar(select(SystemPrompt).where(SystemPrompt.name == body.name))
+    if existing:
+        raise HTTPException(status_code=409, detail="Prompt with this name already exists")
+    prompt = SystemPrompt(
+        name=body.name,
+        module=body.module,
+        prompt_text=body.prompt_text,
+        updated_at=datetime.now(timezone.utc),
+    )
+    db.add(prompt)
+    db.commit()
+    db.refresh(prompt)
+    return {"id": str(prompt.id), "name": prompt.name, "module": prompt.module, "updated_at": prompt.updated_at}
+
+
+@router.delete("/prompts/{name}", status_code=204)
+def delete_prompt(
+    name: str,
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    prompt = db.scalar(select(SystemPrompt).where(SystemPrompt.name == name))
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    db.delete(prompt)
+    db.commit()
 
 
 @router.put("/prompts/{name}")

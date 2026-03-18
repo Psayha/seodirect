@@ -28,6 +28,11 @@ function ApiKeysTab() {
     mutationFn: (service: string) => api.post(`/settings/api-keys/${service}/test`).then((r) => r.data),
     onSuccess: (data: any, service: string) => setTestResults((r) => ({ ...r, [service]: data })),
   })
+  const deleteMut = useMutation({
+    mutationFn: ({ service, keyName }: { service: string; keyName: string }) =>
+      settingsApi.deleteApiKey(service, keyName),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
+  })
 
   if (isLoading) return <div className="text-gray-500 py-4">Загрузка...</div>
 
@@ -57,7 +62,17 @@ function ApiKeysTab() {
                   placeholder={k.masked || 'Не задан'}
                   value={editing[`${svc.service}.${k.key}`] || ''}
                   onChange={(e) => setEditing((ed) => ({ ...ed, [`${svc.service}.${k.key}`]: e.target.value }))} />
-                {k.is_set && <span className="text-green-500 text-xs shrink-0">✓ задан</span>}
+                {k.is_set && (
+                  <>
+                    <span className="text-green-500 text-xs shrink-0">✓ задан</span>
+                    <button
+                      onClick={() => { if (confirm(`Удалить ключ ${k.key}?`)) deleteMut.mutate({ service: svc.service, keyName: k.key }) }}
+                      title="Удалить ключ"
+                      className="text-red-400 hover:text-red-600 text-xs shrink-0 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50">
+                      ✕
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -127,7 +142,19 @@ function CrawlerTab() {
   )
 }
 
-const AI_MODELS = ['claude-opus-4-6','claude-sonnet-4-6','claude-haiku-4-5-20251001','claude-sonnet-4-20250514']
+const CLAUDE_MODELS = ['claude-opus-4-6','claude-sonnet-4-6','claude-haiku-4-5-20251001','claude-sonnet-4-20250514']
+const OPENROUTER_MODELS = [
+  'anthropic/claude-sonnet-4-6',
+  'anthropic/claude-opus-4-6',
+  'anthropic/claude-haiku-4-5-20251001',
+  'anthropic/claude-sonnet-4-20250514',
+  'openai/gpt-4o',
+  'openai/gpt-4o-mini',
+  'openai/o3-mini',
+  'google/gemini-2.0-flash-001',
+  'meta-llama/llama-3.3-70b-instruct',
+  'deepseek/deepseek-chat',
+]
 
 function AITab() {
   const qc = useQueryClient()
@@ -143,17 +170,46 @@ function AITab() {
   if (isLoading) return <div className="text-gray-500 py-4">Загрузка...</div>
 
   const cur = { ...data, ...form } as AISettings
+  const isOpenRouter = cur.active_provider === 'openrouter'
 
   return (
     <div className="bg-white rounded-lg border p-4 space-y-4">
-      <h4 className="font-medium text-sm text-gray-700 uppercase tracking-wide">Параметры ИИ</h4>
+      <div className="flex items-center justify-between">
+        <h4 className="font-medium text-sm text-gray-700 uppercase tracking-wide">Параметры ИИ</h4>
+        <span className={cx('text-xs px-2 py-1 rounded-full font-medium',
+          isOpenRouter ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700')}>
+          {isOpenRouter ? '⚡ OpenRouter' : '🟠 Anthropic (прямой)'}
+        </span>
+      </div>
+      {isOpenRouter && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-xs text-purple-700">
+          Активен OpenRouter. Можно использовать любую модель — не только Claude. Задайте ID модели вручную или выберите из списка.
+        </div>
+      )}
       <div>
-        <label className="block text-sm text-gray-600 mb-1">Модель Claude</label>
-        <select className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-          value={cur.ai_model ?? 'claude-sonnet-4-20250514'}
-          onChange={(e) => setForm((f) => ({ ...f, ai_model: e.target.value }))}>
-          {AI_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
+        <label className="block text-sm text-gray-600 mb-1">
+          {isOpenRouter ? 'Модель (OpenRouter ID)' : 'Модель Claude'}
+        </label>
+        {isOpenRouter ? (
+          <>
+            <input list="or-models" className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              value={cur.ai_model ?? 'anthropic/claude-sonnet-4-20250514'}
+              onChange={(e) => setForm((f) => ({ ...f, ai_model: e.target.value }))}
+              placeholder="anthropic/claude-sonnet-4-20250514" />
+            <datalist id="or-models">
+              {OPENROUTER_MODELS.map((m) => <option key={m} value={m} />)}
+            </datalist>
+            <p className="text-xs text-gray-400 mt-1">
+              Формат: <code>provider/model-name</code>. Если нет «/» — автоматически добавится prefix «anthropic/».
+            </p>
+          </>
+        ) : (
+          <select className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            value={cur.ai_model ?? 'claude-sonnet-4-20250514'}
+            onChange={(e) => setForm((f) => ({ ...f, ai_model: e.target.value }))}>
+            {CLAUDE_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        )}
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -388,6 +444,9 @@ function PromptsTab() {
   const [selected, setSelected] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
   const [saved, setSaved] = useState(false)
+  const [showCreate, setShowCreate] = useState(false)
+  const [createForm, setCreateForm] = useState({ name: '', module: 'custom', prompt_text: '' })
+  const [createError, setCreateError] = useState('')
 
   const { data: promptData, isLoading: promptLoading } = useQuery({
     queryKey: ['prompt', selected],
@@ -399,22 +458,87 @@ function PromptsTab() {
     mutationFn: () => settingsApi.updatePrompt(selected!, editText),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['prompts'] }); setSaved(true); setTimeout(() => setSaved(false), 2000) },
   })
+  const createMut = useMutation({
+    mutationFn: () => settingsApi.createPrompt(createForm),
+    onSuccess: (p: any) => {
+      qc.invalidateQueries({ queryKey: ['prompts'] })
+      setShowCreate(false)
+      setCreateForm({ name: '', module: 'custom', prompt_text: '' })
+      setCreateError('')
+      setSelected(p.name)
+    },
+    onError: (e: any) => setCreateError(e.response?.data?.detail || 'Ошибка'),
+  })
+  const deleteMut = useMutation({
+    mutationFn: (name: string) => settingsApi.deletePrompt(name),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['prompts'] }); setSelected(null); setEditText('') },
+  })
 
   if (isLoading) return <div className="text-gray-500 py-4">Загрузка...</div>
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">Системные промпты управляют генерацией через ИИ. Редактируйте осторожно.</p>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-500">Системные промпты управляют генерацией через ИИ. Редактируйте осторожно.</p>
+        <button onClick={() => setShowCreate(true)}
+          className="text-sm bg-primary-600 text-white px-3 py-1.5 rounded-lg hover:bg-primary-700 shrink-0">
+          + Добавить
+        </button>
+      </div>
+
+      {showCreate && (
+        <div className="bg-white border rounded-lg p-4 space-y-3">
+          <h5 className="font-medium text-sm">Новый промпт</h5>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Название (уникальное)</label>
+              <input className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                value={createForm.name}
+                onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="my_custom_prompt" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Модуль</label>
+              <input className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                value={createForm.module}
+                onChange={(e) => setCreateForm((f) => ({ ...f, module: e.target.value }))}
+                placeholder="direct / seo / custom" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Текст промпта</label>
+            <textarea rows={8} className="w-full border rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500"
+              value={createForm.prompt_text}
+              onChange={(e) => setCreateForm((f) => ({ ...f, prompt_text: e.target.value }))}
+              placeholder="Вы — эксперт по..." />
+          </div>
+          {createError && <p className="text-red-500 text-sm">{createError}</p>}
+          <div className="flex gap-2">
+            <button onClick={() => createMut.mutate()} disabled={createMut.isPending || !createForm.name || !createForm.prompt_text}
+              className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+              {createMut.isPending ? 'Создание...' : 'Создать'}
+            </button>
+            <button onClick={() => { setShowCreate(false); setCreateError('') }} className="border px-4 py-2 rounded-lg text-sm">Отмена</button>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-4" style={{ minHeight: 400 }}>
         <div className="space-y-1">
           {(prompts as any[]).map((p) => (
-            <button key={p.name}
-              onClick={() => { setSelected(p.name); setEditText(''); setSaved(false) }}
-              className={cx('w-full text-left px-3 py-2 rounded-lg text-sm transition',
-                selected === p.name ? 'bg-primary-600 text-white' : 'bg-white border hover:bg-gray-50')}>
-              <p className="font-medium truncate">{p.name}</p>
-              <p className={cx('text-xs', selected === p.name ? 'text-primary-200' : 'text-gray-400')}>{p.module}</p>
-            </button>
+            <div key={p.name} className="flex items-center gap-1">
+              <button
+                onClick={() => { setSelected(p.name); setEditText(''); setSaved(false) }}
+                className={cx('flex-1 text-left px-3 py-2 rounded-lg text-sm transition',
+                  selected === p.name ? 'bg-primary-600 text-white' : 'bg-white border hover:bg-gray-50')}>
+                <p className="font-medium truncate">{p.name}</p>
+                <p className={cx('text-xs', selected === p.name ? 'text-primary-200' : 'text-gray-400')}>{p.module}</p>
+              </button>
+              <button onClick={() => { if (confirm(`Удалить промпт "${p.name}"?`)) deleteMut.mutate(p.name) }}
+                className="text-red-400 hover:text-red-600 text-xs border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50 shrink-0">
+                ✕
+              </button>
+            </div>
           ))}
           {prompts.length === 0 && <p className="text-gray-400 text-sm">Нет промптов</p>}
         </div>
@@ -423,7 +547,9 @@ function PromptsTab() {
             promptData ? (
               <div className="space-y-2 h-full flex flex-col">
                 <div className="flex justify-between items-center">
-                  <p className="text-sm font-medium text-gray-700">{promptData.name}</p>
+                  <p className="text-sm font-medium text-gray-700">{promptData.name}
+                    <span className="ml-2 text-xs text-gray-400 font-normal">{promptData.module}</span>
+                  </p>
                   {saved && <span className="text-green-600 text-sm">✅ Сохранено</span>}
                 </div>
                 <textarea rows={16}

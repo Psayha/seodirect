@@ -13,6 +13,7 @@ export interface AISettings {
   ai_max_tokens: number
   ai_temperature: number
   ai_language: string
+  active_provider?: string
 }
 
 export interface UserRecord {
@@ -64,4 +65,12 @@ export const settingsApi = {
     api.get<SystemPromptFull>(`/settings/prompts/${name}`).then((r) => r.data),
   updatePrompt: (name: string, prompt_text: string) =>
     api.put(`/settings/prompts/${name}`, { prompt_text }).then((r) => r.data),
+  createPrompt: (data: { name: string; module: string; prompt_text: string }) =>
+    api.post('/settings/prompts', data).then((r) => r.data),
+  deletePrompt: (name: string) =>
+    api.delete(`/settings/prompts/${name}`).then((r) => r.data),
+
+  // API Keys
+  deleteApiKey: (service: string, keyName: string) =>
+    api.delete(`/settings/api-keys/${service}/${keyName}`).then((r) => r.data),
 }

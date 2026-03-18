@@ -142,6 +142,14 @@ def set_setting(key: str, value: str, db: Session, updated_by=None) -> None:
     db.commit()
 
 
+def delete_setting(key: str, db: Session) -> None:
+    """Delete a setting record from DB (clears the key)."""
+    setting = db.scalar(select(Setting).where(Setting.key == key))
+    if setting:
+        db.delete(setting)
+        db.commit()
+
+
 def get_api_key(service: str, db: Session) -> str | None:
     """Get decrypted API key for a service."""
     return get_setting(service, db)
