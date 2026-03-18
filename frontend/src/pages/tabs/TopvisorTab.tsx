@@ -108,28 +108,28 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="p-6 max-w-4xl space-y-4">
-      <h2 className="text-lg font-semibold text-gray-900">Позиции и конкуренты (Topvisor)</h2>
+      <h2 className="text-lg font-semibold text-primary">Позиции и конкуренты (Topvisor)</h2>
 
       {/* ── Link project ── */}
-      <div className="bg-white rounded-xl border p-4">
+      <div className="bg-surface rounded-xl border border-[var(--border)] p-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-700">Привязанный Topvisor-проект</p>
-            <p className="text-sm text-gray-500 mt-0.5">{linked ? `ID: ${linked}` : 'Не привязан'}</p>
+            <p className="text-sm font-medium text-primary">Привязанный Topvisor-проект</p>
+            <p className="text-sm text-muted mt-0.5">{linked ? `ID: ${linked}` : 'Не привязан'}</p>
           </div>
           <div className="flex gap-2">
             {linked && (
               <button
                 onClick={() => checkMutation.mutate()}
                 disabled={checkMutation.isPending}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                className="px-3 py-1.5 text-sm border border-[var(--border)] rounded-xl hover:bg-surface-raised disabled:opacity-50"
               >
                 {checkMutation.isPending ? 'Запуск...' : '▶ Проверить позиции'}
               </button>
             )}
             <button
               onClick={() => { setLinking(true); fetchTvProjects() }}
-              className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700"
             >
               {linked ? 'Изменить' : 'Привязать'}
             </button>
@@ -139,7 +139,7 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
         {linking && (
           <div className="mt-3">
             {tvLoading ? (
-              <p className="text-sm text-gray-400">Загрузка проектов из Topvisor...</p>
+              <p className="text-sm text-muted">Загрузка проектов из Topvisor...</p>
             ) : tvProjects?.projects?.length ? (
               <div className="space-y-1 max-h-48 overflow-y-auto">
                 {tvProjects.projects.map((p: any) => (
@@ -147,8 +147,8 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
                     key={p.id}
                     onClick={() => setSelectedTvId(p.id)}
                     className={cx(
-                      'w-full text-left px-3 py-2 rounded-lg text-sm border transition',
-                      selectedTvId === p.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                      'w-full text-left px-3 py-2 rounded-xl text-sm border transition',
+                      selectedTvId === p.id ? 'border-blue-500 bg-blue-50' : 'border-[var(--border)] hover:border-[var(--border)]'
                     )}
                   >
                     {p.name || p.site || `Project #${p.id}`}
@@ -161,7 +161,7 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
             {selectedTvId && (
               <button
                 onClick={() => linkMutation.mutate(selectedTvId)}
-                className="mt-2 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700"
+                className="mt-2 px-3 py-1.5 text-sm bg-green-600 text-white rounded-xl hover:bg-green-700"
               >
                 Сохранить привязку
               </button>
@@ -173,22 +173,22 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
       {linked && (
         <>
           {/* ── Date range (shared) ── */}
-          <div className="bg-white rounded-xl border p-4">
-            <p className="text-sm font-medium text-gray-700 mb-3">Период данных</p>
+          <div className="bg-surface rounded-xl border border-[var(--border)] p-4">
+            <p className="text-sm font-medium text-primary mb-3">Период данных</p>
             <div className="flex flex-wrap items-end gap-3">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Дата от</label>
+                <label className="block text-xs text-muted mb-1">Дата от</label>
                 <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
                   className="border rounded px-2 py-1 text-sm" />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Дата до</label>
+                <label className="block text-xs text-muted mb-1">Дата до</label>
                 <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
                   className="border rounded px-2 py-1 text-sm" />
               </div>
               <button
                 onClick={() => { fetchPositions(); fetchSummary() }}
-                className="px-3 py-1.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                className="px-3 py-1.5 text-sm bg-accent text-white rounded-xl hover:bg-accent"
               >
                 Загрузить позиции и сводку
               </button>
@@ -196,65 +196,65 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
           </div>
 
           {/* ── Summary cards ── */}
-          <div className="bg-white rounded-xl border p-4">
-            <h3 className="text-sm font-semibold text-gray-800 mb-3">Сводка позиций</h3>
-            {sumLoading && <p className="text-sm text-gray-400">Загрузка...</p>}
+          <div className="bg-surface rounded-xl border border-[var(--border)] p-4">
+            <h3 className="text-sm font-semibold text-primary mb-3">Сводка позиций</h3>
+            {sumLoading && <p className="text-sm text-muted">Загрузка...</p>}
             {sumError && <p className="text-sm text-red-500">Ошибка загрузки сводки</p>}
             {Object.keys(sumData).length > 0 ? (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {sumData.avg != null && (
-                  <div className="bg-gray-50 rounded-lg p-3 text-center">
-                    <p className="text-xs text-gray-500 mb-1">Средняя позиция</p>
-                    <p className="text-2xl font-bold text-gray-900">{Number(sumData.avg).toFixed(1)}</p>
+                  <div className="bg-surface-raised rounded-xl p-3 text-center">
+                    <p className="text-xs text-muted mb-1">Средняя позиция</p>
+                    <p className="text-2xl font-bold text-primary">{Number(sumData.avg).toFixed(1)}</p>
                   </div>
                 )}
                 {sumData.visibility != null && (
-                  <div className="bg-blue-50 rounded-lg p-3 text-center">
-                    <p className="text-xs text-gray-500 mb-1">Видимость</p>
+                  <div className="bg-blue-50 rounded-xl p-3 text-center">
+                    <p className="text-xs text-muted mb-1">Видимость</p>
                     <p className="text-2xl font-bold text-blue-700">{Number(sumData.visibility).toFixed(1)}%</p>
                   </div>
                 )}
                 {sumData.tops != null && typeof sumData.tops === 'object' && (
                   <>
                     {sumData.tops['3'] != null && (
-                      <div className="bg-green-50 rounded-lg p-3 text-center">
-                        <p className="text-xs text-gray-500 mb-1">ТОП-3</p>
+                      <div className="bg-green-50 rounded-xl p-3 text-center">
+                        <p className="text-xs text-muted mb-1">ТОП-3</p>
                         <p className="text-2xl font-bold text-green-700">{sumData.tops['3']}</p>
                       </div>
                     )}
                     {sumData.tops['10'] != null && (
-                      <div className="bg-yellow-50 rounded-lg p-3 text-center">
-                        <p className="text-xs text-gray-500 mb-1">ТОП-10</p>
+                      <div className="bg-yellow-50 rounded-xl p-3 text-center">
+                        <p className="text-xs text-muted mb-1">ТОП-10</p>
                         <p className="text-2xl font-bold text-yellow-700">{sumData.tops['10']}</p>
                       </div>
                     )}
                   </>
                 )}
                 {sumData.count != null && (
-                  <div className="bg-gray-50 rounded-lg p-3 text-center">
-                    <p className="text-xs text-gray-500 mb-1">Запросов</p>
-                    <p className="text-2xl font-bold text-gray-900">{sumData.count}</p>
+                  <div className="bg-surface-raised rounded-xl p-3 text-center">
+                    <p className="text-xs text-muted mb-1">Запросов</p>
+                    <p className="text-2xl font-bold text-primary">{sumData.count}</p>
                   </div>
                 )}
               </div>
             ) : !sumLoading && (
-              <p className="text-sm text-gray-400">Нажмите «Загрузить позиции и сводку» выше</p>
+              <p className="text-sm text-muted">Нажмите «Загрузить позиции и сводку» выше</p>
             )}
           </div>
 
           {/* ── Positions table ── */}
-          <div className="bg-white rounded-xl border p-4">
-            <h3 className="text-sm font-semibold text-gray-800 mb-3">История позиций</h3>
-            {posLoading && <p className="text-sm text-gray-400">Загрузка позиций...</p>}
+          <div className="bg-surface rounded-xl border border-[var(--border)] p-4">
+            <h3 className="text-sm font-semibold text-primary mb-3">История позиций</h3>
+            {posLoading && <p className="text-sm text-muted">Загрузка позиций...</p>}
             {posError && <p className="text-sm text-red-500">Ошибка. Проверьте привязку и API ключ.</p>}
             {kws.length > 0 && (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50">
-                      <th className="px-3 py-2 text-left text-gray-600 font-medium">Ключевое слово</th>
-                      <th className="px-3 py-2 text-center text-gray-600 font-medium w-20">Позиция</th>
-                      <th className="px-3 py-2 text-center text-gray-600 font-medium w-20">Динамика</th>
+                    <tr className="bg-surface-raised">
+                      <th className="px-3 py-2 text-left text-muted font-medium">Ключевое слово</th>
+                      <th className="px-3 py-2 text-center text-muted font-medium w-20">Позиция</th>
+                      <th className="px-3 py-2 text-center text-muted font-medium w-20">Динамика</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -282,44 +282,44 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
               </div>
             )}
             {!posLoading && kws.length === 0 && positions && (
-              <p className="text-sm text-gray-400">Нет данных за выбранный период</p>
+              <p className="text-sm text-muted">Нет данных за выбранный период</p>
             )}
           </div>
 
           {/* ── Competitors ── */}
-          <div className="bg-white rounded-xl border p-4">
+          <div className="bg-surface rounded-xl border border-[var(--border)] p-4">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <h3 className="text-sm font-semibold text-gray-800">Конкуренты в выдаче</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Топ-домены по всем ключам проекта</p>
+                <h3 className="text-sm font-semibold text-primary">Конкуренты в выдаче</h3>
+                <p className="text-xs text-muted mt-0.5">Топ-домены по всем ключам проекта</p>
               </div>
               <button
                 onClick={() => { setShowCompetitors((v) => !v); if (!showCompetitors) fetchCompetitors() }}
-                className="text-xs text-primary-600 hover:underline"
+                className="text-xs text-accent hover:underline"
               >
                 {showCompetitors ? 'Скрыть' : 'Показать'}
               </button>
             </div>
             {showCompetitors && (
               <>
-                {compLoading && <p className="text-sm text-gray-400">Загрузка конкурентов...</p>}
+                {compLoading && <p className="text-sm text-muted">Загрузка конкурентов...</p>}
                 {compError && <p className="text-sm text-red-500">Ошибка загрузки конкурентов</p>}
                 {compList.length > 0 && (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="bg-gray-50">
-                          <th className="px-3 py-2 text-left text-gray-600 font-medium">Домен</th>
-                          <th className="px-3 py-2 text-center text-gray-600 font-medium w-24">Средняя поз.</th>
-                          <th className="px-3 py-2 text-center text-gray-600 font-medium w-24">Запросов</th>
-                          <th className="px-3 py-2 text-center text-gray-600 font-medium w-20">ТОП-3</th>
-                          <th className="px-3 py-2 text-center text-gray-600 font-medium w-20">ТОП-10</th>
+                        <tr className="bg-surface-raised">
+                          <th className="px-3 py-2 text-left text-muted font-medium">Домен</th>
+                          <th className="px-3 py-2 text-center text-muted font-medium w-24">Средняя поз.</th>
+                          <th className="px-3 py-2 text-center text-muted font-medium w-24">Запросов</th>
+                          <th className="px-3 py-2 text-center text-muted font-medium w-20">ТОП-3</th>
+                          <th className="px-3 py-2 text-center text-muted font-medium w-20">ТОП-10</th>
                         </tr>
                       </thead>
                       <tbody>
                         {compList.map((c: any, i: number) => (
-                          <tr key={i} className="border-t hover:bg-gray-50">
-                            <td className="px-3 py-2 font-medium text-gray-800">{c.domain || c.name || '—'}</td>
+                          <tr key={i} className="border-t hover:bg-surface-raised">
+                            <td className="px-3 py-2 font-medium text-primary">{c.domain || c.name || '—'}</td>
                             <td className="px-3 py-2 text-center font-mono">{c.avg != null ? Number(c.avg).toFixed(1) : '—'}</td>
                             <td className="px-3 py-2 text-center">{c.count ?? c.keywords_count ?? '—'}</td>
                             <td className="px-3 py-2 text-center text-green-600 font-medium">{c.top3 ?? c.tops?.['3'] ?? '—'}</td>
@@ -331,22 +331,22 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
                   </div>
                 )}
                 {!compLoading && compList.length === 0 && competitors && (
-                  <p className="text-sm text-gray-400">Нет данных. Убедитесь, что в Topvisor есть снимки выдачи за выбранный период.</p>
+                  <p className="text-sm text-muted">Нет данных. Убедитесь, что в Topvisor есть снимки выдачи за выбранный период.</p>
                 )}
               </>
             )}
           </div>
 
           {/* ── Snapshots ── */}
-          <div className="bg-white rounded-xl border p-4">
+          <div className="bg-surface rounded-xl border border-[var(--border)] p-4">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <h3 className="text-sm font-semibold text-gray-800">Снимки выдачи (по ключу)</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Какие URL видны по каждому запросу</p>
+                <h3 className="text-sm font-semibold text-primary">Снимки выдачи (по ключу)</h3>
+                <p className="text-xs text-muted mt-0.5">Какие URL видны по каждому запросу</p>
               </div>
               <button
                 onClick={() => setShowSnapshots((v) => !v)}
-                className="text-xs text-primary-600 hover:underline"
+                className="text-xs text-accent hover:underline"
               >
                 {showSnapshots ? 'Скрыть' : 'Показать'}
               </button>
@@ -355,39 +355,39 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
               <>
                 <div className="flex items-center gap-3 mb-3">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Дата снимка</label>
+                    <label className="block text-xs text-muted mb-1">Дата снимка</label>
                     <input type="date" value={snapshotDate} onChange={(e) => setSnapshotDate(e.target.value)}
                       className="border rounded px-2 py-1 text-sm" />
                   </div>
                   <div className="pt-5">
                     <button
                       onClick={() => fetchSnapshots()}
-                      className="px-3 py-1.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                      className="px-3 py-1.5 text-sm bg-accent text-white rounded-xl hover:bg-accent"
                     >
                       Загрузить
                     </button>
                   </div>
                 </div>
-                {snapLoading && <p className="text-sm text-gray-400">Загрузка...</p>}
+                {snapLoading && <p className="text-sm text-muted">Загрузка...</p>}
                 {snapError && <p className="text-sm text-red-500">Ошибка загрузки снимков</p>}
                 {snapKws.length > 0 && (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="bg-gray-50">
-                          <th className="px-3 py-2 text-left text-gray-600 font-medium">Ключевое слово</th>
-                          <th className="px-3 py-2 text-center text-gray-600 font-medium w-16">Поз.</th>
-                          <th className="px-3 py-2 text-left text-gray-600 font-medium">URL</th>
-                          <th className="px-3 py-2 text-left text-gray-600 font-medium w-48">Заголовок</th>
+                        <tr className="bg-surface-raised">
+                          <th className="px-3 py-2 text-left text-muted font-medium">Ключевое слово</th>
+                          <th className="px-3 py-2 text-center text-muted font-medium w-16">Поз.</th>
+                          <th className="px-3 py-2 text-left text-muted font-medium">URL</th>
+                          <th className="px-3 py-2 text-left text-muted font-medium w-48">Заголовок</th>
                         </tr>
                       </thead>
                       <tbody>
                         {snapKws.map((kw: any, i: number) => (
-                          <tr key={i} className="border-t hover:bg-gray-50">
-                            <td className="px-3 py-2 text-gray-800">{kw.name || kw.keyword || '—'}</td>
+                          <tr key={i} className="border-t hover:bg-surface-raised">
+                            <td className="px-3 py-2 text-primary">{kw.name || kw.keyword || '—'}</td>
                             <td className="px-3 py-2 text-center font-mono">
                               <span className={cx('font-medium',
-                                kw.position <= 3 ? 'text-green-600' : kw.position <= 10 ? 'text-yellow-600' : 'text-gray-500'
+                                kw.position <= 3 ? 'text-green-600' : kw.position <= 10 ? 'text-yellow-600' : 'text-muted'
                               )}>
                                 {kw.position ?? '—'}
                               </span>
@@ -400,7 +400,7 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
                                 </a>
                               ) : '—'}
                             </td>
-                            <td className="px-3 py-2 text-xs text-gray-600 truncate max-w-xs">{kw.snippet_title || '—'}</td>
+                            <td className="px-3 py-2 text-xs text-muted truncate max-w-xs">{kw.snippet_title || '—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -408,22 +408,22 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
                   </div>
                 )}
                 {!snapLoading && snapKws.length === 0 && snapshots && (
-                  <p className="text-sm text-gray-400">Нет данных для выбранной даты</p>
+                  <p className="text-sm text-muted">Нет данных для выбранной даты</p>
                 )}
               </>
             )}
           </div>
 
           {/* ── Clustering ── */}
-          <div className="bg-white rounded-xl border p-4">
+          <div className="bg-surface rounded-xl border border-[var(--border)] p-4">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <h3 className="text-sm font-semibold text-gray-800">Кластеризация ключей</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Кластеризация по ТОП-10 Topvisor (платно)</p>
+                <h3 className="text-sm font-semibold text-primary">Кластеризация ключей</h3>
+                <p className="text-xs text-muted mt-0.5">Кластеризация по ТОП-10 Topvisor (платно)</p>
               </div>
               <button
                 onClick={() => { setShowCluster((v) => !v); if (!showCluster) fetchClusterStatus() }}
-                className="text-xs text-primary-600 hover:underline"
+                className="text-xs text-accent hover:underline"
               >
                 {showCluster ? 'Скрыть' : 'Показать'}
               </button>
@@ -434,14 +434,14 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
                   <button
                     onClick={() => clusterStartMutation.mutate()}
                     disabled={clusterStartMutation.isPending || clusterPolling}
-                    className="px-3 py-1.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                    className="px-3 py-1.5 text-sm bg-accent text-white rounded-xl hover:bg-accent disabled:opacity-50"
                   >
                     {clusterStartMutation.isPending ? 'Запуск...' : 'Запустить кластеризацию'}
                   </button>
                   {clusterStatus && !clusterStatus.done && (
                     <button
                       onClick={() => fetchClusterStatus()}
-                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+                      className="px-3 py-1.5 text-sm border border-[var(--border)] rounded-xl hover:bg-surface-raised"
                     >
                       Обновить статус
                     </button>
@@ -449,7 +449,7 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
                   {clusterStatus?.done && (
                     <button
                       onClick={() => fetchClusterKeywords()}
-                      className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700"
+                      className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-xl hover:bg-green-700"
                     >
                       Загрузить результаты
                     </button>
@@ -462,13 +462,13 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
                       <p className="text-sm text-green-600 font-medium">Кластеризация завершена</p>
                     ) : (
                       <div>
-                        <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                        <div className="flex items-center justify-between text-xs text-muted mb-1">
                           <span>Выполнение кластеризации...</span>
                           <span>{clusterStatus.percent ?? 0}%</span>
                         </div>
-                        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="h-2 bg-surface-raised rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-primary-600 transition-all"
+                            className="h-full bg-accent transition-all"
                             style={{ width: `${clusterStatus.percent ?? 0}%` }}
                           />
                         </div>
@@ -477,22 +477,22 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
                   </div>
                 )}
 
-                {clusterKwLoading && <p className="text-sm text-gray-400">Загрузка кластеров...</p>}
+                {clusterKwLoading && <p className="text-sm text-muted">Загрузка кластеров...</p>}
                 {clusterGroups.length > 0 && (
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     {clusterGroups.map((g: any) => (
-                      <div key={g.group_id} className="border rounded-lg p-3">
-                        <p className="text-xs font-semibold text-gray-600 mb-1">
+                      <div key={g.group_id} className="border rounded-xl p-3">
+                        <p className="text-xs font-semibold text-muted mb-1">
                           Группа {g.group_id} · {g.keywords?.length ?? 0} запросов
                         </p>
                         <div className="flex flex-wrap gap-1">
                           {(g.keywords || []).slice(0, 20).map((kw: string, i: number) => (
-                            <span key={i} className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded">
+                            <span key={i} className="bg-surface-raised text-primary text-xs px-2 py-0.5 rounded">
                               {kw}
                             </span>
                           ))}
                           {(g.keywords?.length ?? 0) > 20 && (
-                            <span className="text-xs text-gray-400">+{g.keywords.length - 20} ещё</span>
+                            <span className="text-xs text-muted">+{g.keywords.length - 20} ещё</span>
                           )}
                         </div>
                       </div>

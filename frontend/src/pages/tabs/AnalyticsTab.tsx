@@ -21,7 +21,7 @@ function AnomalyBanner({ projectId }: { projectId: string }) {
 
   if (anomalies.length === 0) {
     return (
-      <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-4 text-sm text-green-700">
+      <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2 mb-4 text-sm text-green-700">
         ✅ Трафик в норме
       </div>
     )
@@ -37,7 +37,7 @@ function AnomalyBanner({ projectId }: { projectId: string }) {
   return (
     <div className="space-y-2 mb-4">
       {anomalies.map((a: any, i: number) => (
-        <div key={i} className={cx('flex items-start gap-3 border rounded-lg px-4 py-3 text-sm', levelColors[a.level] || levelColors.info)}>
+        <div key={i} className={cx('flex items-start gap-3 border rounded-xl px-4 py-3 text-sm', levelColors[a.level] || levelColors.info)}>
           <span>{levelIcons[a.level] || '🔵'}</span>
           <div className="flex-1">
             <p className="font-medium">{a.message}</p>
@@ -62,12 +62,12 @@ function RoiSection({ projectId }: { projectId: string }) {
   const rows: any[] = data?.rows || []
 
   return (
-    <div className="border rounded-lg bg-white p-4 mt-6">
+    <div className="border border-[var(--border)] rounded-xl bg-surface p-4 mt-6">
       <h3 className="font-semibold mb-3">ROI Калькулятор</h3>
       {isLoading ? (
-        <p className="text-sm text-gray-400">Загрузка...</p>
+        <p className="text-sm text-muted">Загрузка...</p>
       ) : rows.length === 0 ? (
-        <div className="text-center py-8 text-gray-400">
+        <div className="text-center py-8 text-muted">
           <p className="text-2xl mb-2">📊</p>
           <p className="text-sm">Нет данных для расчёта ROI. Заполните медиаплан.</p>
         </div>
@@ -75,9 +75,9 @@ function RoiSection({ projectId }: { projectId: string }) {
         <div className="overflow-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 border-b">
+              <tr className="bg-surface-raised border-b">
                 {['Месяц', 'Бюджет', 'Прогноз лидов', 'Прогноз CPA', 'Факт лидов', 'Факт CPA', 'ROI%'].map(h => (
-                  <th key={h} className="px-3 py-2 text-left text-xs text-gray-500 font-medium">{h}</th>
+                  <th key={h} className="px-3 py-2 text-left text-xs text-muted font-medium">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -86,7 +86,7 @@ function RoiSection({ projectId }: { projectId: string }) {
                 const roiOk = r.actual_leads != null && r.forecast_leads != null && r.actual_leads >= r.forecast_leads
                 return (
                   <tr key={i} className={cx('border-b', roiOk ? 'bg-green-50' : r.actual_leads != null ? 'bg-red-50' : '')}>
-                    <td className="px-3 py-2 font-medium text-gray-700">{r.month_name}</td>
+                    <td className="px-3 py-2 font-medium text-primary">{r.month_name}</td>
                     <td className="px-3 py-2 tabular-nums">{r.budget?.toLocaleString() ?? '—'} ₽</td>
                     <td className="px-3 py-2 tabular-nums text-blue-600">{r.forecast_leads?.toLocaleString() ?? '—'}</td>
                     <td className="px-3 py-2 tabular-nums">{r.forecast_cpa?.toLocaleString() ?? '—'} ₽</td>
@@ -200,9 +200,9 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
       {/* Counter selector */}
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">Счётчик Метрики:</label>
+          <label className="text-sm text-muted">Счётчик Метрики:</label>
           {countersData?.counters?.length ? (
-            <select className="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            <select className="field py-1.5"
               value={activeCounter || ''}
               onChange={(e) => { const id = Number(e.target.value); setCounterMut.mutate(id) }}>
               <option value="">Выберите счётчик</option>
@@ -211,21 +211,21 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
               ))}
             </select>
           ) : (
-            <span className="text-sm text-gray-400">
+            <span className="text-sm text-muted">
               {countersData ? 'Нет доступных счётчиков' : 'Загрузка...'}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2 ml-auto">
-          <label className="text-xs text-gray-500">От:</label>
+          <label className="text-xs text-muted">От:</label>
           <input type="date" className="border rounded px-2 py-1 text-sm" value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)} />
-          <label className="text-xs text-gray-500">до: {dateTo}</label>
+          <label className="text-xs text-muted">до: {dateTo}</label>
         </div>
       </div>
 
       {noCounter && (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16 text-muted">
           <p className="text-4xl mb-3">📊</p>
           <p className="font-medium mb-1">Выберите счётчик Метрики</p>
           <p className="text-sm">Убедитесь, что OAuth токен Метрики настроен в Настройках → API ключи</p>
@@ -233,12 +233,12 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
       )}
 
       {hasError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
           ❌ Ошибка загрузки данных. Проверьте OAuth токен Метрики в настройках.
         </div>
       )}
 
-      {dashLoading && <div className="text-gray-500 py-4">Загрузка данных...</div>}
+      {dashLoading && <div className="text-muted py-4">Загрузка данных...</div>}
 
       {dashData && (
         <div className="space-y-6">
@@ -250,17 +250,17 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
               { label: 'Отказы', value: dashData.summary.bounce_rate + '%', icon: '↩️' },
               { label: 'Время на сайте', value: formatDuration(dashData.summary.avg_duration), icon: '⏱' },
             ].map(({ label, value, icon }) => (
-              <div key={label} className="bg-white border rounded-lg p-4">
+              <div key={label} className="bg-surface border rounded-xl p-4">
                 <p className="text-2xl mb-1">{icon}</p>
-                <p className="text-xl font-bold text-gray-900">{value}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+                <p className="text-xl font-bold text-primary">{value}</p>
+                <p className="text-xs text-muted mt-0.5">{label}</p>
               </div>
             ))}
           </div>
 
           {/* Traffic sources */}
           {dashData.sources.length > 0 && (
-            <div className="bg-white border rounded-lg p-4">
+            <div className="bg-surface border rounded-xl p-4">
               <h4 className="font-medium text-sm mb-3">Источники трафика</h4>
               <div className="space-y-2">
                 {dashData.sources.map((s: TrafficSource) => {
@@ -268,11 +268,11 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
                   const pct = maxVisits > 0 ? Math.round((s.visits / maxVisits) * 100) : 0
                   return (
                     <div key={s.source} className="flex items-center gap-3 text-sm">
-                      <span className="w-32 text-gray-600 text-xs truncate">{s.source}</span>
-                      <div className="flex-1 bg-gray-100 rounded-full h-2">
-                        <div className="bg-primary-500 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                      <span className="w-32 text-muted text-xs truncate">{s.source}</span>
+                      <div className="flex-1 bg-surface-raised rounded-full h-2">
+                        <div className="bg-accent h-2 rounded-full" style={{ width: `${pct}%` }} />
                       </div>
-                      <span className="w-16 text-right tabular-nums text-gray-700 font-medium">{s.visits.toLocaleString()}</span>
+                      <span className="w-16 text-right tabular-nums text-primary font-medium">{s.visits.toLocaleString()}</span>
                     </div>
                   )
                 })}
@@ -282,7 +282,7 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
 
           {/* Daily chart (simple bars) */}
           {dashData.daily.length > 0 && (
-            <div className="bg-white border rounded-lg p-4">
+            <div className="bg-surface border rounded-xl p-4">
               <h4 className="font-medium text-sm mb-3">Визиты по дням</h4>
               <div className="flex items-end gap-1 h-32">
                 {dashData.daily.map((d: DailyVisit) => {
@@ -290,16 +290,16 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
                   const h = maxV > 0 ? Math.max(4, Math.round((d.visits / maxV) * 100)) : 4
                   return (
                     <div key={d.date} className="flex-1 flex flex-col items-center gap-1 group relative">
-                      <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs rounded px-1.5 py-0.5 opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none">
+                      <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-surface-raised text-white text-xs rounded px-1.5 py-0.5 opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none">
                         {d.date}: {d.visits}
                       </div>
-                      <div className="w-full bg-primary-500 rounded-t hover:bg-primary-600 transition cursor-default"
+                      <div className="w-full bg-accent rounded-t hover:bg-accent transition cursor-default"
                         style={{ height: `${h}%` }} />
                     </div>
                   )
                 })}
               </div>
-              <div className="flex justify-between text-xs text-gray-400 mt-1">
+              <div className="flex justify-between text-xs text-muted mt-1">
                 <span>{dashData.daily[0]?.date}</span>
                 <span>{dashData.daily[dashData.daily.length - 1]?.date}</span>
               </div>
@@ -310,19 +310,19 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
 
       {/* Topvisor Positions */}
       <div className="mt-8 border-t pt-6">
-        <h4 className="font-semibold text-sm text-gray-700 uppercase tracking-wide mb-4">📈 Позиции Topvisor</h4>
+        <h4 className="font-semibold text-sm text-primary uppercase tracking-wide mb-4">📈 Позиции Topvisor</h4>
         <div className="flex items-center gap-3 mb-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Проект:</span>
+            <span className="text-sm text-muted">Проект:</span>
             {tvProjectId ? (
               <span className="text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded px-2 py-0.5">
                 #{tvProjectId}
               </span>
             ) : (
-              <span className="text-sm text-gray-400">не привязан</span>
+              <span className="text-sm text-muted">не привязан</span>
             )}
             <button onClick={() => tvProjectsMut.mutate()} disabled={tvProjectsMut.isPending}
-              className="text-xs text-primary-600 hover:underline">
+              className="text-xs text-accent hover:underline">
               {tvProjectsMut.isPending ? '...' : 'выбрать'}
             </button>
             {tvProjectId && (
@@ -331,27 +331,27 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
             )}
           </div>
           <div className="flex items-center gap-2 ml-auto">
-            <label className="text-xs text-gray-500">Регион:</label>
+            <label className="text-xs text-muted">Регион:</label>
             <input type="number" min={0} value={posRegion}
               onChange={(e) => setPosRegion(Number(e.target.value))}
               className="border rounded px-2 py-1 text-sm w-16" />
             <button onClick={() => tvPositionsMut.mutate()} disabled={tvPositionsMut.isPending || !tvProjectId}
-              className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-primary-700 disabled:opacity-50">
+              className="bg-accent text-white px-3 py-1.5 rounded-xl text-xs hover:bg-accent disabled:opacity-50">
               {tvPositionsMut.isPending ? '⏳ Загрузка...' : 'Загрузить позиции'}
             </button>
           </div>
         </div>
 
         {tvProjects && (
-          <div className="bg-white border rounded-lg p-3 mb-4">
-            <p className="text-xs text-gray-500 mb-2">Выберите проект Topvisor:</p>
+          <div className="bg-surface border rounded-xl p-3 mb-4">
+            <p className="text-xs text-muted mb-2">Выберите проект Topvisor:</p>
             <div className="space-y-1 max-h-48 overflow-y-auto">
-              {tvProjects.length === 0 && <p className="text-sm text-gray-400">Нет проектов</p>}
+              {tvProjects.length === 0 && <p className="text-sm text-muted">Нет проектов</p>}
               {tvProjects.map((p: any) => (
                 <button key={p.id} onClick={() => { tvLinkMut.mutate(p.id); setTvProjects(null) }}
-                  className={cx('w-full text-left text-sm px-3 py-1.5 rounded hover:bg-primary-50 transition',
-                    tvProjectId === p.id ? 'bg-primary-50 text-primary-700 font-medium' : 'text-gray-700')}>
-                  {p.name || p.site} <span className="text-xs text-gray-400">#{p.id}</span>
+                  className={cx('w-full text-left text-sm px-3 py-1.5 rounded hover:bg-accent-subtle transition',
+                    tvProjectId === p.id ? 'bg-accent-subtle text-accent font-medium' : 'text-primary')}>
+                  {p.name || p.site} <span className="text-xs text-muted">#{p.id}</span>
                 </button>
               ))}
             </div>
@@ -359,13 +359,13 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
         )}
 
         {tvPositionsMut.isError && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 mb-3">
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700 mb-3">
             ❌ {(tvPositionsMut.error as any)?.response?.data?.detail || 'Ошибка загрузки позиций'}
           </div>
         )}
 
         {!tvProjectId && !tvProjectsMut.isPending && (
-          <div className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg">
+          <div className="text-center py-10 text-muted bg-surface-raised rounded-xl">
             <p className="text-3xl mb-2">📈</p>
             <p className="text-sm font-medium">Привяжите Topvisor-проект</p>
             <p className="text-xs mt-1">Нажмите «выбрать» выше. API ключ настраивается в Настройках → API ключи</p>
@@ -373,14 +373,14 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
         )}
 
         {positions && (
-          <div className="bg-white border rounded-lg overflow-hidden">
+          <div className="bg-surface border rounded-xl overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
+              <thead className="bg-surface-raised border-b">
                 <tr>
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">Ключевая фраза</th>
-                  <th className="px-4 py-2 text-center font-medium text-gray-600 w-24">Позиция</th>
-                  <th className="px-4 py-2 text-center font-medium text-gray-600 w-24">Динамика</th>
-                  <th className="px-4 py-2 text-center font-medium text-gray-600 w-24">Частота</th>
+                  <th className="px-4 py-2 text-left font-medium text-muted">Ключевая фраза</th>
+                  <th className="px-4 py-2 text-center font-medium text-muted w-24">Позиция</th>
+                  <th className="px-4 py-2 text-center font-medium text-muted w-24">Динамика</th>
+                  <th className="px-4 py-2 text-center font-medium text-muted w-24">Частота</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -389,31 +389,31 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
                   const diff = kw.diff ?? kw.dynamics
                   const vol = kw.volume ?? kw.frequency
                   return (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 text-gray-800">{kw.phrase || kw.name}</td>
+                    <tr key={i} className="hover:bg-surface-raised">
+                      <td className="px-4 py-2 text-primary">{kw.phrase || kw.name}</td>
                       <td className="px-4 py-2 text-center">
                         {pos != null ? (
                           <span className={cx('font-mono font-medium',
-                            pos <= 3 ? 'text-green-600' : pos <= 10 ? 'text-yellow-600' : 'text-gray-500')}>
+                            pos <= 3 ? 'text-green-600' : pos <= 10 ? 'text-yellow-600' : 'text-muted')}>
                             {pos}
                           </span>
-                        ) : <span className="text-gray-300">—</span>}
+                        ) : <span className="text-muted">—</span>}
                       </td>
                       <td className="px-4 py-2 text-center">
                         {diff != null && diff !== 0 ? (
                           <span className={cx('text-xs font-medium', diff > 0 ? 'text-green-600' : 'text-red-500')}>
                             {diff > 0 ? '▲' : '▼'} {Math.abs(diff)}
                           </span>
-                        ) : <span className="text-gray-300 text-xs">—</span>}
+                        ) : <span className="text-muted text-xs">—</span>}
                       </td>
-                      <td className="px-4 py-2 text-center text-gray-500 text-xs">{vol?.toLocaleString() ?? '—'}</td>
+                      <td className="px-4 py-2 text-center text-muted text-xs">{vol?.toLocaleString() ?? '—'}</td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
             {positions.length === 0 && (
-              <div className="text-center py-8 text-gray-400">Нет данных за выбранный период</div>
+              <div className="text-center py-8 text-muted">Нет данных за выбранный период</div>
             )}
           </div>
         )}

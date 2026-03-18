@@ -23,7 +23,7 @@ const ROLE_COLORS: Record<UserRole, string> = {
   super_admin: 'bg-purple-100 text-purple-700',
   admin: 'bg-blue-100 text-blue-700',
   specialist: 'bg-green-100 text-green-700',
-  viewer: 'bg-gray-100 text-gray-600',
+  viewer: 'bg-surface-raised text-muted',
 }
 
 function cx(...args: (string | false | null | undefined)[]) {
@@ -104,12 +104,12 @@ export default function AdminUsersPage() {
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Управление пользователями</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Роли: суперадмин → админ → специалист → просмотр</p>
+          <h1 className="text-xl font-bold text-primary">Управление пользователями</h1>
+          <p className="text-sm text-muted mt-0.5">Роли: суперадмин → админ → специалист → просмотр</p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
-          className="px-4 py-2 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 transition"
+          className="px-4 py-2 bg-accent text-white text-sm rounded-xl hover:bg-accent transition"
         >
           + Добавить пользователя
         </button>
@@ -118,26 +118,26 @@ export default function AdminUsersPage() {
       {/* Create modal */}
       {showCreate && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
-            <h2 className="font-semibold text-gray-900 mb-4">Новый пользователь</h2>
+          <div className="bg-surface rounded-xl shadow-xl p-6 w-full max-w-md">
+            <h2 className="font-semibold text-primary mb-4">Новый пользователь</h2>
             <div className="space-y-3">
               {(['login', 'email', 'password'] as const).map((f) => (
                 <div key={f}>
-                  <label className="block text-sm text-gray-600 mb-1 capitalize">{f === 'login' ? 'Логин' : f === 'email' ? 'Email' : 'Пароль'}</label>
+                  <label className="block text-sm text-muted mb-1 capitalize">{f === 'login' ? 'Логин' : f === 'email' ? 'Email' : 'Пароль'}</label>
                   <input
                     type={f === 'password' ? 'password' : 'text'}
                     value={form[f]}
                     onChange={(e) => setForm({ ...form, [f]: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    className="field"
                   />
                 </div>
               ))}
               <div>
-                <label className="block text-sm text-gray-600 mb-1">Роль</label>
+                <label className="block text-sm text-muted mb-1">Роль</label>
                 <select
                   value={form.role}
                   onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  className="w-full border rounded-xl px-3 py-2 text-sm"
                 >
                   {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
@@ -150,11 +150,11 @@ export default function AdminUsersPage() {
               <button
                 onClick={() => createMutation.mutate(form)}
                 disabled={createMutation.isPending}
-                className="flex-1 py-2 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                className="flex-1 py-2 bg-accent text-white text-sm rounded-xl hover:bg-accent disabled:opacity-50"
               >
                 {createMutation.isPending ? 'Создание...' : 'Создать'}
               </button>
-              <button onClick={() => setShowCreate(false)} className="flex-1 py-2 border text-sm rounded-lg hover:bg-gray-50">
+              <button onClick={() => setShowCreate(false)} className="flex-1 py-2 border text-sm rounded-xl hover:bg-surface-raised">
                 Отмена
               </button>
             </div>
@@ -165,24 +165,24 @@ export default function AdminUsersPage() {
       {/* Edit modal */}
       {editId && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
-            <h2 className="font-semibold text-gray-900 mb-4">Редактировать пользователя</h2>
+          <div className="bg-surface rounded-xl shadow-xl p-6 w-full max-w-md">
+            <h2 className="font-semibold text-primary mb-4">Редактировать пользователя</h2>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm text-gray-600 mb-1">Email</label>
+                <label className="block text-sm text-muted mb-1">Email</label>
                 <input
                   type="email"
                   value={editForm.email}
                   onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="field"
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-600 mb-1">Роль</label>
+                <label className="block text-sm text-muted mb-1">Роль</label>
                 <select
                   value={editForm.role}
                   onChange={(e) => setEditForm({ ...editForm, role: e.target.value as UserRole })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  className="w-full border rounded-xl px-3 py-2 text-sm"
                 >
                   {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
@@ -195,18 +195,18 @@ export default function AdminUsersPage() {
                   onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
                   className="rounded"
                 />
-                <label htmlFor="is_active" className="text-sm text-gray-700">Активен</label>
+                <label htmlFor="is_active" className="text-sm text-primary">Активен</label>
               </div>
             </div>
             <div className="flex gap-2 mt-4">
               <button
                 onClick={() => updateMutation.mutate({ id: editId, ...editForm })}
                 disabled={updateMutation.isPending}
-                className="flex-1 py-2 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                className="flex-1 py-2 bg-accent text-white text-sm rounded-xl hover:bg-accent disabled:opacity-50"
               >
                 {updateMutation.isPending ? 'Сохранение...' : 'Сохранить'}
               </button>
-              <button onClick={() => setEditId(null)} className="flex-1 py-2 border text-sm rounded-lg hover:bg-gray-50">
+              <button onClick={() => setEditId(null)} className="flex-1 py-2 border text-sm rounded-xl hover:bg-surface-raised">
                 Отмена
               </button>
             </div>
@@ -217,34 +217,34 @@ export default function AdminUsersPage() {
       {/* Project assignment modal */}
       {projectsUserId && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[80vh] flex flex-col">
+          <div className="bg-surface rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-gray-900">
+              <h2 className="font-semibold text-primary">
                 Проекты — {users.find((u) => u.id === projectsUserId)?.login}
               </h2>
-              <button onClick={() => setProjectsUserId(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+              <button onClick={() => setProjectsUserId(null)} className="text-muted hover:text-muted text-xl leading-none">×</button>
             </div>
             <div className="overflow-y-auto flex-1">
               {!allProjects ? (
-                <p className="text-gray-400 text-sm">Загрузка...</p>
+                <p className="text-muted text-sm">Загрузка...</p>
               ) : allProjects.length === 0 ? (
-                <p className="text-gray-400 text-sm">Нет проектов</p>
+                <p className="text-muted text-sm">Нет проектов</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50">
-                      <th className="px-3 py-2 text-left text-gray-600 font-medium">Проект</th>
-                      <th className="px-3 py-2 text-left text-gray-600 font-medium">Клиент</th>
-                      <th className="px-3 py-2 text-center text-gray-600 font-medium w-28">Назначен</th>
+                    <tr className="bg-surface-raised">
+                      <th className="px-3 py-2 text-left text-muted font-medium">Проект</th>
+                      <th className="px-3 py-2 text-left text-muted font-medium">Клиент</th>
+                      <th className="px-3 py-2 text-center text-muted font-medium w-28">Назначен</th>
                     </tr>
                   </thead>
                   <tbody>
                     {allProjects.map((p) => {
                       const isAssigned = p.specialist_id === projectsUserId
                       return (
-                        <tr key={p.id} className="border-t hover:bg-gray-50">
-                          <td className="px-3 py-2 font-medium text-gray-800">{p.name}</td>
-                          <td className="px-3 py-2 text-gray-500 text-xs">{p.client_name}</td>
+                        <tr key={p.id} className="border-t hover:bg-surface-raised">
+                          <td className="px-3 py-2 font-medium text-primary">{p.name}</td>
+                          <td className="px-3 py-2 text-muted text-xs">{p.client_name}</td>
                           <td className="px-3 py-2 text-center">
                             {isAssigned ? (
                               <button
@@ -256,7 +256,7 @@ export default function AdminUsersPage() {
                             ) : (
                               <button
                                 onClick={() => assignMutation.mutate({ userId: projectsUserId, projectId: p.id })}
-                                className="text-xs border px-2 py-0.5 rounded-full text-gray-500 hover:border-primary-400 hover:text-primary-600 transition"
+                                className="text-xs border px-2 py-0.5 rounded-full text-muted hover:border-accent hover:text-accent transition"
                               >
                                 Назначить
                               </button>
@@ -270,7 +270,7 @@ export default function AdminUsersPage() {
               )}
             </div>
             <div className="mt-4 pt-3 border-t">
-              <button onClick={() => setProjectsUserId(null)} className="w-full py-2 border text-sm rounded-lg hover:bg-gray-50">
+              <button onClick={() => setProjectsUserId(null)} className="w-full py-2 border text-sm rounded-xl hover:bg-surface-raised">
                 Закрыть
               </button>
             </div>
@@ -281,24 +281,24 @@ export default function AdminUsersPage() {
       {/* Reset password modal */}
       {resetId && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm">
-            <h2 className="font-semibold text-gray-900 mb-4">Сброс пароля</h2>
+          <div className="bg-surface rounded-xl shadow-xl p-6 w-full max-w-sm">
+            <h2 className="font-semibold text-primary mb-4">Сброс пароля</h2>
             <input
               type="password"
               placeholder="Новый пароль"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="field mb-3"
             />
             <div className="flex gap-2">
               <button
                 onClick={() => resetPasswordMutation.mutate({ id: resetId, password: newPassword })}
                 disabled={!newPassword || resetPasswordMutation.isPending}
-                className="flex-1 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 disabled:opacity-50"
+                className="flex-1 py-2 bg-orange-600 text-white text-sm rounded-xl hover:bg-orange-700 disabled:opacity-50"
               >
                 Сбросить
               </button>
-              <button onClick={() => setResetId(null)} className="flex-1 py-2 border text-sm rounded-lg hover:bg-gray-50">
+              <button onClick={() => setResetId(null)} className="flex-1 py-2 border text-sm rounded-xl hover:bg-surface-raised">
                 Отмена
               </button>
             </div>
@@ -308,24 +308,24 @@ export default function AdminUsersPage() {
 
       {/* Users table */}
       {isLoading ? (
-        <div className="text-gray-400 text-sm p-4">Загрузка...</div>
+        <div className="text-muted text-sm p-4">Загрузка...</div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+        <div className="bg-surface rounded-xl shadow-sm border overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 border-b">
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Логин</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Email</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Роль</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Статус</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-600">Действия</th>
+              <tr className="bg-surface-raised border-b">
+                <th className="px-4 py-3 text-left font-medium text-muted">Логин</th>
+                <th className="px-4 py-3 text-left font-medium text-muted">Email</th>
+                <th className="px-4 py-3 text-left font-medium text-muted">Роль</th>
+                <th className="px-4 py-3 text-left font-medium text-muted">Статус</th>
+                <th className="px-4 py-3 text-right font-medium text-muted">Действия</th>
               </tr>
             </thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-900">{u.login}</td>
-                  <td className="px-4 py-3 text-gray-600">{u.email}</td>
+                <tr key={u.id} className="border-b last:border-0 hover:bg-surface-raised">
+                  <td className="px-4 py-3 font-medium text-primary">{u.login}</td>
+                  <td className="px-4 py-3 text-muted">{u.email}</td>
                   <td className="px-4 py-3">
                     <span className={cx('px-2 py-0.5 rounded-full text-xs font-medium', ROLE_COLORS[u.role])}>
                       {ROLES.find((r) => r.value === u.role)?.label || u.role}
@@ -342,7 +342,7 @@ export default function AdminUsersPage() {
                         setEditId(u.id)
                         setEditForm({ role: u.role, is_active: u.is_active, email: u.email })
                       }}
-                      className="text-primary-600 hover:text-primary-800 text-xs mr-3"
+                      className="text-accent hover:text-primary-800 text-xs mr-3"
                     >
                       Изменить
                     </button>
@@ -354,7 +354,7 @@ export default function AdminUsersPage() {
                     </button>
                     <button
                       onClick={() => setProjectsUserId(u.id)}
-                      className="text-gray-500 hover:text-gray-700 text-xs"
+                      className="text-muted hover:text-primary text-xs"
                     >
                       Проекты
                     </button>
@@ -362,7 +362,7 @@ export default function AdminUsersPage() {
                 </tr>
               ))}
               {users.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">Нет пользователей</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-muted">Нет пользователей</td></tr>
               )}
             </tbody>
           </table>

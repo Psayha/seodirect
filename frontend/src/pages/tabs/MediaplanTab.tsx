@@ -33,7 +33,7 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
     },
   })
 
-  if (isLoading) return <div className="p-6 text-gray-500">Загрузка...</div>
+  if (isLoading) return <div className="p-6 text-muted">Загрузка...</div>
 
   const display = rows ?? (data?.rows || [])
   const totalBudget = display.reduce((s, r) => s + (r.budget || 0), 0)
@@ -66,19 +66,19 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
         <div className="flex gap-2 items-center">
           {saved && <span className="text-green-600 text-sm">✅ Сохранено</span>}
           {(data?.total_frequency ?? 0) > 0 && (
-            <span className="text-xs text-gray-500">Суммарная частота ключей: {data!.total_frequency.toLocaleString()}</span>
+            <span className="text-xs text-muted">Суммарная частота ключей: {data!.total_frequency.toLocaleString()}</span>
           )}
           <a href={`/api/projects/${projectId}/export/mediaplan-xlsx`}
-            className="border px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-1">
+            className="border px-3 py-1.5 rounded-xl text-sm hover:bg-surface-raised flex items-center gap-1">
             📥 XLSX
           </a>
           <button onClick={() => resetMut.mutate()} disabled={resetMut.isPending}
-            className="border px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50">
+            className="border px-3 py-1.5 rounded-xl text-sm hover:bg-surface-raised disabled:opacity-50">
             ↺ Сброс
           </button>
           {rows && (
             <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}
-              className="bg-primary-600 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+              className="btn-accent px-4 py-1.5 rounded-xl text-sm hover:bg-accent disabled:opacity-50">
               {saveMut.isPending ? 'Сохранение...' : 'Сохранить'}
             </button>
           )}
@@ -86,7 +86,7 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* Auto-forecast controls */}
-      <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-4">
+      <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-4">
         <div className="flex flex-wrap items-center gap-4">
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" className="rounded" checked={autoForecast}
@@ -104,7 +104,7 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
               <label className="flex items-center gap-1.5 text-sm text-blue-700">
                 CTR%:
                 <input type="number" min={0.1} max={100} step={0.1}
-                  className="w-16 border border-blue-200 rounded px-2 py-0.5 text-sm bg-white"
+                  className="w-16 border border-blue-200 rounded px-2 py-0.5 text-sm bg-surface"
                   value={ctr}
                   onChange={(e) => {
                     const v = parseFloat(e.target.value) || 1
@@ -123,7 +123,7 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
               <label className="flex items-center gap-1.5 text-sm text-blue-700">
                 CR%:
                 <input type="number" min={0.1} max={100} step={0.1}
-                  className="w-16 border border-blue-200 rounded px-2 py-0.5 text-sm bg-white"
+                  className="w-16 border border-blue-200 rounded px-2 py-0.5 text-sm bg-surface"
                   value={cr}
                   onChange={(e) => {
                     const v = parseFloat(e.target.value) || 1
@@ -146,25 +146,25 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-3 mb-4">
         {[
-          { label: 'Бюджет всего', value: totalBudget.toLocaleString() + ' ₽', color: 'text-primary-600' },
+          { label: 'Бюджет всего', value: totalBudget.toLocaleString() + ' ₽', color: 'text-accent' },
           { label: 'Прогноз кликов', value: totalClicks > 0 ? totalClicks.toLocaleString() : '—', color: 'text-green-600' },
           { label: 'Прогноз заявок', value: totalLeads > 0 ? totalLeads.toLocaleString() : '—', color: 'text-blue-600' },
           { label: 'Средний CPA', value: totalCPA > 0 ? totalCPA.toLocaleString() + ' ₽' : '—', color: 'text-orange-600' },
         ].map(({ label, value, color }) => (
-          <div key={label} className="bg-white border rounded-lg p-3 text-center">
-            <p className="text-xs text-gray-500 mb-1">{label}</p>
+          <div key={label} className="bg-surface border rounded-xl p-3 text-center">
+            <p className="text-xs text-muted mb-1">{label}</p>
             <p className={cx('text-lg font-bold', color)}>{value}</p>
           </div>
         ))}
       </div>
 
       {/* Table */}
-      <div className="bg-white border rounded-lg overflow-hidden">
+      <div className="bg-surface border rounded-xl overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
+          <thead className="bg-surface-raised border-b">
             <tr>
               {['Месяц', '% бюджета', 'Бюджет (₽)', 'Прогноз кликов', 'Прогноз заявок', 'CPC (₽)', 'CPA (₽)'].map((h) => (
-                <th key={h} className="text-left px-3 py-2 text-xs text-gray-500 font-medium">{h}</th>
+                <th key={h} className="text-left px-3 py-2 text-xs text-muted font-medium">{h}</th>
               ))}
             </tr>
           </thead>
@@ -173,9 +173,9 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
               const cpc = row.budget && row.forecast_clicks ? Math.round(row.budget / row.forecast_clicks) : null
               const cpa = row.budget && row.forecast_leads ? Math.round(row.budget / row.forecast_leads) : null
               return (
-                <tr key={row.month} className="hover:bg-gray-50">
-                  <td className="px-3 py-2 font-medium text-gray-700">{row.month_name}</td>
-                  <td className="px-3 py-2 text-gray-500 tabular-nums">{row.pct}%</td>
+                <tr key={row.month} className="hover:bg-surface-raised">
+                  <td className="px-3 py-2 font-medium text-primary">{row.month_name}</td>
+                  <td className="px-3 py-2 text-muted tabular-nums">{row.pct}%</td>
                   <td className="px-3 py-2">
                     <input type="number" className="w-24 border rounded px-2 py-0.5 text-sm tabular-nums"
                       value={row.budget || ''}
@@ -193,26 +193,26 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
                       value={row.forecast_leads || ''}
                       onChange={(e) => updateRow(i, 'forecast_leads', e.target.value ? Number(e.target.value) : null)} />
                   </td>
-                  <td className="px-3 py-2 text-gray-500 tabular-nums">{cpc ? cpc.toLocaleString() : '—'}</td>
-                  <td className="px-3 py-2 text-gray-500 tabular-nums">{cpa ? cpa.toLocaleString() : '—'}</td>
+                  <td className="px-3 py-2 text-muted tabular-nums">{cpc ? cpc.toLocaleString() : '—'}</td>
+                  <td className="px-3 py-2 text-muted tabular-nums">{cpa ? cpa.toLocaleString() : '—'}</td>
                 </tr>
               )
             })}
           </tbody>
-          <tfoot className="bg-gray-50 border-t font-semibold">
+          <tfoot className="bg-surface-raised border-t font-semibold">
             <tr>
-              <td className="px-3 py-2 text-gray-700">Итого</td>
-              <td className="px-3 py-2 text-gray-500">100%</td>
+              <td className="px-3 py-2 text-primary">Итого</td>
+              <td className="px-3 py-2 text-muted">100%</td>
               <td className="px-3 py-2 tabular-nums">{totalBudget.toLocaleString()} ₽</td>
               <td className="px-3 py-2 tabular-nums text-green-600">{totalClicks > 0 ? totalClicks.toLocaleString() : '—'}</td>
               <td className="px-3 py-2 tabular-nums text-blue-600">{totalLeads > 0 ? totalLeads.toLocaleString() : '—'}</td>
-              <td className="px-3 py-2 text-gray-400">—</td>
+              <td className="px-3 py-2 text-muted">—</td>
               <td className="px-3 py-2 tabular-nums text-orange-600">{totalCPA > 0 ? totalCPA.toLocaleString() + ' ₽' : '—'}</td>
             </tr>
           </tfoot>
         </table>
       </div>
-      <p className="text-xs text-gray-400 mt-2">Заполните «Бюджет» — % пересчитается автоматически. Включите авто-прогноз и задайте CTR% / CR% для автоматического расчёта кликов и заявок.</p>
+      <p className="text-xs text-muted mt-2">Заполните «Бюджет» — % пересчитается автоматически. Включите авто-прогноз и задайте CTR% / CR% для автоматического расчёта кликов и заявок.</p>
     </div>
   )
 }

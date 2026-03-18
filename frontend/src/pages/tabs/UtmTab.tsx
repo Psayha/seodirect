@@ -46,14 +46,14 @@ export default function UtmTab({ projectId }: { projectId: string }) {
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-lg">UTM-конструктор</h3>
         <button onClick={() => setShowForm(v => !v)}
-          className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700">
+          className="bg-accent text-white px-3 py-1.5 rounded-xl text-sm hover:bg-accent">
           + Новый шаблон
         </button>
       </div>
 
       {showForm && (
-        <div className="bg-white border rounded-xl p-4 space-y-3">
-          <h4 className="font-medium text-sm text-gray-700">Новый UTM-шаблон</h4>
+        <div className="bg-surface border rounded-xl p-4 space-y-3">
+          <h4 className="font-medium text-sm text-primary">Новый UTM-шаблон</h4>
           <div className="grid grid-cols-2 gap-3">
             {([
               { key: 'name', label: 'Название шаблона', placeholder: 'Яндекс Директ Search' },
@@ -64,35 +64,35 @@ export default function UtmTab({ projectId }: { projectId: string }) {
               { key: 'term', label: 'utm_term (опц.)', placeholder: '{keyword}' },
             ] as const).map(({ key, label, placeholder }) => (
               <div key={key}>
-                <label className="block text-xs text-gray-500 mb-1">{label}</label>
+                <label className="block text-xs text-muted mb-1">{label}</label>
                 <input value={(form as any)[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="field py-1.5"
                   placeholder={placeholder} />
               </div>
             ))}
           </div>
           <div className="flex gap-2">
             <button onClick={() => createMut.mutate()} disabled={createMut.isPending || !form.name || !form.source}
-              className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+              className="btn-accent px-4 py-2 rounded-xl text-sm hover:bg-accent disabled:opacity-50">
               {createMut.isPending ? 'Сохранение...' : 'Сохранить'}
             </button>
-            <button onClick={() => setShowForm(false)} className="border px-4 py-2 rounded-lg text-sm hover:bg-gray-50">Отмена</button>
+            <button onClick={() => setShowForm(false)} className="border px-4 py-2 rounded-xl text-sm hover:bg-surface-raised">Отмена</button>
           </div>
         </div>
       )}
 
-      {isLoading ? <p className="text-gray-400 text-sm">Загрузка...</p> : templates.length === 0 ? (
-        <div className="text-center py-10 text-gray-400 border-2 border-dashed rounded-xl">
+      {isLoading ? <p className="text-muted text-sm">Загрузка...</p> : templates.length === 0 ? (
+        <div className="text-center py-10 text-muted border-2 border-dashed rounded-xl">
           <p className="text-3xl mb-2">🔗</p>
           <p>Нет шаблонов. Создайте первый!</p>
         </div>
       ) : (
         <div className="space-y-2">
           {templates.map((t: any) => (
-            <div key={t.id} className="bg-white border rounded-lg px-4 py-3 flex items-center gap-3">
+            <div key={t.id} className="bg-surface border rounded-xl px-4 py-3 flex items-center gap-3">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm text-gray-800">{t.name}</p>
-                <p className="text-xs text-gray-400 font-mono truncate">
+                <p className="font-medium text-sm text-primary">{t.name}</p>
+                <p className="text-xs text-muted font-mono truncate">
                   utm_source={t.source}&utm_medium={t.medium}&utm_campaign={t.campaign}
                   {t.content ? `&utm_content=${t.content}` : ''}
                   {t.term ? `&utm_term=${t.term}` : ''}
@@ -105,31 +105,31 @@ export default function UtmTab({ projectId }: { projectId: string }) {
       )}
 
       {/* URL builder */}
-      <div className="bg-white border rounded-xl p-4 space-y-3">
-        <h4 className="font-medium text-sm text-gray-700">Собрать UTM-ссылку</h4>
+      <div className="bg-surface border rounded-xl p-4 space-y-3">
+        <h4 className="font-medium text-sm text-primary">Собрать UTM-ссылку</h4>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Базовый URL</label>
+          <label className="block text-xs text-muted mb-1">Базовый URL</label>
           <input value={buildUrl} onChange={e => setBuildUrl(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            className="field"
             placeholder="https://example.com/landing" />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Шаблон</label>
+          <label className="block text-xs text-muted mb-1">Шаблон</label>
           <select value={selectedTemplate} onChange={e => setSelectedTemplate(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+            className="field">
             <option value="">Выберите шаблон...</option>
             {templates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
         <button onClick={() => buildMut.mutate()} disabled={buildMut.isPending || !buildUrl || !selectedTemplate}
-          className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          className="btn-accent px-4 py-2 rounded-xl text-sm hover:bg-accent disabled:opacity-50">
           {buildMut.isPending ? '...' : 'Собрать ссылку'}
         </button>
         {builtUrl && (
-          <div className="bg-gray-50 border rounded-lg p-3 flex items-center gap-2">
-            <p className="text-xs font-mono text-gray-700 flex-1 break-all">{builtUrl}</p>
+          <div className="bg-surface-raised border rounded-xl p-3 flex items-center gap-2">
+            <p className="text-xs font-mono text-primary flex-1 break-all">{builtUrl}</p>
             <button onClick={copy}
-              className={cx('text-xs px-2.5 py-1 rounded border shrink-0 transition', copied ? 'bg-green-100 text-green-700 border-green-300' : 'bg-white text-gray-600 hover:bg-gray-50')}>
+              className={cx('text-xs px-2.5 py-1 rounded border shrink-0 transition', copied ? 'bg-green-100 text-green-700 border-green-300' : 'bg-surface text-muted hover:bg-surface-raised')}>
               {copied ? '✅ Скопировано' : '📋 Копировать'}
             </button>
           </div>
