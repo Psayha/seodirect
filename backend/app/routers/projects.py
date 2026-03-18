@@ -122,7 +122,7 @@ def list_projects(
     status_filter: str | None = Query(None, alias="status"),
     specialist_id: uuid.UUID | None = None,
 ):
-    q = select(Project)
+    q = select(Project).where(Project.deleted_at.is_(None))
 
     # Specialists see only their projects
     if current_user.role == UserRole.SPECIALIST:
@@ -206,10 +206,11 @@ def delete_project(
 ):
     if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         raise HTTPException(status_code=403, detail="Admin required")
-    project = db.scalar(select(Project).where(Project.id == project_id))
+    project = db.scalar(select(Project).where(Project.id == project_id, Project.deleted_at.is_(None)))
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    db.delete(project)
+    from datetime import datetime, timezone
+    project.deleted_at = datetime.now(timezone.utc)
     db.commit()
 
 
@@ -411,7 +412,7 @@ def duplicate_project(
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def _get_project_or_404(project_id: uuid.UUID, current_user: User, db: Session) -> Project:
-    project = db.scalar(select(Project).where(Project.id == project_id))
+    project = db.scalar(select(Project).where(Project.id == project_id, Project.deleted_at.is_(None)))
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     if (

@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser, require_roles
+from app.auth.rate_limit import blacklist_all_user_tokens
 from app.auth.security import hash_password
 from app.db.session import get_db
 from app.models.user import User, UserRole
@@ -85,29 +86,37 @@ def update_user(
         raise HTTPException(status_code=404, detail="User not found")
     if body.email is not None:
         user.email = body.email
-    if body.role is not None:
+    if body.role is not None and body.role != user.role:
+        # Role change — invalidate tokens so new role takes effect immediately
+        blacklist_all_user_tokens(str(user.id))
         user.role = body.role
     if body.is_active is not None:
         user.is_active = body.is_active
+        # Invalidate all refresh tokens when user is deactivated
+        if not body.is_active:
+            blacklist_all_user_tokens(str(user.id))
     db.commit()
     db.refresh(user)
     return UserResponse(id=str(user.id), login=user.login, email=user.email, role=user.role.value, is_active=user.is_active)
 
 
+class PasswordReset(BaseModel):
+    password: str = Field(..., min_length=8, max_length=128)
+
+
 @router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
 def reset_password(
     user_id: uuid.UUID,
-    body: dict,
+    body: PasswordReset,
     _: Annotated[User, AdminDep],
     db: Annotated[Session, Depends(get_db)],
 ):
     user = db.scalar(select(User).where(User.id == user_id))
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    new_password = body.get("password")
-    if not new_password:
-        raise HTTPException(status_code=400, detail="Password required")
-    user.password_hash = hash_password(new_password)
+    user.password_hash = hash_password(body.password)
+    # Invalidate all existing tokens after password change
+    blacklist_all_user_tokens(str(user.id))
     db.commit()
 
 

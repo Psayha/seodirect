@@ -24,7 +24,7 @@ router = APIRouter()
 
 def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
     from app.models.user import UserRole
-    project = db.scalar(select(Project).where(Project.id == project_id))
+    project = db.scalar(select(Project).where(Project.id == project_id, Project.deleted_at.is_(None)))
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:

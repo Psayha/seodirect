@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -38,7 +37,7 @@ router = APIRouter()
 
 def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
     project = db.get(Project, project_id)
-    if not project:
+    if not project or project.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Project not found")
     if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
@@ -268,7 +267,7 @@ def list_keywords(
 
 @router.post("/direct/groups/{group_id}/keywords/generate")
 @limiter.limit("10/minute")
-def generate_keywords(
+async def generate_keywords(
     request: Request,
     group_id: uuid.UUID,
     current_user: CurrentUser,
@@ -286,11 +285,8 @@ def generate_keywords(
     )
     db.add(task)
     db.commit()
-    # Run synchronously for now (small operation)
-    kws = asyncio.run(
-        __import__("app.direct.service", fromlist=["generate_keywords_for_group"])
-        .generate_keywords_for_group(group_id, db)
-    )
+    from app.direct.service import generate_keywords_for_group
+    kws = await generate_keywords_for_group(group_id, db)
     task.status = TaskStatus.SUCCESS
     task.progress = 100
     task.result = {"keywords_created": len(kws)}
@@ -405,7 +401,7 @@ def list_ads(
 
 @router.post("/direct/groups/{group_id}/ads/generate")
 @limiter.limit("10/minute")
-def generate_ads(
+async def generate_ads(
     request: Request,
     group_id: uuid.UUID,
     current_user: CurrentUser,
@@ -415,7 +411,7 @@ def generate_ads(
 ):
     _check_group_access(group_id, current_user, db)
     from app.direct.service import generate_ads_for_group
-    ads = asyncio.run(generate_ads_for_group(group_id, variants, db))
+    ads = await generate_ads_for_group(group_id, variants, db)
     return {"ads_created": len(ads), "ads": [_ad_dict(a) for a in ads]}
 
 
@@ -464,7 +460,7 @@ def list_negative_keywords(
 
 @router.post("/projects/{project_id}/direct/negative-keywords/generate")
 @limiter.limit("10/minute")
-def generate_negative_keywords_endpoint(
+async def generate_negative_keywords_endpoint(
     request: Request,
     project_id: uuid.UUID,
     current_user: CurrentUser,
@@ -473,7 +469,7 @@ def generate_negative_keywords_endpoint(
 ):
     _check_project_access(project_id, current_user, db)
     from app.direct.service import generate_negative_keywords
-    nkws = asyncio.run(generate_negative_keywords(project_id, db))
+    nkws = await generate_negative_keywords(project_id, db)
     return {"created": len(nkws)}
 
 

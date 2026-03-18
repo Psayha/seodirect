@@ -80,7 +80,7 @@ seodirect/
 
 **`User`** — `id, login, email, password_hash, role (super_admin/admin/specialist/viewer), is_active, last_login`
 
-**`Project`** — `id, name, client_name, url, specialist_id→User, budget, status, notes, topvisor_project_id`
+**`Project`** — `id, name, client_name, url, specialist_id→User, budget, status, notes, topvisor_project_id, deleted_at`
 
 **`Brief`** — `id, project_id, niche, products, price_segment, geo, target_audience, pains, usp, competitors_urls (JSON), campaign_goal, ad_geo, excluded_geo, monthly_budget, restrictions, raw_data (JSON)`
 
@@ -137,6 +137,8 @@ seodirect/
 | `0007_twitter_card.py` | seo_page_meta.twitter_card/title/description |
 | `0008_page_h1_count.py` | pages.h1_count |
 | `0009_new_features.py` | Таблицы: utm_templates, seo_meta_history, project_access_tokens. Колонки: seo_page_meta.schema_org_json/faq_json, pages.redirect_chain/cwv_lcp/cwv_cls/cwv_fid |
+| `0010_add_indexes.py` | 25 индексов на FK и фильтруемые колонки (pages, campaigns, keywords, ads, tasks и др.) |
+| `0011_soft_delete_projects.py` | projects.deleted_at (soft delete) + индекс |
 
 Применять: `alembic upgrade head`
 
@@ -350,7 +352,7 @@ def do_something(
 ### Backend — новая миграция
 
 Файл: `backend/alembic/versions/NNNN_description.py`
-`revision = "NNNN"`, `down_revision = "NNNN-1"` (последняя — `"0009"`)
+`revision = "NNNN"`, `down_revision = "NNNN-1"` (последняя — `"0011"`)
 
 ### Frontend — новый API-запрос
 
@@ -397,6 +399,41 @@ GOOGLE_PAGESPEED_API_KEY=   # опционально, без него 25K/ден
 
 ---
 
+## Observability и безопасность
+
+### Health checks
+
+| Эндпоинт | Тип | Что проверяет |
+|-----------|-----|---------------|
+| `GET /api/health` | Liveness | Процесс запущен |
+| `GET /api/ready` | Readiness | БД + Redis + Celery workers |
+| `GET /api/metrics` | Prometheus | Счётчики запросов, латентность (только внутренние IP) |
+
+### Security headers (middleware)
+
+`observability.py` автоматически добавляет: `HSTS`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`.
+
+### Rate limiting
+
+- Login: 5 попыток / 15 мин (по IP + по логину)
+- Генерация (Claude API): 10 запросов / мин на эндпоинт
+- Реализация: `slowapi` + Redis
+
+### Шифрование и токены
+
+- API-ключи: AES-256-GCM, хранятся в таблице `settings` (`auth/encryption.py`)
+- Пароли: bcrypt (`auth/security.py`)
+- JWT: HS256/384/512, access 15 мин + refresh 30 дней
+- Refresh-токены: jti-blacklist + per-user generation counter в Redis
+- `POST /auth/logout` — отзыв refresh-токена
+- Автоинвалидация при: деактивации, смене роли, сбросе пароля
+
+### Soft delete
+
+Проекты не удаляются физически. `DELETE /projects/{id}` устанавливает `deleted_at`. Все запросы фильтруют `deleted_at IS NULL`.
+
+---
+
 ## Запуск (Docker)
 
 ```bash
@@ -404,6 +441,10 @@ cp .env.example .env
 docker-compose up -d
 docker-compose exec backend alembic upgrade head
 docker-compose exec backend python init_superadmin.py
+
+# Production
+docker-compose -f docker-compose.prod.yml up -d
+docker-compose -f docker-compose.prod.yml exec backend alembic upgrade head
 
 # Обновление
 git pull && docker-compose up -d --build
