@@ -60,9 +60,9 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="p-6 max-w-5xl">
+    <div className="p-6 max-w-7xl">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold">Медиаплан</h3>
+        <h3 className="font-semibold text-lg text-primary">Медиаплан</h3>
         <div className="flex gap-2 items-center">
           {saved && <span className="text-green-600 text-sm">✅ Сохранено</span>}
           {(data?.total_frequency ?? 0) > 0 && (
@@ -86,10 +86,10 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* Auto-forecast controls */}
-      <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-4">
+      <div className="bg-surface-raised border border-[var(--border)] rounded-xl p-3.5 mb-4">
         <div className="flex flex-wrap items-center gap-4">
           <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input type="checkbox" className="rounded" checked={autoForecast}
+            <input type="checkbox" className="rounded accent-accent" checked={autoForecast}
               onChange={(e) => {
                 setAutoForecast(e.target.checked)
                 if (e.target.checked) {
@@ -97,14 +97,14 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
                   setRows(recomputeForecasts([...base] as MediaPlanRow[]))
                 }
               }} />
-            <span className="text-sm font-medium text-blue-800">Авто-прогноз кликов и заявок</span>
+            <span className="text-sm font-medium text-primary">Авто-прогноз кликов и заявок</span>
           </label>
           {autoForecast && (
             <>
-              <label className="flex items-center gap-1.5 text-sm text-blue-700">
+              <label className="flex items-center gap-1.5 text-sm text-muted">
                 CTR%:
                 <input type="number" min={0.1} max={100} step={0.1}
-                  className="w-16 border border-blue-200 rounded px-2 py-0.5 text-sm bg-surface"
+                  className="w-16 bg-surface border border-[var(--border)] text-primary rounded-lg px-2 py-1 text-sm"
                   value={ctr}
                   onChange={(e) => {
                     const v = parseFloat(e.target.value) || 1
@@ -120,10 +120,10 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
                     }
                   }} />
               </label>
-              <label className="flex items-center gap-1.5 text-sm text-blue-700">
+              <label className="flex items-center gap-1.5 text-sm text-muted">
                 CR%:
                 <input type="number" min={0.1} max={100} step={0.1}
-                  className="w-16 border border-blue-200 rounded px-2 py-0.5 text-sm bg-surface"
+                  className="w-16 bg-surface border border-[var(--border)] text-primary rounded-lg px-2 py-1 text-sm"
                   value={cr}
                   onChange={(e) => {
                     const v = parseFloat(e.target.value) || 1
@@ -135,8 +135,8 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
                     })) as MediaPlanRow[])
                   }} />
               </label>
-              <span className="text-xs text-blue-500">
-                Прогноз пересчитывается при изменении бюджета по строке
+              <span className="text-xs text-muted">
+                Прогноз пересчитывается при изменении бюджета
               </span>
             </>
           )}
@@ -144,70 +144,73 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         {[
           { label: 'Бюджет всего', value: totalBudget.toLocaleString() + ' ₽', color: 'text-accent' },
-          { label: 'Прогноз кликов', value: totalClicks > 0 ? totalClicks.toLocaleString() : '—', color: 'text-green-600' },
-          { label: 'Прогноз заявок', value: totalLeads > 0 ? totalLeads.toLocaleString() : '—', color: 'text-blue-600' },
-          { label: 'Средний CPA', value: totalCPA > 0 ? totalCPA.toLocaleString() + ' ₽' : '—', color: 'text-orange-600' },
+          { label: 'Прогноз кликов', value: totalClicks > 0 ? totalClicks.toLocaleString() : '—', color: 'text-emerald-500' },
+          { label: 'Прогноз заявок', value: totalLeads > 0 ? totalLeads.toLocaleString() : '—', color: 'text-blue-400' },
+          { label: 'Средний CPA', value: totalCPA > 0 ? totalCPA.toLocaleString() + ' ₽' : '—', color: 'text-amber-500' },
         ].map(({ label, value, color }) => (
-          <div key={label} className="bg-surface border rounded-xl p-3 text-center">
-            <p className="text-xs text-muted mb-1">{label}</p>
-            <p className={cx('text-lg font-bold', color)}>{value}</p>
+          <div key={label} className="bg-surface border border-[var(--border)] rounded-2xl p-4">
+            <p className="text-xs text-muted mb-1.5">{label}</p>
+            <p className={cx('text-2xl font-bold tabular-nums', color)}>{value}</p>
           </div>
         ))}
       </div>
 
       {/* Table */}
-      <div className="bg-surface border rounded-xl overflow-hidden">
+      <div className="bg-surface border border-[var(--border)] rounded-2xl overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-surface-raised border-b">
+          <thead className="bg-surface-raised border-b border-[var(--border)]">
             <tr>
               {['Месяц', '% бюджета', 'Бюджет (₽)', 'Прогноз кликов', 'Прогноз заявок', 'CPC (₽)', 'CPA (₽)'].map((h) => (
-                <th key={h} className="text-left px-3 py-2 text-xs text-muted font-medium">{h}</th>
+                <th key={h} className="text-left px-3 py-2.5 text-xs text-muted font-medium">{h}</th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y">
+          <tbody className="divide-y divide-[var(--border)]">
             {display.map((row, i) => {
               const cpc = row.budget && row.forecast_clicks ? Math.round(row.budget / row.forecast_clicks) : null
               const cpa = row.budget && row.forecast_leads ? Math.round(row.budget / row.forecast_leads) : null
               return (
-                <tr key={row.month} className="hover:bg-surface-raised">
-                  <td className="px-3 py-2 font-medium text-primary">{row.month_name}</td>
-                  <td className="px-3 py-2 text-muted tabular-nums">{row.pct}%</td>
-                  <td className="px-3 py-2">
-                    <input type="number" className="w-24 border rounded px-2 py-0.5 text-sm tabular-nums"
+                <tr key={row.month} className="hover:bg-surface-raised transition">
+                  <td className="px-3 py-2.5 font-medium text-primary">{row.month_name}</td>
+                  <td className="px-3 py-2.5 text-muted tabular-nums">{row.pct}%</td>
+                  <td className="px-3 py-2.5">
+                    <input type="number"
+                      className="w-28 bg-surface border border-[var(--border)] text-primary rounded-lg px-2 py-1 text-sm tabular-nums outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition"
                       value={row.budget || ''}
                       onChange={(e) => updateRow(i, 'budget', e.target.value ? Number(e.target.value) : null)} />
                   </td>
-                  <td className="px-3 py-2">
-                    <input type="number" className="w-24 border rounded px-2 py-0.5 text-sm tabular-nums"
+                  <td className="px-3 py-2.5">
+                    <input type="number"
+                      className="w-28 bg-surface border border-[var(--border)] text-primary rounded-lg px-2 py-1 text-sm tabular-nums outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition placeholder:text-muted"
                       placeholder="—"
                       value={row.forecast_clicks || ''}
                       onChange={(e) => updateRow(i, 'forecast_clicks', e.target.value ? Number(e.target.value) : null)} />
                   </td>
-                  <td className="px-3 py-2">
-                    <input type="number" className="w-20 border rounded px-2 py-0.5 text-sm tabular-nums"
+                  <td className="px-3 py-2.5">
+                    <input type="number"
+                      className="w-24 bg-surface border border-[var(--border)] text-primary rounded-lg px-2 py-1 text-sm tabular-nums outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition placeholder:text-muted"
                       placeholder="—"
                       value={row.forecast_leads || ''}
                       onChange={(e) => updateRow(i, 'forecast_leads', e.target.value ? Number(e.target.value) : null)} />
                   </td>
-                  <td className="px-3 py-2 text-muted tabular-nums">{cpc ? cpc.toLocaleString() : '—'}</td>
-                  <td className="px-3 py-2 text-muted tabular-nums">{cpa ? cpa.toLocaleString() : '—'}</td>
+                  <td className="px-3 py-2.5 text-muted tabular-nums">{cpc ? cpc.toLocaleString() : '—'}</td>
+                  <td className="px-3 py-2.5 text-muted tabular-nums">{cpa ? cpa.toLocaleString() : '—'}</td>
                 </tr>
               )
             })}
           </tbody>
-          <tfoot className="bg-surface-raised border-t font-semibold">
+          <tfoot className="bg-surface-raised border-t border-[var(--border)] font-semibold">
             <tr>
-              <td className="px-3 py-2 text-primary">Итого</td>
-              <td className="px-3 py-2 text-muted">100%</td>
-              <td className="px-3 py-2 tabular-nums">{totalBudget.toLocaleString()} ₽</td>
-              <td className="px-3 py-2 tabular-nums text-green-600">{totalClicks > 0 ? totalClicks.toLocaleString() : '—'}</td>
-              <td className="px-3 py-2 tabular-nums text-blue-600">{totalLeads > 0 ? totalLeads.toLocaleString() : '—'}</td>
-              <td className="px-3 py-2 text-muted">—</td>
-              <td className="px-3 py-2 tabular-nums text-orange-600">{totalCPA > 0 ? totalCPA.toLocaleString() + ' ₽' : '—'}</td>
+              <td className="px-3 py-2.5 text-primary">Итого</td>
+              <td className="px-3 py-2.5 text-muted">100%</td>
+              <td className="px-3 py-2.5 tabular-nums text-primary">{totalBudget.toLocaleString()} ₽</td>
+              <td className="px-3 py-2.5 tabular-nums text-emerald-500">{totalClicks > 0 ? totalClicks.toLocaleString() : '—'}</td>
+              <td className="px-3 py-2.5 tabular-nums text-blue-400">{totalLeads > 0 ? totalLeads.toLocaleString() : '—'}</td>
+              <td className="px-3 py-2.5 text-muted">—</td>
+              <td className="px-3 py-2.5 tabular-nums text-amber-500">{totalCPA > 0 ? totalCPA.toLocaleString() + ' ₽' : '—'}</td>
             </tr>
           </tfoot>
         </table>

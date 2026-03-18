@@ -133,6 +133,12 @@
   .dark .badge-red    { @apply bg-red-900/30 text-red-400; }
   .dark .badge-purple { @apply bg-purple-900/30 text-purple-400; }
 
+  /* dark mode alert overrides */
+  .dark .alert-info    { @apply bg-blue-900/20 border-blue-700/40 text-blue-300; }
+  .dark .alert-success { @apply bg-emerald-900/20 border-emerald-700/40 text-emerald-300; }
+  .dark .alert-warning { @apply bg-amber-900/20 border-amber-700/40 text-amber-300; }
+  .dark .alert-danger  { @apply bg-red-900/20 border-red-700/40 text-red-300; }
+
   /* ── Alerts ── */
   .alert         { @apply flex items-start gap-3 rounded-xl px-4 py-3 text-sm border; }
   .alert-info    { @apply alert bg-blue-50 border-blue-200 text-blue-800; }
