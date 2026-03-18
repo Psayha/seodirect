@@ -1,4 +1,5 @@
 """Claude API client."""
+import asyncio
 import json
 from typing import AsyncGenerator
 
@@ -36,17 +37,31 @@ class ClaudeClient:
     async def generate(self, system_prompt: str, user_message: str) -> str:
         """Generate a completion and return full text."""
         payload = self._payload(system_prompt, user_message)
+        last_error: Exception | None = None
         async with httpx.AsyncClient(timeout=120) as client:
             for attempt in range(3):
-                resp = await client.post(self.BASE_URL, headers=self._headers(), json=payload)
-                if resp.status_code == 429 or resp.status_code == 529:
-                    import asyncio
-                    await asyncio.sleep(2 ** attempt * 2)
-                    continue
-                resp.raise_for_status()
-                data = resp.json()
-                return data["content"][0]["text"]
-        raise RuntimeError("Claude API unavailable after retries")
+                try:
+                    resp = await client.post(self.BASE_URL, headers=self._headers(), json=payload)
+                    if resp.status_code in (429, 529):
+                        await asyncio.sleep(2 ** attempt * 2)
+                        continue
+                    resp.raise_for_status()
+                    data = resp.json()
+                    content = data.get("content", [])
+                    if not content:
+                        raise ValueError("Empty content in Claude response")
+                    return content[0].get("text", "")
+                except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+                    last_error = e
+                    if attempt < 2:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code in (429, 529):
+                        await asyncio.sleep(2 ** attempt * 2)
+                        continue
+                    raise
+        raise RuntimeError(f"Claude API unavailable after 3 attempts: {last_error}")
 
     async def generate_stream(self, system_prompt: str, user_message: str) -> AsyncGenerator[str, None]:
         """Generate with streaming, yield text chunks."""

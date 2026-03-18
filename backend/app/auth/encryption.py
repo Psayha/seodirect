@@ -1,14 +1,13 @@
 import base64
+import hashlib
 import os
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 def _get_key(raw_key: str) -> bytes:
-    """Derive 32-byte key from the config string."""
-    key_bytes = raw_key.encode("utf-8")
-    # Pad or truncate to exactly 32 bytes
-    return (key_bytes * ((32 // len(key_bytes)) + 1))[:32]
+    """Derive a 32-byte AES key from the raw encryption key using SHA-256."""
+    return hashlib.sha256(raw_key.encode("utf-8")).digest()
 
 
 def encrypt(plaintext: str, raw_key: str) -> str:

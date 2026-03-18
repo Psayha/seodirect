@@ -1,8 +1,9 @@
 import uuid
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, or_
 from sqlalchemy.orm import Session
 
@@ -18,22 +19,50 @@ router = APIRouter()
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
 class ProjectCreate(BaseModel):
-    name: str
-    client_name: str
-    url: str
+    name: str = Field(..., min_length=1, max_length=255)
+    client_name: str = Field(..., min_length=1, max_length=255)
+    url: str = Field(..., max_length=2048)
     specialist_id: uuid.UUID | None = None
-    budget: float | None = None
-    notes: str | None = None
+    budget: float | None = Field(None, ge=0)
+    notes: str | None = Field(None, max_length=10000)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not v:
+            return v
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("Only http/https URLs are allowed")
+        host = (parsed.hostname or "").lower()
+        blocked = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254")
+        if host in blocked:
+            raise ValueError("Cannot use internal/loopback addresses")
+        return v
 
 
 class ProjectUpdate(BaseModel):
-    name: str | None = None
-    client_name: str | None = None
-    url: str | None = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    client_name: str | None = Field(None, min_length=1, max_length=255)
+    url: str | None = Field(None, max_length=2048)
     specialist_id: uuid.UUID | None = None
-    budget: float | None = None
+    budget: float | None = Field(None, ge=0)
     status: ProjectStatus | None = None
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=10000)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        if not v:
+            return v
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("Only http/https URLs are allowed")
+        host = (parsed.hostname or "").lower()
+        blocked = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254")
+        if host in blocked:
+            raise ValueError("Cannot use internal/loopback addresses")
+        return v
 
 
 class ProjectResponse(BaseModel):

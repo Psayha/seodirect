@@ -1,10 +1,15 @@
 from contextlib import asynccontextmanager
 import logging
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.db.session import get_db
 from app.observability import install_observability
 
 logger = logging.getLogger("seodirect")
@@ -39,8 +44,8 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=[settings.frontend_url, "http://localhost:5173", "http://localhost:3000"],
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
     )
 
     # Routers
@@ -90,9 +95,44 @@ def create_app() -> FastAPI:
     app.include_router(seo_enrichments_router, prefix="/api", tags=["seo"])
     app.include_router(direct_analysis_router, prefix="/api", tags=["direct"])
 
-    @app.get("/api/health")
+    @app.get("/api/health", tags=["system"])
     def health():
-        return {"status": "ok", "version": "0.1.0"}
+        """Liveness probe — service process is running."""
+        return {"status": "ok"}
+
+    @app.get("/api/ready", tags=["system"])
+    def readiness(db: Annotated[Session, Depends(get_db)]):
+        """Readiness probe — DB and Redis are reachable."""
+        import redis as redis_lib
+        errors: list[str] = []
+
+        # Check DB
+        try:
+            db.execute(text("SELECT 1"))
+        except Exception as e:
+            errors.append(f"db: {e}")
+
+        # Check Redis
+        try:
+            from app.config import get_settings
+            r = redis_lib.from_url(str(get_settings().redis_url), socket_connect_timeout=2)
+            r.ping()
+        except Exception as e:
+            errors.append(f"redis: {e}")
+
+        if errors:
+            raise HTTPException(status_code=503, detail={"errors": errors})
+        return {"status": "ready"}
+
+    @app.exception_handler(Exception)
+    async def generic_exception_handler(request: Request, exc: Exception):
+        logging.getLogger("seodirect").exception(
+            "Unhandled exception on %s %s", request.method, request.url.path
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+        )
 
     return app
 

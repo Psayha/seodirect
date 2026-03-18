@@ -7,6 +7,20 @@ from datetime import datetime, timezone
 from app.celery_app import celery_app
 
 
+def _run_async(coro):
+    """Safely run async coroutine from sync Celery worker thread."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, coro)
+                return future.result()
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
+
+
 @celery_app.task(bind=True, name="tasks.direct.generate_strategy")
 def task_generate_strategy(self, task_id: str, project_id: str):
     from app.db.session import SessionLocal
@@ -22,7 +36,7 @@ def task_generate_strategy(self, task_id: str, project_id: str):
             task.status = TaskStatus.RUNNING
             db.commit()
 
-        strategy_text = asyncio.run(generate_strategy(uuid.UUID(project_id), db))
+        strategy_text = _run_async(generate_strategy(uuid.UUID(project_id), db))
 
         # Save strategy to first campaign or create one
         campaign = db.scalar(
@@ -83,7 +97,7 @@ def task_check_frequencies(self, task_id: str, keyword_ids: list[str]):
         keywords = db.scalars(select(Keyword).where(Keyword.id.in_(ids))).all()
         phrases = [kw.phrase for kw in keywords]
 
-        frequencies = asyncio.run(client.get_frequencies(phrases))
+        frequencies = _run_async(client.get_frequencies(phrases))
 
         updated = 0
         for kw in keywords:

@@ -198,13 +198,15 @@ def list_keywords(
     db: Annotated[Session, Depends(get_db)],
     temperature: str | None = None,
     status_filter: str | None = Query(None, alias="status"),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
 ):
     q = select(Keyword).where(Keyword.ad_group_id == group_id)
     if temperature:
         q = q.where(Keyword.temperature == KeywordTemperature(temperature))
     if status_filter:
         q = q.where(Keyword.status == KeywordStatus(status_filter))
-    kws = db.scalars(q.order_by(Keyword.frequency.desc().nullslast())).all()
+    kws = db.scalars(q.order_by(Keyword.frequency.desc().nullslast()).limit(limit).offset(offset)).all()
     return [_kw_dict(k) for k in kws]
 
 
@@ -313,8 +315,14 @@ def delete_keyword(keyword_id: uuid.UUID, current_user: CurrentUser, _: Annotate
 # ─── Ads ──────────────────────────────────────────────────────────────────────
 
 @router.get("/direct/groups/{group_id}/ads")
-def list_ads(group_id: uuid.UUID, current_user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
-    ads = db.scalars(select(Ad).where(Ad.ad_group_id == group_id).order_by(Ad.variant)).all()
+def list_ads(
+    group_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    ads = db.scalars(select(Ad).where(Ad.ad_group_id == group_id).order_by(Ad.variant).limit(limit).offset(offset)).all()
     return [_ad_dict(a) for a in ads]
 
 
