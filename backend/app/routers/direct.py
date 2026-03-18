@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
@@ -87,7 +87,7 @@ def update_strategy(
 # ─── Campaigns ────────────────────────────────────────────────────────────────
 
 class CampaignCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=255)
     type: str | None = None
     priority: int = 0
     geo: dict | None = None
@@ -95,7 +95,7 @@ class CampaignCreate(BaseModel):
 
 
 class CampaignUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(None, max_length=255)
     type: str | None = None
     priority: int | None = None
     status: str | None = None

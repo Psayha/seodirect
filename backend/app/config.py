@@ -1,5 +1,5 @@
 from functools import lru_cache
-from pydantic import AnyUrl, Field
+from pydantic import AnyUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     crawl_user_agent: str = Field(default="SEODirectBot/1.0 (internal)", alias="CRAWL_USER_AGENT")
     crawl_respect_robots: bool = Field(default=True, alias="CRAWL_RESPECT_ROBOTS")
 
+    @field_validator("secret_key")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        if len(v) < 32:
+            raise ValueError(
+                "SECRET_KEY must be at least 32 characters. "
+                "Generate with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        return v
 
 
 @lru_cache

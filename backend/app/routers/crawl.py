@@ -38,6 +38,16 @@ def start_crawl(
 ):
     project = _check_project_access(project_id, current_user, db)
 
+    # Check if crawl is already running
+    running = db.scalar(
+        select(CrawlSession).where(
+            CrawlSession.project_id == project_id,
+            CrawlSession.status.in_([CrawlStatus.PENDING, CrawlStatus.RUNNING])
+        )
+    )
+    if running:
+        raise HTTPException(status_code=409, detail="Crawl already in progress for this project")
+
     cfg = get_settings()
 
     # Create crawl session

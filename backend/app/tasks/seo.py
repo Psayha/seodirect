@@ -148,7 +148,7 @@ H2: {', '.join((page.h2_list or [])[:3])}
             user_msg += "}"
 
             try:
-                response_text = asyncio.run(claude.generate(system_prompt, user_msg))
+                response_text = _run_async(claude.generate(system_prompt, user_msg))
                 # Parse JSON from response
                 import json, re
                 json_match = re.search(r'\{[^{}]+\}', response_text, re.DOTALL)

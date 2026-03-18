@@ -4,9 +4,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Optional
+from pydantic import StringConstraints
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
@@ -190,7 +191,7 @@ def get_meta_history(
 
 class GenerateMetaRequest(BaseModel):
     generate_og: bool = False
-    page_urls: Optional[list[str]] = None  # if None, generate for ALL pages
+    page_urls: Optional[list[Annotated[str, StringConstraints(max_length=2048)]]] = None  # if None, generate for ALL pages
     only_missing: bool = False  # only pages without title/description
     only_issues: bool = False   # only pages with SEO issues
 
