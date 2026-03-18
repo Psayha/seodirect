@@ -1,7 +1,11 @@
 """Topvisor API v2 client."""
 from __future__ import annotations
 
+import logging
+
 import httpx
+
+logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.topvisor.com/v2/json"
 
@@ -18,39 +22,35 @@ def _headers(api_key: str, user_id: str = "") -> dict:
 
 async def check_connection(api_key: str, user_id: str = "") -> dict:
     """Return {ok, message, projects_count}."""
+    endpoint = f"{BASE_URL}/get/projects_2/index"
     body = {"fields": ["id", "name"]}
-    last_error = "Не удалось подключиться к Topvisor API"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(endpoint, headers=_headers(api_key, user_id), json=body)
+    except httpx.TimeoutException:
+        return {"ok": False, "message": "Таймаут соединения с Topvisor API", "projects_count": 0}
+    except httpx.ConnectError:
+        return {"ok": False, "message": "Не удалось подключиться к api.topvisor.com", "projects_count": 0}
 
-    # Try v2 endpoint first, then legacy variant
-    for endpoint in (f"{BASE_URL}/get/projects_2/index", f"{BASE_URL}/get/projects/index"):
+    logger.info("Topvisor check_connection: HTTP %s, body: %.500s", r.status_code, r.text)
+
+    if r.status_code == 200:
+        data = r.json()
+        errors = data.get("errors")
+        if errors:
+            msg = errors[0].get("string", "Ошибка API") if isinstance(errors, list) else str(errors)
+            return {"ok": False, "message": msg, "projects_count": 0}
+        projects = data.get("result") or []
+        return {"ok": True, "message": "Connected", "projects_count": len(projects)}
+    elif r.status_code in (401, 403):
+        return {"ok": False, "message": "Неверный API ключ или User ID", "projects_count": 0}
+    else:
+        # Log full response for debugging
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.post(endpoint, headers=_headers(api_key, user_id), json=body)
-        except httpx.TimeoutException:
-            last_error = "Таймаут соединения с Topvisor API"
-            continue
-        except httpx.ConnectError:
-            last_error = "Не удалось подключиться к api.topvisor.com"
-            continue
-
-        if r.status_code == 200:
-            data = r.json()
-            errors = data.get("errors")
-            if errors:
-                msg = errors[0].get("string", "Ошибка авторизации") if isinstance(errors, list) else str(errors)
-                if "undefined method" in msg.lower():
-                    last_error = f"Метод не поддерживается: {msg}"
-                    continue
-                return {"ok": False, "message": msg, "projects_count": 0}
-            projects = data.get("result") or []
-            return {"ok": True, "message": "Connected", "projects_count": len(projects)}
-        elif r.status_code in (401, 403):
-            return {"ok": False, "message": "Неверный API ключ или User ID", "projects_count": 0}
-        else:
-            last_error = f"HTTP {r.status_code} от Topvisor API"
-            continue
-
-    return {"ok": False, "message": last_error, "projects_count": 0}
+            body_text = r.json()
+        except Exception:
+            body_text = r.text[:300]
+        return {"ok": False, "message": f"HTTP {r.status_code}: {body_text}", "projects_count": 0}
 
 
 async def list_projects(api_key: str, user_id: str = "") -> list[dict]:
