@@ -87,6 +87,7 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+        restart: true
       frontend:
         condition: service_started
     healthcheck:
