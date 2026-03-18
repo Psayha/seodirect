@@ -64,6 +64,8 @@ def create_app() -> FastAPI:
     from app.routers.push import router as push_router
     from app.routers.utm import router as utm_router
     from app.routers.portal import router as portal_router
+    from app.routers.seo_enrichments import router as seo_enrichments_router
+    from app.routers.direct_analysis import router as direct_analysis_router
 
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
@@ -85,6 +87,8 @@ def create_app() -> FastAPI:
     app.include_router(push_router, prefix="/api", tags=["push"])
     app.include_router(utm_router, prefix="/api", tags=["utm"])
     app.include_router(portal_router, prefix="/api", tags=["portal"])
+    app.include_router(seo_enrichments_router, prefix="/api", tags=["seo"])
+    app.include_router(direct_analysis_router, prefix="/api", tags=["direct"])
 
     @app.get("/api/health")
     def health():
