@@ -13,16 +13,20 @@ class WordstatClient:
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
 
-    async def get_dynamics(self, phrase: str, geo_id: int = 0) -> list[dict]:
+    async def get_dynamics(self, phrase: str, regions: list[int] | None = None) -> list[dict]:
         """Returns monthly frequency dynamics for a phrase.
         Each item: {year_month: 'YYYY-MM', count: int}
+        regions: list of Yandex region IDs (None = all regions)
         """
+        body: dict = {"phrase": phrase}
+        if regions:
+            body["regions"] = regions
         async with httpx.AsyncClient(timeout=30) as client:
             try:
                 resp = await client.post(
                     f"{self.BASE_URL}/v1/dynamics",
                     headers=self._headers(),
-                    json={"phrase": phrase, "geo_id": [geo_id]},
+                    json=body,
                 )
                 if resp.status_code != 200:
                     return []
@@ -35,8 +39,10 @@ class WordstatClient:
             except Exception:
                 return []
 
-    async def get_frequencies(self, phrases: list[str]) -> dict[str, int]:
-        """Returns {phrase: monthly_frequency} for each phrase."""
+    async def get_frequencies(self, phrases: list[str], regions: list[int] | None = None) -> dict[str, int]:
+        """Returns {phrase: monthly_frequency} for each phrase.
+        regions: list of Yandex region IDs (None = all regions)
+        """
         if not phrases:
             return {}
 
@@ -46,11 +52,14 @@ class WordstatClient:
         async with httpx.AsyncClient(timeout=30) as client:
             for i in range(0, len(phrases), batch_size):
                 batch = phrases[i : i + batch_size]
+                body: dict = {"phrases": batch}
+                if regions:
+                    body["regions"] = regions
                 try:
                     resp = await client.post(
                         f"{self.BASE_URL}/v1/topRequests",
                         headers=self._headers(),
-                        json={"phrases": batch, "geo_id": [0]},
+                        json=body,
                     )
                     if resp.status_code != 200:
                         continue
