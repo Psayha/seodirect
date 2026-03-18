@@ -41,6 +41,9 @@ def _meta_dict(page: Page, meta: SeoPageMeta | None) -> dict:
         "rec_description": meta.rec_description if meta else None,
         "rec_og_title": meta.rec_og_title if meta else None,
         "rec_og_description": meta.rec_og_description if meta else None,
+        "twitter_card": meta.twitter_card if meta else None,
+        "twitter_title": meta.twitter_title if meta else None,
+        "twitter_description": meta.twitter_description if meta else None,
         "meta_id": str(meta.id) if meta else None,
         "manually_edited": meta.manually_edited if meta else False,
         "generated_at": meta.generated_at.isoformat() if meta and meta.generated_at else None,
@@ -105,6 +108,9 @@ class MetaUpdate(BaseModel):
     rec_description: str | None = None
     rec_og_title: str | None = None
     rec_og_description: str | None = None
+    twitter_card: str | None = None
+    twitter_title: str | None = None
+    twitter_description: str | None = None
 
 
 @router.patch("/projects/{project_id}/seo/meta")

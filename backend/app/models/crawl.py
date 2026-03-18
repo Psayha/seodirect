@@ -50,6 +50,7 @@ class Page(Base):
     internal_links: Mapped[list | None] = mapped_column(JSON, nullable=True)
     external_links: Mapped[list | None] = mapped_column(JSON, nullable=True)
     images_without_alt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    h1_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     load_time_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_modified: Mapped[str | None] = mapped_column(String(100), nullable=True)
     priority: Mapped[float | None] = mapped_column(Float, nullable=True)

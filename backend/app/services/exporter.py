@@ -594,3 +594,83 @@ def export_strategy_html(project_id, db: "Session") -> str:
 </p>
 </body>
 </html>"""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# XLSX: Медиаплан
+# ─────────────────────────────────────────────────────────────────────────────
+
+def export_mediaplan_xlsx(project_id, db: "Session") -> bytes:
+    """Export mediaplan rows as XLSX."""
+    import uuid
+    from sqlalchemy import select
+    from app.models.project import Project
+    from app.models.mediaplan import MediaPlan
+
+    if not isinstance(project_id, uuid.UUID):
+        project_id = uuid.UUID(str(project_id))
+
+    project = db.get(Project, project_id)
+    if not project:
+        raise ValueError("Project not found")
+
+    plan = db.scalar(select(MediaPlan).where(MediaPlan.project_id == project_id))
+    rows: list[dict] = (plan.rows or []) if plan else []
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Медиаплан"
+
+    headers = ["Месяц", "% бюджета", "Бюджет (₽)", "Прогноз кликов", "Прогноз заявок", "CPC (₽)", "CPA (₽)"]
+    bold = Font(bold=True)
+    fill = PatternFill(fill_type="solid", fgColor="1E40AF")
+    white_bold = Font(bold=True, color="FFFFFF")
+
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = white_bold
+        cell.fill = fill
+
+    month_names = {
+        1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+        5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+        9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
+    }
+
+    total_budget = sum(r.get("budget") or 0 for r in rows)
+    total_clicks = sum(r.get("forecast_clicks") or 0 for r in rows)
+    total_leads = sum(r.get("forecast_leads") or 0 for r in rows)
+
+    for row_idx, r in enumerate(rows, 2):
+        budget = r.get("budget") or 0
+        clicks = r.get("forecast_clicks") or None
+        leads = r.get("forecast_leads") or None
+        pct = r.get("pct") or (round(budget / total_budget * 100, 1) if total_budget else 0)
+        cpc = round(budget / clicks) if budget and clicks else ""
+        cpa = round(budget / leads) if budget and leads else ""
+        month_num = r.get("month", row_idx - 1)
+        month_name = r.get("month_name") or month_names.get(month_num, str(month_num))
+        ws.cell(row=row_idx, column=1, value=month_name)
+        ws.cell(row=row_idx, column=2, value=f"{pct}%")
+        ws.cell(row=row_idx, column=3, value=budget)
+        ws.cell(row=row_idx, column=4, value=clicks or "")
+        ws.cell(row=row_idx, column=5, value=leads or "")
+        ws.cell(row=row_idx, column=6, value=cpc)
+        ws.cell(row=row_idx, column=7, value=cpa)
+
+    total_row = len(rows) + 2
+    total_cpa = round(total_budget / total_leads) if total_leads else ""
+    totals = ["Итого", "100%", total_budget, total_clicks or "", total_leads or "", "", total_cpa]
+    for col, val in enumerate(totals, 1):
+        cell = ws.cell(row=total_row, column=col, value=val)
+        cell.font = bold
+
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 10
+    for col in "CDEFG":
+        ws.column_dimensions[col].width = 16
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()

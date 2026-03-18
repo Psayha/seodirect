@@ -31,6 +31,7 @@ class PageData:
     internal_links: list[str] = field(default_factory=list)
     external_links: list[str] = field(default_factory=list)
     images_without_alt: int = 0
+    h1_count: int = 0
     last_modified: str | None = None
     priority: float | None = None
 
@@ -172,7 +173,8 @@ class SiteCrawler:
 
         title_tag = soup.find("title")
         desc_tag = soup.find("meta", attrs={"name": "description"})
-        h1_tag = soup.find("h1")
+        h1_tags = soup.find_all("h1")
+        h1_tag = h1_tags[0] if h1_tags else None
 
         og = {}
         for meta in soup.find_all("meta", property=lambda p: p and p.startswith("og:")):
@@ -213,6 +215,7 @@ class SiteCrawler:
             title=text(title_tag),
             description=desc_tag.get("content") if desc_tag else None,
             h1=text(h1_tag),
+            h1_count=len(h1_tags),
             h2_list=h2_list,
             canonical=canonical_tag.get("href") if canonical_tag else None,
             og_title=og.get("og:title"),

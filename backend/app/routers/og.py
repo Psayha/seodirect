@@ -82,6 +82,9 @@ def og_audit(
             # Recommended (from SeoPageMeta)
             "rec_og_title": meta.rec_og_title if meta else None,
             "rec_og_description": meta.rec_og_description if meta else None,
+            "twitter_card": meta.twitter_card if meta else None,
+            "twitter_title": meta.twitter_title if meta else None,
+            "twitter_description": meta.twitter_description if meta else None,
             "meta_id": str(meta.id) if meta else None,
             # Status
             "missing_title": not p.og_title,
@@ -148,12 +151,20 @@ def export_og_html(
 
     snippets = []
     for m in metas:
-        html_parts = [f"<!-- {m.page_url} -->"]
+        html_parts = [f"<!-- Open Graph: {m.page_url} -->"]
         if m.rec_og_title:
             html_parts.append(f'<meta property="og:title" content="{m.rec_og_title}" />')
         if m.rec_og_description:
             html_parts.append(f'<meta property="og:description" content="{m.rec_og_description}" />')
         html_parts.append('<meta property="og:type" content="website" />')
+        html_parts.append(f'<meta property="og:url" content="{m.page_url}" />')
+        # Twitter Card
+        if m.twitter_card or m.twitter_title or m.twitter_description:
+            html_parts.append(f'<meta name="twitter:card" content="{m.twitter_card or "summary_large_image"}" />')
+            if m.twitter_title:
+                html_parts.append(f'<meta name="twitter:title" content="{m.twitter_title}" />')
+            if m.twitter_description:
+                html_parts.append(f'<meta name="twitter:description" content="{m.twitter_description}" />')
         snippets.append({
             "page_url": m.page_url,
             "html": "\n".join(html_parts),

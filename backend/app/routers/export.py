@@ -12,10 +12,36 @@ from app.services.exporter import (
     export_strategy_md,
     export_strategy_html,
     export_copywriter_docx,
+    export_mediaplan_xlsx,
     validate_export,
 )
 
 router = APIRouter()
+
+
+@router.get("/projects/{project_id}/export/mediaplan-xlsx")
+def download_mediaplan_xlsx(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    from app.models.project import Project
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    try:
+        xlsx_bytes = export_mediaplan_xlsx(project_id, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    safe_name = project.name.replace(" ", "_")[:50]
+    filename = f"mediaplan_{safe_name}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/projects/{project_id}/export/validate")
