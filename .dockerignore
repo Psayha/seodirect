@@ -1,0 +1,17 @@
+.git
+.env
+.env.*
+!.env.example
+*.pyc
+__pycache__
+node_modules
+.vite
+dist
+*.log
+.DS_Store
+.idea
+.vscode
+*.swp
+*.swo
+scripts/
+SECURITY_AUDIT.md

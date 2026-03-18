@@ -159,10 +159,19 @@ def create_app() -> FastAPI:
 
     # ─── Prometheus metrics endpoint ──────────────────────────────────────────
     @app.get("/api/metrics", tags=["system"], include_in_schema=False)
-    def prometheus_metrics():
-        """Expose Prometheus metrics (request counts, latencies, system info)."""
+    def prometheus_metrics(request: Request):
+        """Expose Prometheus metrics — restricted to internal IPs only."""
         from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
         from starlette.responses import Response as StarletteResponse
+
+        # Double-check at app level (nginx also blocks, but defense-in-depth)
+        client_ip = request.headers.get("x-real-ip", request.client.host if request.client else "")
+        allowed_prefixes = ("127.", "10.", "172.16.", "172.17.", "172.18.", "172.19.",
+                            "172.20.", "172.21.", "172.22.", "172.23.", "172.24.",
+                            "172.25.", "172.26.", "172.27.", "172.28.", "172.29.",
+                            "172.30.", "172.31.", "192.168.", "::1")
+        if not any(client_ip.startswith(p) for p in allowed_prefixes):
+            raise HTTPException(status_code=403, detail="Forbidden")
 
         return StarletteResponse(
             content=generate_latest(REGISTRY),

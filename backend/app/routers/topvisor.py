@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth.deps import CurrentUser
+from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.models.project import Project
 from app.models.user import UserRole
@@ -74,6 +74,7 @@ def topvisor_link_project(
     project_id: uuid.UUID,
     body: LinkBody,
     current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
     """Save (or clear) the linked Topvisor project ID for this project."""
