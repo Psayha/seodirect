@@ -488,112 +488,26 @@ GOOGLE_PAGESPEED_API_KEY=             # опционально, без него 
 
 ---
 
-## Известные проблемы и технический долг
+## Технический долг
 
-> Аудит production-readiness от 2026-03-18. Исправленные пункты помечены ✅, оставшиеся — действующий техдолг.
+Низкоприоритетные задачи. Все critical/high закрыты.
 
-### Безопасность
-
-| Статус | Проблема | Файл | Приоритет |
-|--------|----------|------|-----------|
-| ✅ | Password min_length=1 → 8 | `routers/auth.py` | Critical |
-| ✅ | SSRF: sitemap URL из robots.txt не валидировались | `crawl/crawler.py` | Critical |
-| ✅ | str(e) в HTTP-ответах — утечка внутренних ошибок | `topvisor.py`, `portal.py` | Critical |
-| ✅ | Missing access checks в direct_analysis | `direct_analysis.py` | Critical |
-| ✅ | HSTS без preload | `observability.py` | Medium |
-| ⬜ | SHA256 вместо PBKDF2 для encryption key derivation (нужна data migration) | `auth/encryption.py:8` | Medium |
-| ⬜ | Content-gap rate limit 5/min, но каждый запрос → 50+ outbound HTTP | `seo_enrichments.py:258` | Medium |
-| ⬜ | Rate limiter fallback на IP для аутентифицированных (request.state.current_user не установлен до limiter) | `limiter.py` | Low |
-| ⬜ | Refresh token remember_me=90 дней — долго, рассмотреть сокращение до 30-60 | `config.py` | Low |
-
-### Обработка ошибок
-
-| Статус | Проблема | Файл | Приоритет |
-|--------|----------|------|-----------|
-| ✅ | Brief chat без try/except вокруг Claude API | `routers/projects.py:321` | Critical |
-| ✅ | Schema.org: невалидный JSON сохранялся как текст | `seo_enrichments.py:99` | High |
-| ✅ | Celery retry без jitter — thundering herd | `tasks/direct.py`, `tasks/seo.py`, `tasks/reports.py` | High |
-| ✅ | settings.py test_api_key: добавлены отдельные catch для TimeoutException/ConnectError | `routers/settings.py` | Medium |
-| ✅ | Content-gap fetch_page: добавлено логирование причин (timeout vs error) | `seo_enrichments.py` | Medium |
-| ✅ | Task progress: батчинг коммитов каждые 10 страниц | `tasks/seo.py` | Low |
-| ⬜ | Crawl task: inner exception handler может проглотить ошибку если БД недоступна | `tasks/crawl.py:123-141` | Low |
-| ⬜ | CWV endpoint truncates error to 200 chars | `routers/crawl.py:530` | Low |
-
-### БД и целостность данных
-
-| Статус | Проблема | Файл | Приоритет |
-|--------|----------|------|-----------|
-| ✅ | Пагинация отсутствовала на list_projects | `routers/projects.py` | Critical |
-| ✅ | pool_recycle не был задан | `db/session.py` | Medium |
-| ✅ | **Race condition**: MediaPlan — SELECT FOR UPDATE | `routers/mediaplan.py` | Critical |
-| ✅ | **Race condition**: CrawlSession — FOR UPDATE SKIP LOCKED | `routers/crawl.py` | Critical |
-| ✅ | **Race condition**: SeoPageMeta — unique index (project_id, page_url) в миграции 0012 | `0012_composite_indexes.py` | High |
-| ✅ | **N+1 queries**: direct_analysis — единый JOIN через _get_project_keywords() | `direct_analysis.py` | High |
-| ⬜ | **N+1 queries**: duplicate_project — цикл по кампаниям с отдельными запросами групп | `routers/projects.py:384-405` | Medium |
-| ✅ | **Пагинация**: list_campaigns, list_groups, crawl_tree | `direct.py`, `crawl.py` | High |
-| ✅ | Task + Celery dispatch: flush + try/except + rollback | `direct.py` | High |
-| ⬜ | duplicate_project — множественные flush/commit без единой транзакции | `projects.py:334-409` | Medium |
-| ✅ | Composite indexes: миграция 0012 — unique на seo_page_meta, media_plans + composite на projects | `0012_composite_indexes.py` | Medium |
-| ⬜ | Отсутствуют ondelete CASCADE на FK Project→User | `0001_initial_schema.py` | Medium |
-| ⬜ | Migration 0005: nullable created_at/updated_at без server_default | `0005_content_plan_push.py` | Low |
-| ⬜ | Нет CHECK constraints: Keyword.frequency >= 0, Page.load_time_ms >= 0 | models | Low |
-
-### Инфраструктура (Docker, nginx, CI/CD)
-
-| Статус | Проблема | Файл | Приоритет |
-|--------|----------|------|-----------|
-| ✅ | Нет healthchecks для backend/frontend/nginx | `docker-compose.prod.yml` | Critical |
-| ✅ | Backend 384MB RAM → 1GB | `docker-compose.prod.yml` | High |
-| ✅ | Celery -c 1 → -c 4 | `docker-compose.prod.yml` | High |
-| ✅ | Redis 64MB → 256MB | `docker-compose.prod.yml` | High |
-| ✅ | nginx depends_on без condition | `docker-compose.prod.yml` | High |
-| ✅ | Celery result_expires не был задан | `celery_app.py` | Medium |
-| ✅ | Backup script stat flags: macOS first → Linux first | `scripts/backup_db.sh` | Low |
-| ✅ | Frontend nginx: non-root user | `frontend/Dockerfile.prod` | High |
-| ✅ | Бэкапы: опциональное шифрование через BACKUP_ENCRYPTION_KEY | `scripts/backup_db.sh` | High |
-| ✅ | CI/CD: валидация secrets перед деплоем | `.github/workflows/deploy.yml` | High |
-| ✅ | SSL session cache 2m → 10m | `nginx/nginx.prod.conf` | Medium |
-| ✅ | Proxy timeouts: connect 10s, send 60s, read 120s | `nginx/nginx.prod.conf` | Medium |
-| ✅ | Redis persistence: save 900 1, save 300 10 | `docker-compose.prod.yml` | Medium |
-| ⬜ | DLQ настроена, но нет мониторинга/алертов | `celery_app.py` | Medium |
-| ✅ | Deploy script: retry 3x + rollback + image digest save | `scripts/deploy.sh` | Medium |
-| ✅ | Certbot cron: cd + pipe to logger | `scripts/setup_server.sh` | Medium |
-| ⬜ | setup_server.sh: хардкод домена/IP | `scripts/setup_server.sh` | Low |
-
-### Фронтенд
-
-| Статус | Проблема | Файл | Приоритет |
-|--------|----------|------|-----------|
-| ✅ | Нет token refresh — 401 → разлогин | `api/client.ts` | Critical |
-| ✅ | Logout не вызывает /auth/logout | `store/auth.ts` | High |
-| ✅ | Source maps не отключены для production | `vite.config.ts` | Medium |
-| ✅ | refresh_token не сохранялся в store | `store/auth.ts`, `LoginPage.tsx` | Critical |
-| ✅ | **Мутации: onError** с alert добавлен во все табы | `tabs/*.tsx` | High |
-| ✅ | **Query errors**: isError теперь отображается в UI | `tabs/*.tsx` | High |
-| ✅ | console.error только в dev mode | `ErrorBoundary.tsx` | Medium |
-| ⬜ | Нет retry для transient errors (429, 5xx) в axios | `api/client.ts` | Medium |
-| ⬜ | TypeScript: noUnusedLocals/noUnusedParameters=false | `tsconfig.json` | Low |
-| ⬜ | React Query: нет global error handler, retry: 1 для всех запросов включая 4xx | `main.tsx` | Low |
-
-### Оставшийся техдолг
-
-Все P0 и P1 закрыты. Оставшиеся пункты — низкий приоритет:
-
-1. ⬜ SHA256 → PBKDF2 в encryption.py (нужна data migration — re-encrypt всех settings)
-2. ⬜ N+1 в duplicate_project (загрузка групп в цикле по кампаниям)
-3. ⬜ duplicate_project не обёрнут в единую транзакцию
-4. ⬜ ondelete CASCADE на FK Project→User
-5. ⬜ Migration 0005: nullable created_at/updated_at
-6. ⬜ CHECK constraints (frequency >= 0, load_time_ms >= 0)
-7. ⬜ DLQ мониторинг (Celery Flower или sweep task)
-8. ⬜ Content-gap rate limit (5/min, но 50+ outbound)
-9. ⬜ Rate limiter fallback на IP для аутентифицированных
-10. ⬜ Retry transient errors (429, 5xx) в axios
-11. ⬜ TypeScript: noUnusedLocals/noUnusedParameters=true
-12. ⬜ React Query: global error handler
-13. ⬜ setup_server.sh: хардкод домена/IP
-14. ⬜ Crawl task inner exception может проглотить ошибку
-15. ⬜ CWV endpoint truncates error to 200 chars
+| Проблема | Файл | Приоритет |
+|----------|------|-----------|
+| SHA256 → PBKDF2 для encryption key (нужна data migration — re-encrypt settings) | `auth/encryption.py` | Medium |
+| Content-gap rate limit 5/min, но 50+ outbound HTTP на запрос | `seo_enrichments.py` | Medium |
+| DLQ мониторинг (Celery Flower или sweep task) | `celery_app.py` | Medium |
+| N+1 в duplicate_project (группы в цикле по кампаниям) | `projects.py:384` | Medium |
+| duplicate_project без единой транзакции | `projects.py:334` | Medium |
+| ondelete CASCADE на FK Project→User | миграция | Medium |
+| Axios: retry transient errors (429, 5xx) | `api/client.ts` | Medium |
+| Rate limiter fallback на IP для аутентифицированных | `limiter.py` | Low |
+| Migration 0005: nullable created_at/updated_at | `0005_content_plan_push.py` | Low |
+| CHECK constraints (frequency >= 0, load_time_ms >= 0) | models | Low |
+| TypeScript: noUnusedLocals/noUnusedParameters=true | `tsconfig.json` | Low |
+| React Query: global error handler | `main.tsx` | Low |
+| setup_server.sh: хардкод домена/IP | `scripts/setup_server.sh` | Low |
+| Crawl task inner exception может проглотить ошибку | `tasks/crawl.py:123` | Low |
 
 ---
 

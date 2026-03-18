@@ -19,7 +19,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: { componentStack: string }) {
-    if (import.meta.env.DEV) {
+    if (process.env.NODE_ENV !== 'production') {
       console.error('[ErrorBoundary]', this.props.label ?? '', error, info.componentStack)
     }
   }
