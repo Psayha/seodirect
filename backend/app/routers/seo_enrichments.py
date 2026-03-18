@@ -120,6 +120,58 @@ Description: {page.description or 'нет'}
     return {"schema_json": schema_json}
 
 
+class SchemaBulkGenerateRequest(BaseModel):
+    schema_type: str = "Organization"
+    page_urls: list[str] | None = None
+    only_missing: bool = False
+
+
+@router.post("/projects/{project_id}/seo/schema/generate-bulk", status_code=202)
+@limiter.limit("5/minute")
+def generate_schema_org_bulk(
+    request: Request,
+    project_id: uuid.UUID,
+    body: SchemaBulkGenerateRequest,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Start a bulk Schema.org generation Celery task for all (or selected) pages."""
+    from datetime import datetime, timezone
+
+    from app.models.task import Task, TaskStatus, TaskType
+    from app.routers.seo import _get_latest_crawl
+
+    _check_project_access(project_id, current_user, db)
+    crawl = _get_latest_crawl(project_id, db)
+    if not crawl:
+        raise HTTPException(status_code=400, detail="Нет завершённого парсинга. Сначала запустите парсинг сайта.")
+
+    task = Task(
+        project_id=project_id,
+        type=TaskType.GENERATE_SCHEMA_BULK,
+        status=TaskStatus.PENDING,
+        progress=0,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    from app.tasks.seo import task_generate_schema_bulk
+    result = task_generate_schema_bulk.delay(
+        str(task.id),
+        str(project_id),
+        body.schema_type,
+        body.page_urls,
+        body.only_missing,
+    )
+    task.celery_task_id = result.id
+    db.commit()
+
+    return {"task_id": str(task.id)}
+
+
 @router.get("/projects/{project_id}/seo/schema")
 def get_schema_org(
     project_id: uuid.UUID,

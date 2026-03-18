@@ -17,6 +17,7 @@ class TaskType(str, enum.Enum):
     GENERATE_NEGATIVE_KW = "generate_negative_kw"
     CHECK_FREQUENCIES = "check_frequencies"
     GENERATE_SEO_META = "generate_seo_meta"
+    GENERATE_SCHEMA_BULK = "generate_schema_bulk"
 
 
 class TaskStatus(str, enum.Enum):
