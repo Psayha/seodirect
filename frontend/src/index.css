@@ -2,35 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── CSS custom properties — the single source of truth for both themes.
-   Tailwind's theme.colors reference these vars, so bg-surface / text-muted /
-   border-base etc. switch automatically when the 'dark' class is toggled on <html>.
-   No inline styles, no dark: prefixes needed for semantic tokens.            ── */
+/* ── Design tokens — reg.ru-inspired professional palette.
+   Blue accent, clean whites, clear shadows.
+   Both themes share the same blue accent.              ── */
 
 @layer base {
   :root {
-    --page:          #f4f4f7;
-    --surface:       #ffffff;
-    --surface-raised:#f0f0f5;
-    --border:        #e2e2ea;
-    --text:          #111215;
-    --muted:         #6b6e7e;
+    --page:           #f2f4f8;
+    --surface:        #ffffff;
+    --surface-raised: #f7f8fb;
+    --border:         #dde3ed;
+    --text:           #0a0e1a;
+    --muted:          #6b7280;
 
-    /* Sidebar (always dark regardless of page theme) */
-    --sb-bg:     #0d0e11;
-    --sb-panel:  #14151a;
-    --sb-text:   #7a7c8a;
-    --sb-active: #1e1f26;
-    --sb-border: #ffffff14;
+    --accent:         #005ff9;
+    --accent-hover:   #004cd4;
+    --accent-subtle:  rgba(0, 95, 249, 0.08);
+    --accent-text:    #005ff9;
+
+    /* Sidebar — always dark navy */
+    --sb-bg:     #0d1117;
+    --sb-panel:  #131720;
+    --sb-text:   #6b7a9c;
+    --sb-active: #1a2035;
+    --sb-border: rgba(255,255,255,0.06);
   }
 
   .dark {
-    --page:          #111216;
-    --surface:       #1c1d24;
-    --surface-raised:#22232b;
-    --border:        #2e2f3a;
-    --text:          #f0f0f5;
-    --muted:         #8b8d98;
+    --page:           #0f1117;
+    --surface:        #181b24;
+    --surface-raised: #1e2130;
+    --border:         #2a2f42;
+    --text:           #e8eaef;
+    --muted:          #7e859c;
+
+    --accent:         #4d8cff;
+    --accent-hover:   #3a7aff;
+    --accent-subtle:  rgba(77, 140, 255, 0.10);
+    --accent-text:    #4d8cff;
   }
 
   html { height: 100%; }
@@ -45,38 +54,67 @@
 }
 
 @layer components {
-  /* Card — bg + border in one class */
+  /* ── Card ── */
   .card {
-    @apply bg-surface border border-[var(--border)] rounded-2xl transition-[border-color] duration-150;
+    @apply bg-surface rounded-2xl shadow-card transition-shadow duration-150;
   }
-  .card-hover { @apply hover:border-muted; }
+  .card-hover { @apply hover:shadow-card-md; }
+  .card-bordered {
+    @apply bg-surface border border-[var(--border)] rounded-2xl
+           shadow-card transition-[box-shadow,border-color] duration-150;
+  }
 
-  /* Form input */
+  /* ── Form field ── */
   .field {
-    @apply w-full bg-surface-raised border border-[var(--border)] text-primary rounded-xl
-           px-4 py-2.5 text-sm outline-none transition duration-150 placeholder:text-muted;
+    @apply w-full bg-surface border border-[var(--border)] text-primary rounded-xl
+           px-3.5 py-2.5 text-sm outline-none transition duration-150 placeholder:text-muted;
   }
   .field:focus {
-    @apply border-accent ring-2 ring-accent/20;
+    @apply border-accent ring-2 ring-[var(--accent-subtle)];
   }
 
-  /* Buttons */
-  .btn        { @apply inline-flex items-center justify-center gap-2 font-medium rounded-xl transition duration-150 disabled:opacity-50; }
-  .btn-accent { @apply btn bg-accent hover:bg-accent-hover text-white text-sm px-5 py-2.5; }
+  /* ── Buttons ── */
+  .btn        { @apply inline-flex items-center justify-center gap-2 font-medium rounded-xl transition duration-150 disabled:opacity-50 select-none; }
+  .btn-accent { @apply btn bg-accent hover:bg-accent-hover text-white text-sm px-5 py-2.5 shadow-sm; }
   .btn-ghost  { @apply btn border border-[var(--border)] bg-transparent hover:bg-surface-raised text-primary text-sm px-4 py-2.5; }
   .btn-danger { @apply btn bg-red-600 hover:bg-red-700 text-white text-sm px-4 py-2; }
+  .btn-subtle { @apply btn bg-[var(--accent-subtle)] hover:bg-accent/20 text-accent text-sm px-4 py-2.5; }
 
-  /* Sidebar icon button */
+  /* ── Sidebar icon button ── */
   .sb-btn {
     @apply flex items-center justify-center w-11 h-11 rounded-xl text-sb-text
            hover:bg-white/8 hover:text-white transition duration-150 cursor-pointer;
   }
   .sb-btn.active { @apply bg-accent/10 text-accent; }
 
-  /* Sidebar text nav item */
+  /* ── Sidebar text nav item ── */
   .nav-item {
     @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-sb-text
            hover:bg-white/6 hover:text-white transition duration-150 cursor-pointer;
   }
   .nav-item.active { @apply bg-white/8 text-white font-medium; }
+
+  /* ── Section header ── */
+  .section-title {
+    @apply text-xs font-semibold uppercase tracking-widest text-muted mb-3;
+  }
+
+  /* ── Status badge ── */
+  .badge {
+    @apply inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full;
+  }
+  .badge-green  { @apply badge bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400; }
+  .badge-yellow { @apply badge bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400; }
+  .badge-blue   { @apply badge bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400; }
+  .badge-gray   { @apply badge bg-surface-raised text-muted; }
+  .badge-red    { @apply badge bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400; }
+
+  /* ── Alert banner ── */
+  .alert {
+    @apply flex items-start gap-3 rounded-xl px-4 py-3 text-sm border;
+  }
+  .alert-info    { @apply alert bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-900/20 dark:border-blue-800/50 dark:text-blue-300; }
+  .alert-success { @apply alert bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/20 dark:border-emerald-800/50 dark:text-emerald-300; }
+  .alert-warning { @apply alert bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-800/50 dark:text-amber-300; }
+  .alert-danger  { @apply alert bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800/50 dark:text-red-300; }
 }
