@@ -3,6 +3,7 @@ slowapi==0.1.9
 beautifulsoup4==4.13.3
 celery==5.4.0
 cryptography==44.0.2
+defusedxml==0.7.1
 email-validator==2.2.0
 fastapi==0.116.1
 httpx==0.28.1
@@ -10,6 +11,7 @@ openpyxl==3.1.5
 python-docx==1.1.2
 markdown==3.7
 passlib[bcrypt]==1.7.4
+prometheus-client==0.21.1
 psycopg[binary]==3.2.6
 pydantic-settings==2.8.1
 python-dotenv==1.0.1

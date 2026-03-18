@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from io import StringIO
 from urllib.parse import urljoin, urlparse
@@ -10,6 +9,7 @@ from urllib.robotparser import RobotFileParser
 
 import httpx
 from bs4 import BeautifulSoup
+from defusedxml import ElementTree as ET
 
 
 @dataclass

@@ -138,8 +138,6 @@ def get_pages(
 
     q = select(Page).where(Page.crawl_session_id == session.id)
 
-    all_pages = db.scalars(select(Page).where(Page.crawl_session_id == session.id)).all()
-
     if issue == "no_title":
         q = q.where(Page.title.is_(None))
     elif issue == "no_description":
@@ -153,23 +151,44 @@ def get_pages(
     elif issue == "multi_h1":
         q = q.where(Page.h1_count > 1)
     elif issue == "orphan":
-        orphan_urls = _get_orphan_urls(all_pages)
+        # Load only URLs and internal_links for orphan detection (not full Page objects)
+        link_rows = db.execute(
+            select(Page.url, Page.internal_links)
+            .where(Page.crawl_session_id == session.id)
+        ).all()
+        linked_to: set[str] = set()
+        all_urls: list[str] = []
+        for row_url, row_links in link_rows:
+            all_urls.append(row_url)
+            for link in (row_links or []):
+                linked_to.add(link.split("#")[0].split("?")[0].rstrip("/"))
+        orphan_urls = set()
+        for i, u in enumerate(all_urls):
+            if i == 0:
+                continue
+            if u.split("#")[0].split("?")[0].rstrip("/") not in linked_to:
+                orphan_urls.add(u)
         if orphan_urls:
             q = q.where(Page.url.in_(list(orphan_urls)))
         else:
             q = q.where(False)
     elif issue == "dup_title":
-        dup_titles = _get_duplicate_values([p.title for p in all_pages if p.title])
-        if dup_titles:
-            q = q.where(Page.title.in_(list(dup_titles)))
-        else:
-            q = q.where(False)
+        # Use SQL subquery to find duplicate titles
+        dup_subq = (
+            select(Page.title)
+            .where(Page.crawl_session_id == session.id, Page.title.isnot(None))
+            .group_by(Page.title)
+            .having(func.count(Page.id) > 1)
+        ).subquery()
+        q = q.where(Page.title.in_(select(dup_subq.c.title)))
     elif issue == "dup_description":
-        dup_descs = _get_duplicate_values([p.description for p in all_pages if p.description])
-        if dup_descs:
-            q = q.where(Page.description.in_(list(dup_descs)))
-        else:
-            q = q.where(False)
+        dup_subq = (
+            select(Page.description)
+            .where(Page.crawl_session_id == session.id, Page.description.isnot(None))
+            .group_by(Page.description)
+            .having(func.count(Page.id) > 1)
+        ).subquery()
+        q = q.where(Page.description.in_(select(dup_subq.c.description)))
 
     total = db.scalar(select(func.count()).select_from(q.subquery()))
     pages = db.scalars(q.offset(offset).limit(limit)).all()

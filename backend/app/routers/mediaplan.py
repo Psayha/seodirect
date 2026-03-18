@@ -101,18 +101,18 @@ def get_mediaplan(
 
 
 def _get_total_frequency(project_id: uuid.UUID, db: Session) -> int:
-    """Sum of all keyword frequencies for rough click forecast."""
+    """Sum of all keyword frequencies for rough click forecast. Single JOIN query."""
+    from sqlalchemy import func as sa_func
+
     from app.models.direct import AdGroup
-    campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
-    total = 0
-    for c in campaigns:
-        groups = db.scalars(select(AdGroup).where(AdGroup.campaign_id == c.id)).all()
-        for g in groups:
-            kws = db.scalars(
-                select(Keyword).where(Keyword.ad_group_id == g.id, Keyword.frequency.isnot(None))
-            ).all()
-            total += sum(k.frequency or 0 for k in kws)
-    return total
+
+    result = db.scalar(
+        select(sa_func.coalesce(sa_func.sum(Keyword.frequency), 0))
+        .join(AdGroup, Keyword.ad_group_id == AdGroup.id)
+        .join(Campaign, AdGroup.campaign_id == Campaign.id)
+        .where(Campaign.project_id == project_id, Keyword.frequency.isnot(None))
+    )
+    return int(result or 0)
 
 
 # ─── PUT (update) ─────────────────────────────────────────────────────────────
