@@ -9,6 +9,7 @@ export interface Campaign {
   status: string
   geo: Record<string, unknown> | null
   budget_monthly: number | null
+  sitelinks: Array<{ title: string; url: string }> | null
   strategy_text: string | null
   created_at: string
 }

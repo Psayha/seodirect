@@ -149,6 +149,61 @@ function BriefTab({ projectId }: { projectId: string }) {
       {field('campaign_goal', 'Цель кампании')}
       {field('monthly_budget', 'Месячный бюджет (₽)')}
       {field('restrictions', 'Ограничения', true)}
+      {field('excluded_geo', 'Исключить гео (города/регионы)')}
+
+      {/* Гео таргетинг — список городов */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Гео таргетинг (список городов)</label>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {((current.ad_geo as string[]) || []).map((city, i) => (
+            <span key={i} className="flex items-center gap-1 bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded-full">
+              {city}
+              <button type="button" onClick={() => setForm((f) => ({ ...f, ad_geo: ((f.ad_geo || current.ad_geo || []) as string[]).filter((_, j) => j !== i) }))}
+                className="hover:text-red-500 font-bold leading-none">×</button>
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input id="ad_geo_input" className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            placeholder="Введите город и нажмите +"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                const v = (e.target as HTMLInputElement).value.trim()
+                if (v) { setForm((f) => ({ ...f, ad_geo: [...((f.ad_geo || current.ad_geo || []) as string[]), v] }));(e.target as HTMLInputElement).value = '' }
+              }
+            }} />
+          <button type="button" className="border px-3 py-2 rounded-lg text-sm hover:bg-gray-50"
+            onClick={() => {
+              const inp = document.getElementById('ad_geo_input') as HTMLInputElement
+              const v = inp?.value.trim()
+              if (v) { setForm((f) => ({ ...f, ad_geo: [...((f.ad_geo || current.ad_geo || []) as string[]), v] })); inp.value = '' }
+            }}>+</button>
+        </div>
+      </div>
+
+      {/* Конкуренты URL — динамический список */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Конкуренты (URL)</label>
+        <div className="space-y-1.5 mb-2">
+          {((current.competitors_urls as string[]) || []).map((url, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input className="flex-1 border rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500"
+                value={url}
+                onChange={(e) => setForm((f) => {
+                  const arr = [...((f.competitors_urls || current.competitors_urls || []) as string[])]
+                  arr[i] = e.target.value
+                  return { ...f, competitors_urls: arr }
+                })} />
+              <button type="button" onClick={() => setForm((f) => ({ ...f, competitors_urls: ((f.competitors_urls || current.competitors_urls || []) as string[]).filter((_, j) => j !== i) }))}
+                className="text-red-400 hover:text-red-600 font-bold text-lg leading-none">×</button>
+            </div>
+          ))}
+        </div>
+        <button type="button" onClick={() => setForm((f) => ({ ...f, competitors_urls: [...((f.competitors_urls || current.competitors_urls || []) as string[]), ''] }))}
+          className="text-sm text-primary-600 hover:text-primary-700 font-medium">+ Добавить URL конкурента</button>
+      </div>
+
       <div className="pt-2 flex gap-3">
         <button onClick={() => mutation.mutate(form)} disabled={mutation.isPending}
           className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 transition disabled:opacity-50">
@@ -745,6 +800,8 @@ function CampaignBlock({ campaign, projectId }: { campaign: Campaign; projectId:
     type: campaign.type || '',
     budget_monthly: campaign.budget_monthly?.toString() || '',
   })
+  const [sitelinks, setSitelinks] = useState<Array<{ title: string; url: string }>>(campaign.sitelinks || [])
+  const [editingSitelinks, setEditingSitelinks] = useState(false)
 
   const { data: groups = [] } = useQuery({
     queryKey: ['groups', campaign.id],
@@ -763,6 +820,10 @@ function CampaignBlock({ campaign, projectId }: { campaign: Campaign; projectId:
       budget_monthly: editForm.budget_monthly ? Number(editForm.budget_monthly) : undefined,
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['campaigns', projectId] }); setEditing(false) },
+  })
+  const saveSitelinksMut = useMutation({
+    mutationFn: () => directApi.updateCampaign(campaign.id, { sitelinks }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['campaigns', projectId] }); setEditingSitelinks(false) },
   })
   const deleteMut = useMutation({
     mutationFn: () => directApi.deleteCampaign(campaign.id),
@@ -807,6 +868,54 @@ function CampaignBlock({ campaign, projectId }: { campaign: Campaign; projectId:
 
       {expanded && (
         <div className="px-4 pb-4 border-t bg-gray-50 pt-3 space-y-2">
+          {/* Sitelinks editor */}
+          <div className="border rounded-lg bg-white p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Быстрые ссылки (до 4)</span>
+              {!editingSitelinks ? (
+                <button onClick={() => setEditingSitelinks(true)} className="text-xs text-primary-600 hover:text-primary-700">✏️ Редактировать</button>
+              ) : (
+                <div className="flex gap-2">
+                  <button onClick={() => saveSitelinksMut.mutate()} disabled={saveSitelinksMut.isPending}
+                    className="text-xs bg-primary-600 text-white px-2 py-1 rounded hover:bg-primary-700 disabled:opacity-50">
+                    {saveSitelinksMut.isPending ? '...' : '💾 Сохранить'}
+                  </button>
+                  <button onClick={() => { setSitelinks(campaign.sitelinks || []); setEditingSitelinks(false) }} className="text-xs border px-2 py-1 rounded">✕</button>
+                </div>
+              )}
+            </div>
+            {editingSitelinks ? (
+              <div className="space-y-2">
+                {sitelinks.map((sl, i) => (
+                  <div key={i} className="flex gap-2 items-center">
+                    <input className="border rounded px-2 py-1 text-xs w-32 shrink-0" placeholder="Заголовок"
+                      value={sl.title}
+                      onChange={(e) => setSitelinks((s) => s.map((x, j) => j === i ? { ...x, title: e.target.value } : x))} />
+                    <input className="border rounded px-2 py-1 text-xs flex-1 font-mono" placeholder="https://..."
+                      value={sl.url}
+                      onChange={(e) => setSitelinks((s) => s.map((x, j) => j === i ? { ...x, url: e.target.value } : x))} />
+                    <button onClick={() => setSitelinks((s) => s.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600 text-sm font-bold">×</button>
+                  </div>
+                ))}
+                {sitelinks.length < 4 && (
+                  <button onClick={() => setSitelinks((s) => [...s, { title: '', url: '' }])}
+                    className="text-xs text-primary-600 hover:text-primary-700 font-medium">+ Добавить ссылку</button>
+                )}
+              </div>
+            ) : sitelinks.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">Нет быстрых ссылок</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {sitelinks.map((sl, i) => (
+                  <a key={i} href={sl.url} target="_blank" rel="noreferrer"
+                    className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition">
+                    {sl.title || sl.url}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+
           {(groups as AdGroup[]).map((g) => (
             <div key={g.id} className="border rounded-lg bg-white">
               <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 select-none"
@@ -1426,6 +1535,9 @@ function MediaPlanTab({ projectId }: { projectId: string }) {
   })
   const [rows, setRows] = useState<MediaPlanRow[] | null>(null)
   const [saved, setSaved] = useState(false)
+  const [ctr, setCtr] = useState<number>(3)
+  const [cr, setCr] = useState<number>(2)
+  const [autoForecast, setAutoForecast] = useState(false)
 
   const saveMut = useMutation({
     mutationFn: () => mediaplanApi.update(projectId, rows!),
@@ -1444,8 +1556,20 @@ function MediaPlanTab({ projectId }: { projectId: string }) {
   const totalLeads = display.reduce((s, r) => s + (r.forecast_leads || 0), 0)
   const totalCPA = totalLeads > 0 ? Math.round(totalBudget / totalLeads) : 0
 
+  const recomputeForecasts = (updatedRows: MediaPlanRow[]) => {
+    if (!autoForecast || !(data?.total_frequency > 0)) return updatedRows
+    const newTotal = updatedRows.reduce((s, r) => s + (r.budget || 0), 0)
+    if (newTotal === 0) return updatedRows
+    return updatedRows.map((r) => {
+      const clicks = Math.round(((r.budget || 0) / newTotal) * data.total_frequency * ctr / 100)
+      return { ...r, forecast_clicks: clicks, forecast_leads: Math.round(clicks * cr / 100) }
+    })
+  }
+
   const updateRow = (i: number, field: keyof MediaPlanRow, value: number | null) => {
-    const updated = [...(rows ?? data?.rows ?? [])].map((r, idx) => idx === i ? { ...r, [field]: value } : r)
+    const base = rows ?? data?.rows ?? []
+    let updated = [...base].map((r, idx) => idx === i ? { ...r, [field]: value } : r)
+    if (autoForecast && field === 'budget') updated = recomputeForecasts(updated as MediaPlanRow[])
     setRows(updated as MediaPlanRow[])
   }
 
@@ -1467,6 +1591,63 @@ function MediaPlanTab({ projectId }: { projectId: string }) {
               className="bg-primary-600 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
               {saveMut.isPending ? 'Сохранение...' : 'Сохранить'}
             </button>
+          )}
+        </div>
+      </div>
+
+      {/* Auto-forecast controls */}
+      <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" className="rounded" checked={autoForecast}
+              onChange={(e) => {
+                setAutoForecast(e.target.checked)
+                if (e.target.checked) {
+                  const base = rows ?? data?.rows ?? []
+                  setRows(recomputeForecasts([...base] as MediaPlanRow[]))
+                }
+              }} />
+            <span className="text-sm font-medium text-blue-800">Авто-прогноз кликов и заявок</span>
+          </label>
+          {autoForecast && (
+            <>
+              <label className="flex items-center gap-1.5 text-sm text-blue-700">
+                CTR%:
+                <input type="number" min={0.1} max={100} step={0.1}
+                  className="w-16 border border-blue-200 rounded px-2 py-0.5 text-sm bg-white"
+                  value={ctr}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value) || 1
+                    setCtr(v)
+                    const base = rows ?? data?.rows ?? []
+                    const newTotal = base.reduce((s, r) => s + (r.budget || 0), 0)
+                    if (newTotal > 0 && data?.total_frequency > 0) {
+                      setRows(base.map((r) => {
+                        const clicks = Math.round(((r.budget || 0) / newTotal) * data.total_frequency * v / 100)
+                        return { ...r, forecast_clicks: clicks, forecast_leads: Math.round(clicks * cr / 100) }
+                      }) as MediaPlanRow[])
+                    }
+                  }} />
+              </label>
+              <label className="flex items-center gap-1.5 text-sm text-blue-700">
+                CR%:
+                <input type="number" min={0.1} max={100} step={0.1}
+                  className="w-16 border border-blue-200 rounded px-2 py-0.5 text-sm bg-white"
+                  value={cr}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value) || 1
+                    setCr(v)
+                    const base = rows ?? data?.rows ?? []
+                    setRows(base.map((r) => ({
+                      ...r,
+                      forecast_leads: r.forecast_clicks ? Math.round(r.forecast_clicks * v / 100) : null,
+                    })) as MediaPlanRow[])
+                  }} />
+              </label>
+              <span className="text-xs text-blue-500">
+                Прогноз пересчитывается при изменении бюджета по строке
+              </span>
+            </>
           )}
         </div>
       </div>
@@ -1540,7 +1721,7 @@ function MediaPlanTab({ projectId }: { projectId: string }) {
           </tfoot>
         </table>
       </div>
-      <p className="text-xs text-gray-400 mt-2">Заполните «Бюджет» — % пересчитается автоматически. Клики и заявки — ваши прогнозы.</p>
+      <p className="text-xs text-gray-400 mt-2">Заполните «Бюджет» — % пересчитается автоматически. Включите авто-прогноз и задайте CTR% / CR% для автоматического расчёта кликов и заявок.</p>
     </div>
   )
 }
@@ -1553,6 +1734,7 @@ function OgTab({ projectId }: { projectId: string }) {
   const [taskId, setTaskId] = useState<string | null>(null)
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null)
   const [editForms, setEditForms] = useState<Record<string, { rec_og_title: string; rec_og_description: string }>>({})
+  const [previewPlatform, setPreviewPlatform] = useState<'telegram' | 'vk' | 'whatsapp'>('telegram')
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['og-audit', projectId, issuesOnly],
@@ -1671,15 +1853,56 @@ function OgTab({ projectId }: { projectId: string }) {
                         </div>
                       </div>
 
-                      {/* OG Preview (Telegram-style) */}
+                      {/* OG Preview with platform switcher */}
                       {(page.og_title || form.rec_og_title) && (
-                        <div className="border rounded-lg overflow-hidden bg-white max-w-sm">
-                          {page.og_image && <img src={page.og_image} alt="" className="w-full h-32 object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />}
-                          <div className="p-2">
-                            <p className="text-xs text-gray-400">{new URL(page.page_url).hostname}</p>
-                            <p className="text-sm font-medium text-gray-900 line-clamp-2">{form.rec_og_title || page.og_title}</p>
-                            <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{form.rec_og_description || page.og_description}</p>
+                        <div>
+                          <div className="flex gap-1 mb-2">
+                            {(['telegram', 'vk', 'whatsapp'] as const).map((p) => (
+                              <button key={p} onClick={() => setPreviewPlatform(p)}
+                                className={cx('text-xs px-2.5 py-1 rounded-full border font-medium transition',
+                                  previewPlatform === p ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 hover:bg-gray-50')}>
+                                {p === 'telegram' ? '✈️ Telegram' : p === 'vk' ? '💙 VK' : '📱 WhatsApp'}
+                              </button>
+                            ))}
                           </div>
+
+                          {/* Telegram */}
+                          {previewPlatform === 'telegram' && (
+                            <div className="border-l-4 border-blue-400 bg-[#eef3fb] rounded-r-lg overflow-hidden max-w-sm">
+                              {page.og_image && <img src={page.og_image} alt="" className="w-full h-32 object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />}
+                              <div className="p-2">
+                                <p className="text-xs text-blue-500 font-medium">{new URL(page.page_url).hostname}</p>
+                                <p className="text-sm font-semibold text-gray-900 line-clamp-2">{form.rec_og_title || page.og_title}</p>
+                                <p className="text-xs text-gray-600 line-clamp-2 mt-0.5">{form.rec_og_description || page.og_description}</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* VK */}
+                          {previewPlatform === 'vk' && (
+                            <div className="border rounded-lg overflow-hidden bg-white max-w-sm shadow-sm">
+                              {page.og_image && <img src={page.og_image} alt="" className="w-full h-36 object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />}
+                              <div className="p-3 border-t">
+                                <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">{new URL(page.page_url).hostname}</p>
+                                <p className="text-sm font-bold text-gray-900 line-clamp-2">{form.rec_og_title || page.og_title}</p>
+                                <p className="text-xs text-gray-500 line-clamp-3 mt-1">{form.rec_og_description || page.og_description}</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* WhatsApp */}
+                          {previewPlatform === 'whatsapp' && (
+                            <div className="bg-[#dcf8c6] rounded-lg overflow-hidden max-w-sm p-0.5">
+                              <div className="bg-white rounded-md overflow-hidden">
+                                {page.og_image && <img src={page.og_image} alt="" className="w-full h-32 object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />}
+                                <div className="p-2 border-l-4 border-green-500">
+                                  <p className="text-xs text-green-600 font-medium">{new URL(page.page_url).hostname}</p>
+                                  <p className="text-sm font-semibold text-gray-900 line-clamp-2">{form.rec_og_title || page.og_title}</p>
+                                  <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{form.rec_og_description || page.og_description}</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
