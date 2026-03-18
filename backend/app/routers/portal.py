@@ -197,14 +197,23 @@ async def portal_positions(token: str, db: Annotated[Session, Depends(get_db)]):
     tok = _resolve_token(token, db)
     try:
         from app.models.project import Project as ProjectModel
-        from app.services.topvisor import get_positions, get_topvisor_client_key
+        from app.services.topvisor import get_positions, get_topvisor_client_key, get_topvisor_user_id
         project = db.get(ProjectModel, tok.project_id)
         if not project or not project.topvisor_project_id:
             return {"positions": [], "message": "Topvisor не подключён"}
         api_key = get_topvisor_client_key(db)
         if not api_key:
             return {"positions": [], "message": "Topvisor API key не настроен"}
-        positions = await get_positions(project.topvisor_project_id, api_key)
+        user_id = get_topvisor_user_id(db) or ""
+        from datetime import date, timedelta
+        today = date.today()
+        positions = await get_positions(
+            api_key,
+            project.topvisor_project_id,
+            (today - timedelta(days=30)).isoformat(),
+            today.isoformat(),
+            user_id=user_id,
+        )
         return {"positions": positions}
     except Exception:
         logger.exception("Portal positions failed for token project %s", tok.project_id)

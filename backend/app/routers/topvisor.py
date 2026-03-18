@@ -18,6 +18,7 @@ from app.services.topvisor import (
     get_positions,
     get_snapshots,
     get_topvisor_client_key,
+    get_topvisor_user_id,
     list_projects,
 )
 
@@ -35,14 +36,16 @@ def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> P
     return project
 
 
-def _require_key(db: Session) -> str:
+def _require_credentials(db: Session) -> tuple[str, str]:
+    """Return (api_key, user_id), raising 400 if either is missing."""
     key = get_topvisor_client_key(db)
     if not key:
         raise HTTPException(
             status_code=400,
             detail="Topvisor API key not configured. Set it in Settings → API keys.",
         )
-    return key
+    user_id = get_topvisor_user_id(db) or ""
+    return key, user_id
 
 
 # ── List available Topvisor projects ─────────────────────────────────────────
@@ -55,9 +58,9 @@ async def topvisor_list_projects(
 ):
     """List all Topvisor projects available for the current API key."""
     _check_project_access(project_id, current_user, db)
-    key = _require_key(db)
+    key, user_id = _require_credentials(db)
     try:
-        projects = await list_projects(key)
+        projects = await list_projects(key, user_id)
     except Exception:
         logger.exception("Topvisor list_projects failed for project %s", project_id)
         raise HTTPException(status_code=502, detail="Topvisor API error")
@@ -120,7 +123,7 @@ async def topvisor_positions(
             detail="No Topvisor project linked. Use POST /topvisor/link first.",
         )
 
-    key = _require_key(db)
+    key, user_id = _require_credentials(db)
 
     today = date.today()
     if not date_from:
@@ -135,6 +138,7 @@ async def topvisor_positions(
             date_from,
             date_to,
             region_index=region_index,
+            user_id=user_id,
         )
     except Exception:
         logger.exception("Topvisor get_positions failed for project %s", project_id)
@@ -169,7 +173,7 @@ async def topvisor_snapshots(
             detail="No Topvisor project linked. Use POST /topvisor/link first.",
         )
 
-    key = _require_key(db)
+    key, user_id = _require_credentials(db)
 
     try:
         snapshots = await get_snapshots(
@@ -177,6 +181,7 @@ async def topvisor_snapshots(
             project.topvisor_project_id,
             date=date,
             region_index=region_index,
+            user_id=user_id,
         )
     except Exception:
         logger.exception("Topvisor get_snapshots failed for project %s", project_id)

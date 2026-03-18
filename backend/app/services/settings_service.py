@@ -14,6 +14,7 @@ API_KEY_FIELDS = {
     "openrouter_api_key",
     "wordstat_oauth_token",
     "topvisor_api_key",
+    "topvisor_user_id",
     "metrika_oauth_token",
     "direct_oauth_token",
     "direct_client_login",

@@ -44,7 +44,7 @@ SERVICES = {
         "label": "Яндекс Wordstat",
     },
     "topvisor": {
-        "keys": ["topvisor_api_key"],
+        "keys": ["topvisor_api_key", "topvisor_user_id"],
         "label": "Topvisor",
     },
     "metrika": {
@@ -173,23 +173,30 @@ async def test_api_key(
 
             elif service == "topvisor":
                 key = get_setting("topvisor_api_key", db)
+                user_id = get_setting("topvisor_user_id", db)
                 if not key:
                     return {"ok": False, "message": "API ключ не задан"}
+                if not user_id:
+                    return {"ok": False, "message": "User ID не задан"}
                 r = await client.post(
                     "https://api.topvisor.com/v2/json/get/projects_2/index",
-                    headers={"Authorization": f"bearer {key}", "Content-Type": "application/json"},
+                    headers={
+                        "Authorization": f"bearer {key}",
+                        "User-Id": user_id,
+                        "Content-Type": "application/json",
+                    },
                     json={},
                 )
                 if r.status_code == 200:
                     data = r.json()
                     errors = data.get("errors")
                     if errors:
-                        msg = errors[0].get("string", "Неверный API ключ") if isinstance(errors, list) else "Неверный API ключ"
+                        msg = errors[0].get("string", "Неверный API ключ или User ID") if isinstance(errors, list) else "Неверный API ключ или User ID"
                         return {"ok": False, "message": msg}
                     count = len(data.get("result") or [])
                     return {"ok": True, "message": f"Подключено. Проектов: {count}"}
                 if r.status_code in (401, 403):
-                    return {"ok": False, "message": "Неверный API ключ"}
+                    return {"ok": False, "message": "Неверный API ключ или User ID"}
                 return {"ok": False, "message": f"HTTP {r.status_code}"}
 
             elif service == "direct":
