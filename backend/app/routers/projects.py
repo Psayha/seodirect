@@ -312,24 +312,35 @@ async def brief_chat(
             messages.append({"role": role, "content": h.get("content", "")})
     messages.append({"role": "user", "content": body.message})
 
-    payload = {
-        "model": client.model,
-        "max_tokens": 800,
-        "temperature": 0.7,
-        "system": system_prompt,
-        "messages": messages,
-    }
+    if client.use_openrouter:
+        payload = {
+            "model": client.model,
+            "max_tokens": 800,
+            "temperature": 0.7,
+            "messages": [{"role": "system", "content": system_prompt}] + messages,
+        }
+    else:
+        payload = {
+            "model": client.model,
+            "max_tokens": 800,
+            "temperature": 0.7,
+            "system": system_prompt,
+            "messages": messages,
+        }
 
     try:
         async with httpx.AsyncClient(timeout=60) as http_client:
             resp = await http_client.post(
-                client.BASE_URL,
+                client.base_url,
                 headers=client._headers(),
                 json=payload,
             )
         resp.raise_for_status()
         data = resp.json()
-        reply = data.get("content", [{}])[0].get("text", "")
+        if client.use_openrouter:
+            reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        else:
+            reply = data.get("content", [{}])[0].get("text", "")
         if not reply:
             raise HTTPException(status_code=502, detail="Empty response from AI")
     except httpx.HTTPStatusError:
