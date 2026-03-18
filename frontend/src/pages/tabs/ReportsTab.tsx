@@ -212,7 +212,7 @@ export default function ReportsTab({ projectId }: { projectId: string }) {
               <span className="font-medium text-sm">Предпросмотр отчёта</span>
               <button onClick={() => setPreviewUrl(null)} className="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
             </div>
-            <iframe src={previewUrl} className="flex-1 rounded-b-xl" title="Report preview" />
+            <iframe src={previewUrl} className="flex-1 rounded-b-xl" title="Report preview" sandbox="allow-same-origin" />
           </div>
         </div>
       )}

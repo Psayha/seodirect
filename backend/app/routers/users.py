@@ -3,7 +3,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,9 +20,9 @@ AdminDep = require_roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 
 
 class UserCreate(BaseModel):
-    login: str
+    login: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=8, max_length=128)
     role: UserRole = UserRole.SPECIALIST
 
 

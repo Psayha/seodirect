@@ -16,10 +16,20 @@ from app.db.session import get_db
 from app.models.direct import Campaign, Keyword
 from app.models.mediaplan import MediaPlan
 from app.models.project import Project
+from app.models.user import UserRole
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
+
 
 MONTH_NAMES = [
     "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
@@ -67,9 +77,7 @@ def get_mediaplan(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
-    project = db.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = _check_project_access(project_id, current_user, db)
 
     plan = db.scalar(select(MediaPlan).where(MediaPlan.project_id == project_id))
 
@@ -129,6 +137,7 @@ def update_mediaplan(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     plan = db.scalar(select(MediaPlan).where(MediaPlan.project_id == project_id))
     if not plan:
         plan = MediaPlan(project_id=project_id)
@@ -165,9 +174,7 @@ def reset_mediaplan(
     db: Annotated[Session, Depends(get_db)],
     year: int = 2025,
 ):
-    project = db.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = _check_project_access(project_id, current_user, db)
 
     plan = db.scalar(select(MediaPlan).where(MediaPlan.project_id == project_id))
     total_budget = float(project.budget or 0)

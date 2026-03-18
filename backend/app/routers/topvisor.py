@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser
 from app.db.session import get_db
+from app.models.project import Project
+from app.models.user import UserRole
 from app.services.topvisor import (
     check_connection,
     get_positions,
@@ -24,11 +26,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _get_project(project_id: uuid.UUID, db: Session):
-    from app.models.project import Project
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
     project = db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     return project
 
 
@@ -51,7 +54,7 @@ async def topvisor_list_projects(
     db: Annotated[Session, Depends(get_db)],
 ):
     """List all Topvisor projects available for the current API key."""
-    _get_project(project_id, db)
+    _check_project_access(project_id, current_user, db)
     key = _require_key(db)
     try:
         projects = await list_projects(key)
@@ -74,7 +77,7 @@ def topvisor_link_project(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Save (or clear) the linked Topvisor project ID for this project."""
-    project = _get_project(project_id, db)
+    project = _check_project_access(project_id, current_user, db)
     project.topvisor_project_id = body.topvisor_project_id
     db.commit()
     return {"topvisor_project_id": project.topvisor_project_id}
@@ -87,7 +90,7 @@ def topvisor_get_link(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Return currently linked Topvisor project ID."""
-    project = _get_project(project_id, db)
+    project = _check_project_access(project_id, current_user, db)
     return {"topvisor_project_id": project.topvisor_project_id}
 
 
@@ -108,7 +111,7 @@ async def topvisor_positions(
     """
     from datetime import date, timedelta
 
-    project = _get_project(project_id, db)
+    project = _check_project_access(project_id, current_user, db)
     if not project.topvisor_project_id:
         raise HTTPException(
             status_code=400,
@@ -156,7 +159,7 @@ async def topvisor_snapshots(
 
     Returns competitor URLs and positions in search results.
     """
-    project = _get_project(project_id, db)
+    project = _check_project_access(project_id, current_user, db)
     if not project.topvisor_project_id:
         raise HTTPException(
             status_code=400,

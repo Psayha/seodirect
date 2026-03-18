@@ -25,11 +25,42 @@ from app.models.direct import (
     KeywordTemperature,
     NegativeKeyword,
 )
+from app.models.project import Project
 from app.models.task import Task, TaskStatus, TaskType
+from app.models.user import UserRole
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ─── Access control helpers ──────────────────────────────────────────────────
+
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
+
+
+def _check_campaign_access(campaign_id: uuid.UUID, current_user, db: Session) -> Campaign:
+    """Load campaign and verify user has access to its parent project."""
+    c = db.get(Campaign, campaign_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    _check_project_access(c.project_id, current_user, db)
+    return c
+
+
+def _check_group_access(group_id: uuid.UUID, current_user, db: Session) -> AdGroup:
+    """Load group and verify user has access via campaign → project chain."""
+    g = db.get(AdGroup, group_id)
+    if not g:
+        raise HTTPException(status_code=404, detail="Group not found")
+    _check_campaign_access(g.campaign_id, current_user, db)
+    return g
 
 
 # ─── Strategy ─────────────────────────────────────────────────────────────────
@@ -43,6 +74,7 @@ def generate_strategy(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     task = Task(
         project_id=project_id,
         type=TaskType.GENERATE_STRATEGY,
@@ -68,6 +100,7 @@ def get_strategy(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     campaign = db.scalar(
         select(Campaign)
         .where(Campaign.project_id == project_id, Campaign.strategy_text.isnot(None))
@@ -90,6 +123,7 @@ def update_strategy(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     campaign = db.scalar(
         select(Campaign).where(Campaign.project_id == project_id).order_by(Campaign.priority)
     )
@@ -127,6 +161,7 @@ def list_campaigns(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     campaigns = db.scalars(
         select(Campaign).where(Campaign.project_id == project_id).order_by(Campaign.priority)
     ).all()
@@ -141,6 +176,7 @@ def create_campaign(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     c = Campaign(project_id=project_id, **body.model_dump(exclude_none=True))
     db.add(c)
     db.commit()
@@ -156,9 +192,7 @@ def update_campaign(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
-    c = db.get(Campaign, campaign_id)
-    if not c:
-        raise HTTPException(status_code=404, detail="Campaign not found")
+    c = _check_campaign_access(campaign_id, current_user, db)
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(c, k, v)
     db.commit()
@@ -172,14 +206,16 @@ def delete_campaign(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
-    c = db.get(Campaign, campaign_id)
-    if not c:
-        raise HTTPException(status_code=404, detail="Campaign not found")
+    c = _check_campaign_access(campaign_id, current_user, db)
     db.delete(c)
     db.commit()
 
 
 # ─── Ad Groups ────────────────────────────────────────────────────────────────
+
+class GroupCreate(BaseModel):
+    name: str = Field(default="Новая группа", max_length=255)
+
 
 @router.get("/direct/campaigns/{campaign_id}/groups")
 def list_groups(
@@ -187,6 +223,7 @@ def list_groups(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_campaign_access(campaign_id, current_user, db)
     groups = db.scalars(select(AdGroup).where(AdGroup.campaign_id == campaign_id)).all()
     return [{"id": str(g.id), "campaign_id": str(g.campaign_id), "name": g.name, "status": g.status} for g in groups]
 
@@ -194,12 +231,13 @@ def list_groups(
 @router.post("/direct/campaigns/{campaign_id}/groups", status_code=201)
 def create_group(
     campaign_id: uuid.UUID,
-    body: dict,
+    body: GroupCreate,
     current_user: CurrentUser,
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
-    g = AdGroup(campaign_id=campaign_id, name=body.get("name", "Новая группа"))
+    _check_campaign_access(campaign_id, current_user, db)
+    g = AdGroup(campaign_id=campaign_id, name=body.name)
     db.add(g)
     db.commit()
     db.refresh(g)
@@ -218,6 +256,7 @@ def list_keywords(
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ):
+    _check_group_access(group_id, current_user, db)
     q = select(Keyword).where(Keyword.ad_group_id == group_id)
     if temperature:
         q = q.where(Keyword.temperature == KeywordTemperature(temperature))
@@ -236,9 +275,7 @@ def generate_keywords(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
-    group = db.get(AdGroup, group_id)
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
+    group = _check_group_access(group_id, current_user, db)
     campaign = db.get(Campaign, group.campaign_id)
     task = Task(
         project_id=campaign.project_id,
@@ -269,10 +306,11 @@ def check_keyword_frequency(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
+    group = _check_group_access(group_id, current_user, db)
     keywords = db.scalars(select(Keyword).where(Keyword.ad_group_id == group_id)).all()
     if not keywords:
         raise HTTPException(status_code=400, detail="No keywords in group")
-    campaign = db.get(Campaign, db.get(AdGroup, group_id).campaign_id)
+    campaign = db.get(Campaign, group.campaign_id)
     task = Task(
         project_id=campaign.project_id,
         type=TaskType.CHECK_FREQUENCIES,
@@ -310,12 +348,24 @@ async def keyword_dynamics(
     return {"phrase": phrase, "dynamics": data}
 
 
+class KeywordCreate(BaseModel):
+    ad_group_id: uuid.UUID
+    phrase: str = Field(..., min_length=1, max_length=500)
+    temperature: str = "warm"
+
+
 @router.post("/direct/keywords", status_code=201)
-def add_keyword(current_user: CurrentUser, _: Annotated[object, NonViewerRequired], body: dict, db: Annotated[Session, Depends(get_db)]):
+def add_keyword(
+    body: KeywordCreate,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    _check_group_access(body.ad_group_id, current_user, db)
     kw = Keyword(
-        ad_group_id=uuid.UUID(body["ad_group_id"]),
-        phrase=body["phrase"],
-        temperature=KeywordTemperature(body.get("temperature", "warm")),
+        ad_group_id=body.ad_group_id,
+        phrase=body.phrase,
+        temperature=KeywordTemperature(body.temperature),
     )
     db.add(kw)
     db.commit()
@@ -324,11 +374,18 @@ def add_keyword(current_user: CurrentUser, _: Annotated[object, NonViewerRequire
 
 
 @router.delete("/direct/keywords/{keyword_id}", status_code=204)
-def delete_keyword(keyword_id: uuid.UUID, current_user: CurrentUser, _: Annotated[object, NonViewerRequired], db: Annotated[Session, Depends(get_db)]):
+def delete_keyword(
+    keyword_id: uuid.UUID,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
     kw = db.get(Keyword, keyword_id)
-    if kw:
-        db.delete(kw)
-        db.commit()
+    if not kw:
+        raise HTTPException(status_code=404, detail="Keyword not found")
+    _check_group_access(kw.ad_group_id, current_user, db)
+    db.delete(kw)
+    db.commit()
 
 
 # ─── Ads ──────────────────────────────────────────────────────────────────────
@@ -341,6 +398,7 @@ def list_ads(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ):
+    _check_group_access(group_id, current_user, db)
     ads = db.scalars(select(Ad).where(Ad.ad_group_id == group_id).order_by(Ad.variant).limit(limit).offset(offset)).all()
     return [_ad_dict(a) for a in ads]
 
@@ -355,22 +413,38 @@ def generate_ads(
     db: Annotated[Session, Depends(get_db)],
     variants: int = 2,
 ):
+    _check_group_access(group_id, current_user, db)
     from app.direct.service import generate_ads_for_group
     ads = asyncio.run(generate_ads_for_group(group_id, variants, db))
     return {"ads_created": len(ads), "ads": [_ad_dict(a) for a in ads]}
 
 
+class AdUpdate(BaseModel):
+    headline1: str | None = Field(None, max_length=56)
+    headline2: str | None = Field(None, max_length=30)
+    headline3: str | None = Field(None, max_length=30)
+    text: str | None = Field(None, max_length=81)
+    display_url: str | None = None
+    utm: str | None = None
+    status: str | None = None
+
+
 @router.patch("/direct/ads/{ad_id}")
-def update_ad(ad_id: uuid.UUID, body: dict, current_user: CurrentUser, _: Annotated[object, NonViewerRequired], db: Annotated[Session, Depends(get_db)]):
+def update_ad(
+    ad_id: uuid.UUID,
+    body: AdUpdate,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
     ad = db.get(Ad, ad_id)
     if not ad:
         raise HTTPException(status_code=404, detail="Ad not found")
-    for field in ("headline1", "headline2", "headline3", "text", "display_url", "utm", "status"):
-        if field in body:
-            val = body[field]
-            if field == "status":
-                val = AdStatus(val)
-            setattr(ad, field, val)
+    _check_group_access(ad.ad_group_id, current_user, db)
+    for field, value in body.model_dump(exclude_none=True).items():
+        if field == "status":
+            value = AdStatus(value)
+        setattr(ad, field, value)
     db.commit()
     return _ad_dict(ad)
 
@@ -383,6 +457,7 @@ def list_negative_keywords(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     nkws = db.scalars(select(NegativeKeyword).where(NegativeKeyword.project_id == project_id)).all()
     return [{"id": str(n.id), "phrase": n.phrase, "block": n.block, "campaign_id": str(n.campaign_id) if n.campaign_id else None} for n in nkws]
 
@@ -396,20 +471,27 @@ def generate_negative_keywords_endpoint(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     from app.direct.service import generate_negative_keywords
     nkws = asyncio.run(generate_negative_keywords(project_id, db))
     return {"created": len(nkws)}
 
 
+class NegativeKeywordCreate(BaseModel):
+    phrase: str = Field(..., min_length=1, max_length=500)
+    block: str = "general"
+
+
 @router.post("/projects/{project_id}/direct/negative-keywords", status_code=201)
 def add_negative_keyword(
     project_id: uuid.UUID,
-    body: dict,
+    body: NegativeKeywordCreate,
     current_user: CurrentUser,
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
-    nk = NegativeKeyword(project_id=project_id, phrase=body["phrase"], block=body.get("block", "general"))
+    _check_project_access(project_id, current_user, db)
+    nk = NegativeKeyword(project_id=project_id, phrase=body.phrase, block=body.block)
     db.add(nk)
     db.commit()
     db.refresh(nk)
@@ -417,11 +499,18 @@ def add_negative_keyword(
 
 
 @router.delete("/direct/negative-keywords/{nk_id}", status_code=204)
-def delete_negative_keyword(nk_id: uuid.UUID, current_user: CurrentUser, _: Annotated[object, NonViewerRequired], db: Annotated[Session, Depends(get_db)]):
+def delete_negative_keyword(
+    nk_id: uuid.UUID,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
     nk = db.get(NegativeKeyword, nk_id)
-    if nk:
-        db.delete(nk)
-        db.commit()
+    if not nk:
+        raise HTTPException(status_code=404, detail="Negative keyword not found")
+    _check_project_access(nk.project_id, current_user, db)
+    db.delete(nk)
+    db.commit()
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────

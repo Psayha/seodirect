@@ -32,13 +32,15 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    # Disable OpenAPI docs in production
+    is_dev = settings.app_env == "development"
     app = FastAPI(
         title="SEODirect Tool",
         version="0.1.0",
         lifespan=lifespan,
-        docs_url="/api/docs",
-        redoc_url="/api/redoc",
-        openapi_url="/api/openapi.json",
+        docs_url="/api/docs" if is_dev else None,
+        redoc_url="/api/redoc" if is_dev else None,
+        openapi_url="/api/openapi.json" if is_dev else None,
     )
 
     install_observability(app)

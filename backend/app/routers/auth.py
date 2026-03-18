@@ -82,7 +82,11 @@ def login(body: LoginRequest, request: Request, db: Annotated[Session, Depends(g
             )
     else:
         user = db.scalar(select(User).where(User.login == body.login))
-        if not user or not user.is_active or not verify_password(body.password, user.password_hash):
+        # Always run password check to prevent timing-based user enumeration.
+        # Use a valid bcrypt hash that will never match any real password.
+        _DUMMY_HASH = "$2b$12$LJ3m4ys3Lg7RHwOFBSBLyOPkBiSfMNkOMarCb/JxFPDMj3ByurDAu"
+        password_valid = verify_password(body.password, user.password_hash if user else _DUMMY_HASH)
+        if not user or not user.is_active or not password_valid:
             increment_attempts(ip, body.login)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
