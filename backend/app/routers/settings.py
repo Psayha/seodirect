@@ -35,6 +35,10 @@ SERVICES = {
         "keys": ["anthropic_api_key"],
         "label": "Anthropic (Claude)",
     },
+    "openrouter": {
+        "keys": ["openrouter_api_key"],
+        "label": "OpenRouter (Claude через proxy)",
+    },
     "wordstat": {
         "keys": ["wordstat_oauth_token"],
         "label": "Яндекс Wordstat",
@@ -121,6 +125,22 @@ async def test_api_key(
                 ok = r.status_code == 200
                 return {"ok": ok, "message": "Подключено" if ok else "Неверный API ключ"}
 
+            elif service == "openrouter":
+                key = get_setting("openrouter_api_key", db)
+                if not key:
+                    return {"ok": False, "message": "API ключ не задан"}
+                r = await client.get(
+                    "https://openrouter.ai/api/v1/models",
+                    headers={"Authorization": f"Bearer {key}"},
+                )
+                if r.status_code == 200:
+                    models = r.json().get("data", [])
+                    claude_count = sum(1 for m in models if "anthropic" in m.get("id", ""))
+                    return {"ok": True, "message": f"Подключено. Claude-моделей: {claude_count}"}
+                if r.status_code in (401, 403):
+                    return {"ok": False, "message": "Неверный API ключ"}
+                return {"ok": False, "message": f"HTTP {r.status_code}"}
+
             elif service == "wordstat":
                 token = get_setting("wordstat_oauth_token", db)
                 if not token:
@@ -161,8 +181,12 @@ async def test_api_key(
                     json={},
                 )
                 if r.status_code == 200:
-                    result = r.json()
-                    count = len(result.get("result", []))
+                    data = r.json()
+                    errors = data.get("errors")
+                    if errors:
+                        msg = errors[0].get("string", "Неверный API ключ") if isinstance(errors, list) else "Неверный API ключ"
+                        return {"ok": False, "message": msg}
+                    count = len(data.get("result") or [])
                     return {"ok": True, "message": f"Подключено. Проектов: {count}"}
                 if r.status_code in (401, 403):
                     return {"ok": False, "message": "Неверный API ключ"}
