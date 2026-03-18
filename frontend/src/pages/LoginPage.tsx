@@ -46,6 +46,7 @@ export default function LoginPage() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
               required
               autoFocus
+              autoComplete="username"
             />
           </div>
           <div>
@@ -56,6 +57,7 @@ export default function LoginPage() {
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
               required
+              autoComplete="current-password"
             />
           </div>
           <div className="flex items-center gap-2">
