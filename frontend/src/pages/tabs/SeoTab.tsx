@@ -409,7 +409,7 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
   const [copied, setCopied] = useState(false)
   const [validatorInput, setValidatorInput] = useState('')
   const [validationResult, setValidationResult] = useState<{ valid: boolean; errors: string[]; warnings: string[] } | null>(null)
-  const [bulkSchemaType, setBulkSchemaType] = useState('Organization')
+  const [bulkSchemaTypes, setBulkSchemaTypes] = useState<string[]>(['Organization', 'LocalBusiness', 'Product', 'Article', 'WebSite', 'WebPage', 'Service'])
   const [bulkOnlyMissing, setBulkOnlyMissing] = useState(true)
   const [bulkTaskId, setBulkTaskId] = useState<string | null>(null)
   const qc = useQueryClient()
@@ -434,7 +434,7 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
   })
 
   const bulkMut = useMutation({
-    mutationFn: () => seoApi.generateSchemaBulk(projectId, { schema_type: bulkSchemaType, only_missing: bulkOnlyMissing }),
+    mutationFn: () => seoApi.generateSchemaBulk(projectId, { schema_types: bulkSchemaTypes, only_missing: bulkOnlyMissing }),
     onSuccess: (data: any) => setBulkTaskId(data.task_id),
     onError: (err: any) => alert(err?.response?.data?.detail || 'Ошибка запуска задачи'),
   })
@@ -462,22 +462,32 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
       {/* Bulk Generator */}
       <div className="bg-white border rounded-lg p-4">
         <h3 className="font-semibold mb-1">Массовая генерация Schema.org</h3>
-        <p className="text-xs text-gray-500 mb-4">Генерирует Schema.org JSON-LD для всех страниц проекта в фоне</p>
-        <div className="flex flex-wrap gap-3 items-end mb-3">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Тип Schema для всех страниц</label>
-            <select value={bulkSchemaType} onChange={e => setBulkSchemaType(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-              {ALL_SCHEMA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+        <p className="text-xs text-gray-500 mb-3">Генерирует Schema.org JSON-LD для всех страниц проекта в фоне. Claude автоматически выбирает наиболее подходящий тип из отмеченных для каждой страницы.</p>
+        <div className="mb-3">
+          <label className="block text-xs text-gray-500 mb-2">Разрешённые типы Schema (Claude выберет лучший для каждой страницы)</label>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {ALL_SCHEMA_TYPES.map(t => (
+              <label key={t} className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
+                <input type="checkbox" className="rounded"
+                  checked={bulkSchemaTypes.includes(t)}
+                  onChange={e => setBulkSchemaTypes(prev => e.target.checked ? [...prev, t] : prev.filter(x => x !== t))} />
+                {t}
+              </label>
+            ))}
           </div>
-          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer mb-0.5">
+          <div className="flex gap-3 mt-2">
+            <button onClick={() => setBulkSchemaTypes(ALL_SCHEMA_TYPES)} className="text-xs text-primary-600 hover:underline">Выбрать все</button>
+            <button onClick={() => setBulkSchemaTypes([])} className="text-xs text-gray-500 hover:underline">Снять все</button>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-3 items-center">
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
             <input type="checkbox" className="rounded" checked={bulkOnlyMissing} onChange={e => setBulkOnlyMissing(e.target.checked)} />
             Только без Schema
           </label>
           <button
             onClick={() => bulkMut.mutate()}
-            disabled={bulkMut.isPending || isBulkRunning}
+            disabled={bulkMut.isPending || isBulkRunning || bulkSchemaTypes.length === 0}
             className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50 ml-auto"
           >
             {bulkMut.isPending || isBulkRunning ? '⏳ Запускается...' : '🚀 Запустить массовую генерацию'}
@@ -792,7 +802,7 @@ export default function SeoTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* Generate meta controls */}
-      <div className="bg-gray-50 border rounded-lg p-3 mb-5 flex flex-wrap items-center gap-3">
+      {view !== 'schema' && view !== 'content-gap' && (<><div className="bg-gray-50 border rounded-lg p-3 mb-5 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
           <input type="checkbox" className="rounded" checked={generateOg} onChange={(e) => setGenerateOg(e.target.checked)} />
           + OG теги
@@ -813,7 +823,6 @@ export default function SeoTab({ projectId }: { projectId: string }) {
           {genMetaMut.isPending || isRunning ? '⏳ Генерация...' : '✨ Сгенерировать мета-теги'}
         </button>
       </div>
-
       {generateTaskId && (
         <div className={cx('rounded-lg p-3 mb-4 text-sm flex items-center gap-3',
           isDone ? 'bg-green-50 border border-green-200 text-green-700'
@@ -827,7 +836,7 @@ export default function SeoTab({ projectId }: { projectId: string }) {
               className="ml-auto text-sm underline">Обновить</button>
           )}
         </div>
-      )}
+      )}</>)}
 
       {view === 'checklist' && (
         clLoading ? <div className="text-gray-500 py-4">Загрузка...</div> :

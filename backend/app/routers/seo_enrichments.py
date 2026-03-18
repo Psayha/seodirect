@@ -121,7 +121,7 @@ Description: {page.description or 'нет'}
 
 
 class SchemaBulkGenerateRequest(BaseModel):
-    schema_type: str = "Organization"
+    schema_types: list[str] = []
     page_urls: list[str] | None = None
     only_missing: bool = False
 
@@ -162,7 +162,7 @@ def generate_schema_org_bulk(
     result = task_generate_schema_bulk.delay(
         str(task.id),
         str(project_id),
-        body.schema_type,
+        body.schema_types,
         body.page_urls,
         body.only_missing,
     )

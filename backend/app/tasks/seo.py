@@ -232,7 +232,7 @@ def task_generate_schema_bulk(
     self,
     task_id: str,
     project_id: str,
-    schema_type: str,
+    schema_types: list | None = None,
     page_urls: list | None = None,
     only_missing: bool = False,
 ):
@@ -311,6 +311,13 @@ def task_generate_schema_bulk(
                 parts.append(f"Ниша: {brief.niche}")
             brief_context = "\n".join(parts)
 
+        _DEFAULT_SCHEMA_TYPES = [
+            "Organization", "LocalBusiness", "Product", "Article",
+            "WebSite", "WebPage", "Service", "FAQPage", "HowTo",
+        ]
+        allowed_types = schema_types if schema_types else _DEFAULT_SCHEMA_TYPES
+        types_list = ", ".join(allowed_types)
+
         claude = get_claude_client(db)
         system_prompt = "Ты — SEO-специалист. Генерируй корректный Schema.org JSON-LD. Отвечай только валидным JSON-LD объектом без markdown и пояснений."
 
@@ -320,7 +327,7 @@ def task_generate_schema_bulk(
                 task.progress = round(i / len(pages) * 100)
                 db.commit()
 
-            user_msg = f"""Сгенерируй Schema.org JSON-LD типа {schema_type} для страницы.
+            user_msg = f"""Выбери наиболее подходящий тип Schema.org из списка [{types_list}] для данной страницы и сгенерируй JSON-LD.
 
 URL: {page.url}
 Title: {page.title or 'нет'}
