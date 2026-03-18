@@ -4,8 +4,6 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
-      // All colors reference CSS variables — one class works in both themes.
-      // Usage: bg-surface, text-muted, border-base, etc.
       colors: {
         page:    'var(--page)',
         surface: {
@@ -13,12 +11,12 @@ export default {
           raised:  'var(--surface-raised)',
         },
         muted:   'var(--muted)',
-        base:    'var(--base)',        // alias for border
         primary: 'var(--text)',
         accent: {
-          DEFAULT: '#34c759',
-          hover:   '#2aab4a',
-          subtle:  '#34c75918',
+          DEFAULT: 'var(--accent)',
+          hover:   'var(--accent-hover)',
+          subtle:  'var(--accent-subtle)',
+          text:    'var(--accent-text)',
         },
         sb: {
           bg:     'var(--sb-bg)',
@@ -27,10 +25,10 @@ export default {
           active: 'var(--sb-active)',
           border: 'var(--sb-border)',
         },
-        // Status colours (theme-agnostic)
-        'status-active':    '#34c759',
-        'status-paused':    '#fbbf24',
-        'status-completed': '#60a5fa',
+        // Status colours
+        'status-active':    '#10b981',
+        'status-paused':    '#f59e0b',
+        'status-completed': '#3b82f6',
         'status-archived':  '#9ca3af',
       },
       borderColor: {
@@ -43,12 +41,18 @@ export default {
       backgroundColor: {
         DEFAULT: 'var(--surface)',
       },
+      boxShadow: {
+        'card':    '0 1px 4px 0 rgba(10,18,40,0.06), 0 0 0 1px rgba(10,18,40,0.04)',
+        'card-md': '0 4px 16px 0 rgba(10,18,40,0.10)',
+        'card-lg': '0 8px 32px 0 rgba(10,18,40,0.12)',
+      },
       opacity: {
         '6': '0.06',
         '8': '0.08',
       },
       borderRadius: {
-        '2xl': '16px',
+        'xl':  '10px',
+        '2xl': '14px',
         '3xl': '20px',
       },
       fontFamily: {
