@@ -74,7 +74,7 @@ function ApiKeysTab() {
   if (isLoading) return <Spinner />
 
   return (
-    <div className="space-y-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {(services as any[]).map((svc) => (
         <div key={svc.service} className="card-bordered overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3.5 bg-surface-raised border-b border-[var(--border)]">
@@ -514,8 +514,8 @@ function UsersTab() {
                       className={cx(
                         'btn py-1 px-2.5 text-xs rounded-lg border transition',
                         u.is_active
-                          ? 'text-red-500 border-red-200 hover:bg-red-50'
-                          : 'text-emerald-600 border-emerald-200 hover:bg-emerald-50'
+                          ? 'text-red-500 border-red-500/30 hover:bg-red-500/10'
+                          : 'text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/10'
                       )}
                     >
                       {u.is_active ? 'Откл.' : 'Вкл.'}
@@ -758,7 +758,9 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      <div className="max-w-2xl">
+      <div className={cx(
+        tab === 'api-keys' || tab === 'users' || tab === 'prompts' ? 'max-w-5xl' : 'max-w-2xl'
+      )}>
         {tab === 'api-keys'    && <ApiKeysTab />}
         {tab === 'crawler'     && <CrawlerTab />}
         {tab === 'ai'          && <AITab />}
