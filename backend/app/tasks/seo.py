@@ -217,3 +217,157 @@ H2: {', '.join((page.h2_list or [])[:3])}
         raise
     finally:
         db.close()
+
+
+@celery_app.task(
+    bind=True,
+    name="tasks.seo.generate_schema_bulk",
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3},
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+)
+def task_generate_schema_bulk(
+    self,
+    task_id: str,
+    project_id: str,
+    schema_type: str,
+    page_urls: list | None = None,
+    only_missing: bool = False,
+):
+    import json
+    import re
+    from sqlalchemy import select
+
+    from app.db.session import SessionLocal
+    from app.models.crawl import CrawlSession, CrawlStatus, Page
+    from app.models.seo import SeoPageMeta
+    from app.models.task import Task, TaskStatus
+    from app.services.claude import get_claude_client
+
+    db = SessionLocal()
+    task = None
+    try:
+        task = db.get(Task, uuid.UUID(task_id))
+        if task:
+            task.status = TaskStatus.RUNNING
+            db.commit()
+
+        crawl = db.scalar(
+            select(CrawlSession)
+            .where(
+                CrawlSession.project_id == uuid.UUID(project_id),
+                CrawlSession.status == CrawlStatus.DONE,
+            )
+            .order_by(CrawlSession.finished_at.desc())
+        )
+        if not crawl:
+            raise RuntimeError("No completed crawl found")
+
+        page_query = select(Page).where(
+            Page.crawl_session_id == crawl.id,
+            Page.status_code == 200,
+        )
+        if page_urls:
+            page_query = page_query.where(Page.url.in_(page_urls))
+
+        pages = db.scalars(page_query.order_by(Page.url)).all()
+        if not pages:
+            raise RuntimeError("No pages found in crawl")
+
+        if only_missing:
+            existing_meta = db.scalars(
+                select(SeoPageMeta).where(
+                    SeoPageMeta.project_id == uuid.UUID(project_id),
+                    SeoPageMeta.schema_org_json.isnot(None),
+                )
+            ).all()
+            urls_with_schema = {m.page_url for m in existing_meta}
+            pages = [p for p in pages if p.url not in urls_with_schema]
+
+        if not pages:
+            if task:
+                task.status = TaskStatus.SUCCESS
+                task.progress = 100
+                task.result = {"pages_generated": 0, "pages_total": 0}
+                task.finished_at = datetime.now(timezone.utc)
+                db.commit()
+            return {"status": "success", "pages_generated": 0}
+
+        from app.models.brief import Brief
+        brief = db.scalar(select(Brief).where(Brief.project_id == uuid.UUID(project_id)))
+        brief_context = ""
+        if brief:
+            parts = []
+            if brief.products:
+                parts.append(f"Продукт/услуга: {brief.products}")
+            if brief.geo:
+                parts.append(f"Гео: {brief.geo}")
+            if brief.usp:
+                parts.append(f"УТП: {brief.usp}")
+            if brief.niche:
+                parts.append(f"Ниша: {brief.niche}")
+            brief_context = "\n".join(parts)
+
+        claude = get_claude_client(db)
+        system_prompt = "Ты — SEO-специалист. Генерируй корректный Schema.org JSON-LD. Отвечай только валидным JSON-LD объектом без markdown и пояснений."
+
+        generated = 0
+        for i, page in enumerate(pages):
+            if task and i % 5 == 0:
+                task.progress = round(i / len(pages) * 100)
+                db.commit()
+
+            user_msg = f"""Сгенерируй Schema.org JSON-LD типа {schema_type} для страницы.
+
+URL: {page.url}
+Title: {page.title or 'нет'}
+H1: {page.h1 or 'нет'}
+Description: {page.description or 'нет'}
+
+{brief_context}
+
+Верни ТОЛЬКО JSON-LD объект (без markdown, без пояснений)."""
+
+            try:
+                response_text = _run_async(claude.generate(system_prompt, user_msg))
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                if not json_match:
+                    continue
+                schema_json = json_match.group()
+                json.loads(schema_json)  # validate
+
+                meta = db.scalar(
+                    select(SeoPageMeta).where(
+                        SeoPageMeta.project_id == uuid.UUID(project_id),
+                        SeoPageMeta.page_url == page.url,
+                    )
+                )
+                if not meta:
+                    meta = SeoPageMeta(project_id=uuid.UUID(project_id), page_url=page.url)
+                    db.add(meta)
+                meta.schema_org_json = schema_json
+                db.commit()
+                generated += 1
+            except Exception:
+                continue
+
+        if task:
+            task.status = TaskStatus.SUCCESS
+            task.progress = 100
+            task.result = {"pages_generated": generated, "pages_total": len(pages)}
+            task.finished_at = datetime.now(timezone.utc)
+            db.commit()
+
+        return {"status": "success", "pages_generated": generated}
+
+    except Exception as e:
+        if task:
+            task.status = TaskStatus.FAILED
+            task.error = str(e)[:500]
+            task.finished_at = datetime.now(timezone.utc)
+            db.commit()
+        raise
+    finally:
+        db.close()

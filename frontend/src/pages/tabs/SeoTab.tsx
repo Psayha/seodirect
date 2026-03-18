@@ -409,6 +409,9 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
   const [copied, setCopied] = useState(false)
   const [validatorInput, setValidatorInput] = useState('')
   const [validationResult, setValidationResult] = useState<{ valid: boolean; errors: string[]; warnings: string[] } | null>(null)
+  const [bulkSchemaType, setBulkSchemaType] = useState('Organization')
+  const [bulkOnlyMissing, setBulkOnlyMissing] = useState(true)
+  const [bulkTaskId, setBulkTaskId] = useState<string | null>(null)
   const qc = useQueryClient()
 
   const { data: pagesData } = useQuery({
@@ -417,7 +420,7 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
   })
   const pages = pagesData?.pages || []
 
-  const { data: existing, refetch: refetchExisting } = useQuery({
+  const { data: existing } = useQuery({
     queryKey: ['schema', projectId, pageUrl],
     queryFn: () => seoApi.getSchema(projectId, pageUrl),
     enabled: !!pageUrl,
@@ -430,6 +433,25 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
     onError: (err: any) => alert(err?.response?.data?.detail || 'Ошибка генерации'),
   })
 
+  const bulkMut = useMutation({
+    mutationFn: () => seoApi.generateSchemaBulk(projectId, { schema_type: bulkSchemaType, only_missing: bulkOnlyMissing }),
+    onSuccess: (data: any) => setBulkTaskId(data.task_id),
+    onError: (err: any) => alert(err?.response?.data?.detail || 'Ошибка запуска задачи'),
+  })
+
+  const { data: bulkTaskStatus } = useQuery({
+    queryKey: ['seo-task', bulkTaskId],
+    queryFn: () => seoApi.getTaskStatus(projectId, bulkTaskId!),
+    enabled: !!bulkTaskId,
+    refetchInterval: (q) => {
+      const s = (q.state.data as any)?.status
+      return s === 'running' || s === 'pending' ? 2000 : false
+    },
+  })
+
+  const isBulkRunning = bulkTaskStatus?.status === 'running' || bulkTaskStatus?.status === 'pending'
+  const isBulkDone = bulkTaskStatus?.status === 'success'
+
   const resultJson = genMut.data?.schema_json || existing?.schema_json || ''
   const copy = () => { navigator.clipboard.writeText(resultJson); setCopied(true); setTimeout(() => setCopied(false), 2000) }
 
@@ -437,9 +459,46 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-6">
-      {/* Generator */}
+      {/* Bulk Generator */}
       <div className="bg-white border rounded-lg p-4">
-        <h3 className="font-semibold mb-4">Генератор Schema.org (JSON-LD)</h3>
+        <h3 className="font-semibold mb-1">Массовая генерация Schema.org</h3>
+        <p className="text-xs text-gray-500 mb-4">Генерирует Schema.org JSON-LD для всех страниц проекта в фоне</p>
+        <div className="flex flex-wrap gap-3 items-end mb-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Тип Schema для всех страниц</label>
+            <select value={bulkSchemaType} onChange={e => setBulkSchemaType(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+              {ALL_SCHEMA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer mb-0.5">
+            <input type="checkbox" className="rounded" checked={bulkOnlyMissing} onChange={e => setBulkOnlyMissing(e.target.checked)} />
+            Только без Schema
+          </label>
+          <button
+            onClick={() => bulkMut.mutate()}
+            disabled={bulkMut.isPending || isBulkRunning}
+            className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50 ml-auto"
+          >
+            {bulkMut.isPending || isBulkRunning ? '⏳ Запускается...' : '🚀 Запустить массовую генерацию'}
+          </button>
+        </div>
+        {bulkTaskId && (
+          <div className={cx('rounded-lg px-4 py-3 text-sm flex items-center gap-3',
+            isBulkDone ? 'bg-green-50 border border-green-200 text-green-700'
+            : isBulkRunning ? 'bg-blue-50 border border-blue-200 text-blue-700'
+            : bulkTaskStatus?.status === 'failed' ? 'bg-red-50 border border-red-200 text-red-700'
+            : 'bg-gray-50 border text-gray-600')}>
+            {isBulkRunning && <span>⏳ Генерация Schema.org: {bulkTaskStatus?.progress ?? 0}%</span>}
+            {isBulkDone && <span>✅ Готово: {(bulkTaskStatus?.result as any)?.pages_generated ?? 0} из {(bulkTaskStatus?.result as any)?.pages_total ?? 0} страниц</span>}
+            {bulkTaskStatus?.status === 'failed' && <span>❌ Ошибка: {bulkTaskStatus.error}</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Single page Generator */}
+      <div className="bg-white border rounded-lg p-4">
+        <h3 className="font-semibold mb-4">Генератор Schema.org (одна страница)</h3>
         <div className="grid grid-cols-2 gap-3 mb-3">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Страница</label>
