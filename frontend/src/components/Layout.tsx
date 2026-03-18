@@ -142,6 +142,7 @@ function NavPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
 // ── Root layout ───────────────────────────────────────────────────────────────
 export default function Layout() {
   const location = useLocation()
+  const { dark, toggle } = useThemeStore()
   const [navOpen, setNavOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024)
 
@@ -195,10 +196,10 @@ export default function Layout() {
           {/* Mobile theme toggle */}
           <div className="ml-auto lg:hidden">
             <button
-              onClick={useThemeStore.getState().toggle}
+              onClick={toggle}
               className="p-2 rounded-lg text-muted hover:text-primary hover:bg-surface-raised transition"
             >
-              <Icon d={useThemeStore.getState().dark ? PATHS.sun : PATHS.moon} size={18} />
+              <Icon d={dark ? PATHS.sun : PATHS.moon} size={18} />
             </button>
           </div>
         </header>

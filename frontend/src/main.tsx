@@ -4,9 +4,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import './index.css'
 
-// Apply saved theme before first render to avoid flash
+// Apply theme before first render to avoid flash.
+// Use explicit user choice if saved, otherwise follow system preference.
 const saved = localStorage.getItem('seodirect-theme')
-const dark = saved ? JSON.parse(saved)?.state?.dark !== false : true
+const userChoice = saved ? (JSON.parse(saved)?.userChoice ?? null) : null
+const dark = userChoice !== null ? userChoice : window.matchMedia('(prefers-color-scheme: dark)').matches
 document.documentElement.classList.toggle('dark', dark)
 
 export const queryClient = new QueryClient({
