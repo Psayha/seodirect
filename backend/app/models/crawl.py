@@ -22,7 +22,7 @@ class CrawlSession(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
-    status: Mapped[CrawlStatus] = mapped_column(SAEnum(CrawlStatus), nullable=False, default=CrawlStatus.PENDING)
+    status: Mapped[CrawlStatus] = mapped_column(SAEnum(CrawlStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=CrawlStatus.PENDING)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     pages_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

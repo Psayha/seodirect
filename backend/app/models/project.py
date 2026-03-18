@@ -25,7 +25,7 @@ class Project(Base, TimestampMixin):
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
     specialist_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     budget: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
-    status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), nullable=False, default=ProjectStatus.ACTIVE)
+    status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=ProjectStatus.ACTIVE)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     topvisor_project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
