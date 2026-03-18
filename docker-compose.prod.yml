@@ -36,7 +36,7 @@ services:
     mem_limit: 96m
 
   backend:
-    image: ghcr.io/${GITHUB_REPO:-psayha/seodirect}/backend:latest
+    image: ghcr.io/psayha/seodirect/backend:latest
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -48,7 +48,7 @@ services:
     mem_limit: 384m
 
   celery:
-    image: ghcr.io/${GITHUB_REPO:-psayha/seodirect}/backend:latest
+    image: ghcr.io/psayha/seodirect/backend:latest
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -60,7 +60,7 @@ services:
     mem_limit: 320m
 
   frontend:
-    image: ghcr.io/${GITHUB_REPO:-psayha/seodirect}/frontend:latest
+    image: ghcr.io/psayha/seodirect/frontend:latest
     restart: unless-stopped
     mem_limit: 32m
 
