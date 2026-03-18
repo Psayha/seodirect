@@ -31,12 +31,24 @@ export interface Brief {
   restrictions: string | null
 }
 
+export interface TrashProject {
+  id: string
+  name: string
+  client_name: string
+  url: string
+  status: string
+  deleted_at: string
+}
+
 export const projectsApi = {
   list: () => api.get<Project[]>('/projects/').then((r) => r.data),
   get: (id: string) => api.get<Project>(`/projects/${id}`).then((r) => r.data),
   create: (data: Partial<Project>) => api.post<Project>('/projects/', data).then((r) => r.data),
   update: (id: string, data: Partial<Project>) => api.patch<Project>(`/projects/${id}`, data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/projects/${id}`),
   duplicate: (id: string) => api.post<Project>(`/projects/${id}/duplicate`).then((r) => r.data),
+  listTrash: () => api.get<TrashProject[]>('/projects/trash').then((r) => r.data),
+  restore: (id: string) => api.post<Project>(`/projects/${id}/restore`).then((r) => r.data),
   getBrief: (id: string) => api.get<Brief>(`/projects/${id}/brief`).then((r) => r.data),
   updateBrief: (id: string, data: Partial<Brief>) => api.put<Brief>(`/projects/${id}/brief`, data).then((r) => r.data),
 }

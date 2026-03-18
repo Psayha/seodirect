@@ -2,10 +2,15 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { projectsApi, Project } from '../api/projects'
+import { useAuthStore } from '../store/auth'
 
 function ProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin'
+
   const statusColors: Record<string, string> = {
     active: 'bg-green-100 text-green-700',
     paused: 'bg-yellow-100 text-yellow-700',
@@ -19,39 +24,81 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
       navigate(`/projects/${newProject.id}`)
     },
   })
+  const deleteMut = useMutation({
+    mutationFn: () => projectsApi.delete(project.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      setConfirmDelete(false)
+    },
+  })
 
   return (
-    <div
-      className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:shadow-md transition"
-    >
-      <div
-        className="cursor-pointer"
-        onClick={onClick}
-      >
-        <div className="flex items-start justify-between">
-          <div>
-            <h3 className="font-semibold text-gray-900">{project.name}</h3>
-            <p className="text-sm text-gray-500 mt-0.5">{project.client_name}</p>
+    <>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:shadow-md transition">
+        <div className="cursor-pointer" onClick={onClick}>
+          <div className="flex items-start justify-between">
+            <div>
+              <h3 className="font-semibold text-gray-900">{project.name}</h3>
+              <p className="text-sm text-gray-500 mt-0.5">{project.client_name}</p>
+            </div>
+            <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusColors[project.status] || 'bg-gray-100 text-gray-600'}`}>
+              {project.status}
+            </span>
           </div>
-          <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusColors[project.status] || 'bg-gray-100 text-gray-600'}`}>
-            {project.status}
-          </span>
+          <p className="text-xs text-gray-400 mt-3 truncate">{project.url}</p>
+          <p className="text-xs text-gray-400 mt-1">
+            {new Date(project.created_at).toLocaleDateString('ru-RU')}
+          </p>
         </div>
-        <p className="text-xs text-gray-400 mt-3 truncate">{project.url}</p>
-        <p className="text-xs text-gray-400 mt-1">
-          {new Date(project.created_at).toLocaleDateString('ru-RU')}
-        </p>
+        <div className="mt-3 flex justify-between items-center">
+          {isAdmin ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); setConfirmDelete(true) }}
+              className="text-xs text-red-400 hover:text-red-600 transition"
+              title="Удалить проект"
+            >
+              🗑 Удалить
+            </button>
+          ) : <span />}
+          <button
+            onClick={(e) => { e.stopPropagation(); dupMut.mutate() }}
+            disabled={dupMut.isPending}
+            className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded px-2 py-1 hover:bg-gray-50 transition disabled:opacity-50"
+          >
+            {dupMut.isPending ? '...' : 'Дублировать'}
+          </button>
+        </div>
       </div>
-      <div className="mt-3 flex justify-end">
-        <button
-          onClick={(e) => { e.stopPropagation(); dupMut.mutate() }}
-          disabled={dupMut.isPending}
-          className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded px-2 py-1 hover:bg-gray-50 transition disabled:opacity-50"
-        >
-          {dupMut.isPending ? '...' : 'Дублировать'}
-        </button>
-      </div>
-    </div>
+
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmDelete(false)}>
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-gray-900 mb-2">Удалить проект?</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              «{project.name}» будет перемещён в корзину. Восстановить можно через раздел Корзина.
+            </p>
+            {deleteMut.isError && (
+              <p className="text-red-500 text-sm mb-3">Ошибка удаления</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50 transition"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={() => deleteMut.mutate()}
+                disabled={deleteMut.isPending}
+                className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm hover:bg-red-700 transition disabled:opacity-50"
+              >
+                {deleteMut.isPending ? 'Удаление...' : 'Удалить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

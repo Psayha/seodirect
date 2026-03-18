@@ -143,6 +143,44 @@ def list_projects(
     return [_project_response(p) for p in projects]
 
 
+# ─── Trash (must be before /{project_id} to avoid UUID parse conflict) ────────
+
+class TrashProjectResponse(BaseModel):
+    id: str
+    name: str
+    client_name: str
+    url: str
+    status: str
+    deleted_at: str
+
+
+@router.get("/trash", response_model=list[TrashProjectResponse])
+def list_trash(
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        raise HTTPException(status_code=403, detail="Admin required")
+    projects = db.scalars(
+        select(Project)
+        .where(Project.deleted_at.is_not(None))
+        .order_by(Project.deleted_at.desc())
+    ).all()
+    return [
+        TrashProjectResponse(
+            id=str(p.id),
+            name=p.name,
+            client_name=p.client_name,
+            url=p.url,
+            status=p.status.value,
+            deleted_at=p.deleted_at.isoformat(),
+        )
+        for p in projects
+    ]
+
+
+# ─── Projects CRUD ────────────────────────────────────────────────────────────
+
 @router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 def create_project(
     body: ProjectCreate,
@@ -214,6 +252,23 @@ def delete_project(
     from datetime import datetime, timezone
     project.deleted_at = datetime.now(timezone.utc)
     db.commit()
+
+
+@router.post("/{project_id}/restore", response_model=ProjectResponse)
+def restore_project(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        raise HTTPException(status_code=403, detail="Admin required")
+    project = db.scalar(select(Project).where(Project.id == project_id, Project.deleted_at.is_not(None)))
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found in trash")
+    project.deleted_at = None
+    db.commit()
+    db.refresh(project)
+    return _project_response(project)
 
 
 # ─── Brief ────────────────────────────────────────────────────────────────────
