@@ -2,44 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Design tokens — reg.ru-inspired professional palette.
-   Blue accent, clean whites, clear shadows.
-   Both themes share the same blue accent.              ── */
+/* ── Design tokens — рег.облако palette
+   Blue accent, clean whites/dark-navies, clear shadows.   ── */
 
 @layer base {
   :root {
-    --page:           #f2f4f8;
+    --page:           #f5f6fa;
     --surface:        #ffffff;
-    --surface-raised: #f7f8fb;
+    --surface-raised: #f0f3f8;
     --border:         #dde3ed;
     --text:           #0a0e1a;
     --muted:          #6b7280;
 
-    --accent:         #005ff9;
-    --accent-hover:   #004cd4;
-    --accent-subtle:  rgba(0, 95, 249, 0.08);
-    --accent-text:    #005ff9;
+    --accent:         #3d6ff0;
+    --accent-hover:   #2f5cd6;
+    --accent-subtle:  rgba(61,111,240,0.09);
+    --accent-text:    #3d6ff0;
 
     /* Sidebar — always dark navy */
     --sb-bg:     #0d1117;
-    --sb-panel:  #131720;
-    --sb-text:   #6b7a9c;
-    --sb-active: #1a2035;
-    --sb-border: rgba(255,255,255,0.06);
+    --sb-panel:  #13151e;
+    --sb-text:   #68738f;
+    --sb-active: rgba(61,111,240,0.14);
+    --sb-border: rgba(255,255,255,0.05);
   }
 
   .dark {
-    --page:           #0f1117;
-    --surface:        #181b24;
-    --surface-raised: #1e2130;
-    --border:         #2a2f42;
+    --page:           #13151e;
+    --surface:        #1c1f2e;
+    --surface-raised: #21253a;
+    --border:         #2a2d42;
     --text:           #e8eaef;
     --muted:          #7e859c;
 
-    --accent:         #4d8cff;
-    --accent-hover:   #3a7aff;
-    --accent-subtle:  rgba(77, 140, 255, 0.10);
-    --accent-text:    #4d8cff;
+    --accent:         #4d81ff;
+    --accent-hover:   #3a70ff;
+    --accent-subtle:  rgba(77,129,255,0.12);
+    --accent-text:    #4d81ff;
   }
 
   html { height: 100%; }
@@ -54,14 +53,13 @@
 }
 
 @layer components {
-  /* ── Card ── */
+  /* ── Card variants ── */
   .card {
-    @apply bg-surface rounded-2xl shadow-card transition-shadow duration-150;
+    @apply bg-surface rounded-2xl shadow-card;
   }
-  .card-hover { @apply hover:shadow-card-md; }
+  .card-hover { @apply hover:shadow-card-md transition-shadow duration-150; }
   .card-bordered {
-    @apply bg-surface border border-[var(--border)] rounded-2xl
-           shadow-card transition-[box-shadow,border-color] duration-150;
+    @apply bg-surface border border-[var(--border)] rounded-2xl shadow-card;
   }
 
   /* ── Form field ── */
@@ -70,51 +68,93 @@
            px-3.5 py-2.5 text-sm outline-none transition duration-150 placeholder:text-muted;
   }
   .field:focus {
-    @apply border-accent ring-2 ring-[var(--accent-subtle)];
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
   }
 
   /* ── Buttons ── */
-  .btn        { @apply inline-flex items-center justify-center gap-2 font-medium rounded-xl transition duration-150 disabled:opacity-50 select-none; }
-  .btn-accent { @apply btn bg-accent hover:bg-accent-hover text-white text-sm px-5 py-2.5 shadow-sm; }
+  .btn { @apply inline-flex items-center justify-center gap-2 font-medium rounded-xl transition duration-150 disabled:opacity-50 select-none; }
+
+  .btn-accent {
+    @apply btn text-white text-sm px-5 py-2.5;
+    background: var(--accent);
+  }
+  .btn-accent:hover { background: var(--accent-hover); }
+
   .btn-ghost  { @apply btn border border-[var(--border)] bg-transparent hover:bg-surface-raised text-primary text-sm px-4 py-2.5; }
   .btn-danger { @apply btn bg-red-600 hover:bg-red-700 text-white text-sm px-4 py-2; }
-  .btn-subtle { @apply btn bg-[var(--accent-subtle)] hover:bg-accent/20 text-accent text-sm px-4 py-2.5; }
+
+  .btn-subtle {
+    @apply btn text-sm px-4 py-2.5;
+    background: var(--accent-subtle);
+    color: var(--accent-text);
+  }
+  .btn-subtle:hover { background: var(--accent-subtle); opacity: 0.8; }
 
   /* ── Sidebar icon button ── */
   .sb-btn {
     @apply flex items-center justify-center w-11 h-11 rounded-xl text-sb-text
            hover:bg-white/8 hover:text-white transition duration-150 cursor-pointer;
   }
-  .sb-btn.active { @apply bg-accent/10 text-accent; }
+  .sb-btn.active {
+    background: var(--sb-active);
+    @apply text-accent;
+  }
 
   /* ── Sidebar text nav item ── */
   .nav-item {
     @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-sb-text
            hover:bg-white/6 hover:text-white transition duration-150 cursor-pointer;
   }
-  .nav-item.active { @apply bg-white/8 text-white font-medium; }
+  .nav-item.active {
+    background: var(--sb-active);
+    @apply text-white font-medium;
+  }
 
-  /* ── Section header ── */
+  /* ── Section / page title ── */
   .section-title {
     @apply text-xs font-semibold uppercase tracking-widest text-muted mb-3;
   }
+  .page-title  { @apply text-2xl font-bold text-primary; }
 
-  /* ── Status badge ── */
-  .badge {
-    @apply inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full;
-  }
-  .badge-green  { @apply badge bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400; }
-  .badge-yellow { @apply badge bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400; }
-  .badge-blue   { @apply badge bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400; }
-  .badge-gray   { @apply badge bg-surface-raised text-muted; }
-  .badge-red    { @apply badge bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400; }
+  /* ── Status badges ── */
+  .badge          { @apply inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full; }
+  .badge-green    { @apply badge bg-emerald-50 text-emerald-700; }
+  .badge-yellow   { @apply badge bg-amber-50 text-amber-700; }
+  .badge-blue     { @apply badge bg-blue-50 text-blue-700; }
+  .badge-gray     { @apply badge bg-surface-raised text-muted; }
+  .badge-red      { @apply badge bg-red-50 text-red-700; }
+  .badge-purple   { @apply badge bg-purple-50 text-purple-700; }
 
-  /* ── Alert banner ── */
-  .alert {
-    @apply flex items-start gap-3 rounded-xl px-4 py-3 text-sm border;
+  /* dark mode badge overrides via media/class */
+  .dark .badge-green  { @apply bg-emerald-900/30 text-emerald-400; }
+  .dark .badge-yellow { @apply bg-amber-900/30 text-amber-400; }
+  .dark .badge-blue   { @apply bg-blue-900/30 text-blue-400; }
+  .dark .badge-red    { @apply bg-red-900/30 text-red-400; }
+  .dark .badge-purple { @apply bg-purple-900/30 text-purple-400; }
+
+  /* ── Alerts ── */
+  .alert         { @apply flex items-start gap-3 rounded-xl px-4 py-3 text-sm border; }
+  .alert-info    { @apply alert bg-blue-50 border-blue-200 text-blue-800; }
+  .alert-success { @apply alert bg-emerald-50 border-emerald-200 text-emerald-800; }
+  .alert-warning { @apply alert bg-amber-50 border-amber-200 text-amber-800; }
+  .alert-danger  { @apply alert bg-red-50 border-red-200 text-red-800; }
+
+  /* ── Tab nav ── */
+  .tab-bar { @apply flex gap-0.5 overflow-x-auto border-b border-[var(--border)]; }
+  .tab-item {
+    @apply flex-shrink-0 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2
+           border-transparent text-muted hover:text-primary hover:bg-surface-raised
+           transition whitespace-nowrap -mb-px;
   }
-  .alert-info    { @apply alert bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-900/20 dark:border-blue-800/50 dark:text-blue-300; }
-  .alert-success { @apply alert bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/20 dark:border-emerald-800/50 dark:text-emerald-300; }
-  .alert-warning { @apply alert bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-800/50 dark:text-amber-300; }
-  .alert-danger  { @apply alert bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800/50 dark:text-red-300; }
+  .tab-item.active {
+    border-color: var(--accent);
+    color: var(--accent-text);
+    background: var(--accent-subtle);
+  }
+
+  /* ── Table ── */
+  .table-row { @apply hover:bg-surface-raised transition; }
+  .table-head { @apply text-left px-4 py-2.5 text-xs font-medium text-muted bg-surface-raised border-b border-[var(--border)]; }
+  .table-cell { @apply px-4 py-3 text-sm; }
 }
