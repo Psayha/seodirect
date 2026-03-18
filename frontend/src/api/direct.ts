@@ -133,4 +133,11 @@ export const directApi = {
   // Local clustering
   clusterLocal: (projectId: string, adGroupId?: string) =>
     api.post(`/projects/${projectId}/direct/cluster-local`, { ad_group_id: adGroupId }).then((r) => r.data),
+
+  // Keyword dynamics (Wordstat sparkline)
+  getKeywordDynamics: (phrase: string) =>
+    api.get<{ phrase: string; dynamics: Array<{ year_month: string; count: number }> }>(
+      '/direct/keywords/dynamics',
+      { params: { phrase } }
+    ).then((r) => r.data),
 }

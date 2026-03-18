@@ -36,11 +36,12 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
   const totalCPA = totalLeads > 0 ? Math.round(totalBudget / totalLeads) : 0
 
   const recomputeForecasts = (updatedRows: MediaPlanRow[]) => {
-    if (!autoForecast || !(data?.total_frequency > 0)) return updatedRows
+    const totalFreq = data?.total_frequency ?? 0
+    if (!autoForecast || totalFreq <= 0) return updatedRows
     const newTotal = updatedRows.reduce((s, r) => s + (r.budget || 0), 0)
     if (newTotal === 0) return updatedRows
     return updatedRows.map((r) => {
-      const clicks = Math.round(((r.budget || 0) / newTotal) * data.total_frequency * ctr / 100)
+      const clicks = Math.round(((r.budget || 0) / newTotal) * totalFreq * ctr / 100)
       return { ...r, forecast_clicks: clicks, forecast_leads: Math.round(clicks * cr / 100) }
     })
   }
@@ -58,8 +59,8 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
         <h3 className="font-semibold">Медиаплан</h3>
         <div className="flex gap-2 items-center">
           {saved && <span className="text-green-600 text-sm">✅ Сохранено</span>}
-          {data?.total_frequency > 0 && (
-            <span className="text-xs text-gray-500">Суммарная частота ключей: {data.total_frequency.toLocaleString()}</span>
+          {(data?.total_frequency ?? 0) > 0 && (
+            <span className="text-xs text-gray-500">Суммарная частота ключей: {data!.total_frequency.toLocaleString()}</span>
           )}
           <a href={`/api/projects/${projectId}/export/mediaplan-xlsx`}
             className="border px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-1">
@@ -104,9 +105,10 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
                     setCtr(v)
                     const base = rows ?? data?.rows ?? []
                     const newTotal = base.reduce((s, r) => s + (r.budget || 0), 0)
-                    if (newTotal > 0 && data?.total_frequency > 0) {
+                    const totalFreq2 = data?.total_frequency ?? 0
+                    if (newTotal > 0 && totalFreq2 > 0) {
                       setRows(base.map((r) => {
-                        const clicks = Math.round(((r.budget || 0) / newTotal) * data.total_frequency * v / 100)
+                        const clicks = Math.round(((r.budget || 0) / newTotal) * totalFreq2 * v / 100)
                         return { ...r, forecast_clicks: clicks, forecast_leads: Math.round(clicks * cr / 100) }
                       }) as MediaPlanRow[])
                     }

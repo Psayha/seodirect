@@ -158,7 +158,7 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
     queryFn: () => analyticsApi.getCounters(projectId),
   })
 
-  const activeCounter = selectedCounter ?? counterData?.counter_id
+  const activeCounter = selectedCounter ?? (counterData as { counter_id?: number | null } | undefined)?.counter_id
 
   const { data: dashData, isLoading: dashLoading, error: dashError } = useQuery({
     queryKey: ['analytics-summary', projectId, activeCounter, dateFrom],
