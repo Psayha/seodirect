@@ -13,10 +13,21 @@ from sqlalchemy.orm import Session
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.models.content_plan import ArticleStatus, ContentPlanArticle
+from app.models.project import Project
+from app.models.user import UserRole
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -77,6 +88,7 @@ def list_articles(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     articles = db.scalars(
         select(ContentPlanArticle)
         .where(ContentPlanArticle.project_id == project_id)
@@ -93,6 +105,7 @@ def create_article(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     article = ContentPlanArticle(project_id=project_id, **body.model_dump())
     db.add(article)
     db.commit()
@@ -109,6 +122,7 @@ def update_article(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     article = db.scalar(
         select(ContentPlanArticle)
         .where(ContentPlanArticle.id == article_id, ContentPlanArticle.project_id == project_id)
@@ -130,6 +144,7 @@ def delete_article(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     article = db.scalar(
         select(ContentPlanArticle)
         .where(ContentPlanArticle.id == article_id, ContentPlanArticle.project_id == project_id)

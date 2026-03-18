@@ -82,7 +82,10 @@ def login(body: LoginRequest, request: Request, db: Annotated[Session, Depends(g
             )
     else:
         user = db.scalar(select(User).where(User.login == body.login))
-        if not user or not user.is_active or not verify_password(body.password, user.password_hash):
+        # Always run password check to prevent timing-based user enumeration
+        dummy_hash = settings.super_admin_password_hash
+        password_valid = verify_password(body.password, user.password_hash if user else dummy_hash)
+        if not user or not user.is_active or not password_valid:
             increment_attempts(ip, body.login)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

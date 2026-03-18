@@ -233,6 +233,7 @@ export default function PortalPage() {
                 src={`/api/portal/${token}/report`}
                 className="w-full h-full"
                 title="Клиентский отчёт"
+                sandbox="allow-same-origin"
               />
             </div>
           </div>

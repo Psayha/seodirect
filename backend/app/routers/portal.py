@@ -16,8 +16,18 @@ from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.models.portal import ProjectAccessToken
 from app.models.project import Project
+from app.models.user import UserRole
 
 logger = logging.getLogger(__name__)
+
+
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
 
 router = APIRouter()
 
@@ -53,9 +63,7 @@ def create_portal_token(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Generate a new client portal access token."""
-    project = db.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    _check_project_access(project_id, current_user, db)
 
     token_value = secrets.token_urlsafe(32)
     token = ProjectAccessToken(
@@ -78,6 +86,7 @@ def list_portal_tokens(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     tokens = db.scalars(
         select(ProjectAccessToken)
         .where(ProjectAccessToken.project_id == project_id)
@@ -94,6 +103,7 @@ def revoke_portal_token(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     token = db.scalar(
         select(ProjectAccessToken).where(
             ProjectAccessToken.id == token_id,

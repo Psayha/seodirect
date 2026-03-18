@@ -45,6 +45,24 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("encryption_key")
+    @classmethod
+    def validate_encryption_key(cls, v: str) -> str:
+        if len(v) < 32:
+            raise ValueError(
+                "ENCRYPTION_KEY must be at least 32 characters. "
+                "Generate with: python -c \"import secrets; print(secrets.token_hex(16))\""
+            )
+        return v
+
+    @field_validator("jwt_algorithm")
+    @classmethod
+    def validate_jwt_algorithm(cls, v: str) -> str:
+        allowed = ("HS256", "HS384", "HS512")
+        if v not in allowed:
+            raise ValueError(f"JWT_ALGORITHM must be one of {allowed}")
+        return v
+
 
 @lru_cache
 def get_settings() -> Settings:
