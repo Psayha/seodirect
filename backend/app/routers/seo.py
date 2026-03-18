@@ -402,36 +402,8 @@ async def cluster_keywords(
     if not phrases:
         return {"source": "local", "clusters": [], "total_keywords": 0}
 
-    # Try Topvisor clustering if project is linked and API key exists
-    prj = db.get(Project, project_id)
-    if prj and prj.topvisor_project_id:
-        from app.services.settings_service import get_setting
-        from app.services.topvisor import get_topvisor_client_key, get_topvisor_user_id
-        api_key = get_setting("topvisor_api_key", db)
-        user_id = get_topvisor_user_id(db) or ""
-        if api_key:
-            try:
-                import httpx
-                tv_headers = {"Authorization": f"bearer {api_key}", "Content-Type": "application/json"}
-                if user_id:
-                    tv_headers["User-Id"] = user_id
-                async with httpx.AsyncClient(timeout=20) as client:
-                    r = await client.post(
-                        "https://api.topvisor.com/v2/json/get/keywords_2/claster",
-                        headers=tv_headers,
-                        json={"project_id": prj.topvisor_project_id, "keywords": phrases},
-                    )
-                if r.status_code == 200:
-                    tv_clusters = r.json().get("result", [])
-                    if tv_clusters:
-                        return {
-                            "source": "topvisor",
-                            "clusters": tv_clusters,
-                            "total_keywords": len(phrases),
-                        }
-            except Exception:
-                pass  # fall through to local clustering
-
+    # Topvisor clustering is async (requires a task + polling) — use dedicated
+    # POST /topvisor/cluster/start + GET /topvisor/cluster/keywords endpoints instead.
     clusters = _cluster_keywords(phrases)
     return {
         "source": "local",

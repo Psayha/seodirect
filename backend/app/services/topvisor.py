@@ -165,6 +165,141 @@ async def get_snapshots(
     return r.json().get("result", {}).get("keywords", [])
 
 
+async def get_positions_summary(
+    api_key: str,
+    project_id: int,
+    date_from: str,
+    date_to: str,
+    region_index: int = 0,
+    user_id: str = "",
+) -> dict:
+    """Return positions summary: avg position, visibility, TOP distribution."""
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(
+            f"{BASE_URL}/get/positions_2/summary",
+            headers=_headers(api_key, user_id),
+            json={
+                "project_id": project_id,
+                "regions_indexes": [region_index],
+                "date1": date_from,
+                "date2": date_to,
+                "fields": ["avg", "visibility", "count", "tops"],
+                "show_headers": True,
+            },
+        )
+    if r.status_code != 200:
+        return {}
+    data = r.json()
+    if data.get("errors"):
+        return {}
+    return data.get("result") or {}
+
+
+async def get_competitors(
+    api_key: str,
+    project_id: int,
+    date_from: str,
+    date_to: str,
+    region_index: int = 0,
+    user_id: str = "",
+) -> list[dict]:
+    """Return competitor domains from SERP snapshots.
+
+    Each item: {domain, avg_position, keywords_count, top3, top10}
+    """
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(
+            f"{BASE_URL}/get/snapshots_2/competitors",
+            headers=_headers(api_key, user_id),
+            json={
+                "project_id": project_id,
+                "region_index": region_index,
+                "date1": date_from,
+                "date2": date_to,
+                "show_exists_dates": True,
+            },
+        )
+    if r.status_code != 200:
+        return []
+    data = r.json()
+    if data.get("errors"):
+        return []
+    domains = data.get("result", {}).get("domains", {})
+    if isinstance(domains, dict):
+        return list(domains.values())
+    return domains or []
+
+
+async def trigger_positions_check(api_key: str, project_id: int, user_id: str = "") -> dict:
+    """Trigger an on-demand positions check for a Topvisor project."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(
+            f"{BASE_URL}/edit/positions_2/checker/go",
+            headers=_headers(api_key, user_id),
+            json={"project_id": project_id},
+        )
+    if r.status_code != 200:
+        return {"ok": False, "message": f"HTTP {r.status_code}"}
+    data = r.json()
+    if data.get("errors"):
+        msg = data["errors"][0].get("string", "Ошибка") if isinstance(data["errors"], list) else str(data["errors"])
+        return {"ok": False, "message": msg}
+    return {"ok": True, "message": "Проверка позиций запущена"}
+
+
+async def start_cluster_task(api_key: str, project_id: int, user_id: str = "") -> dict:
+    """Start a Topvisor clustering task (by TOP-10) for a project."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(
+            f"{BASE_URL}/add/keywords_2/claster/task",
+            headers=_headers(api_key, user_id),
+            json={"project_id": project_id},
+        )
+    if r.status_code != 200:
+        return {"ok": False, "message": f"HTTP {r.status_code}"}
+    data = r.json()
+    if data.get("errors"):
+        msg = data["errors"][0].get("string", "Ошибка") if isinstance(data["errors"], list) else str(data["errors"])
+        return {"ok": False, "message": msg}
+    return {"ok": True, "message": "Кластеризация запущена"}
+
+
+async def get_cluster_percent(api_key: str, project_id: int, user_id: str = "") -> int:
+    """Return clustering completion percentage (0-100)."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(
+            f"{BASE_URL}/get/keywords_2/claster/percent",
+            headers=_headers(api_key, user_id),
+            json={"project_id": project_id},
+        )
+    if r.status_code != 200:
+        return -1
+    data = r.json()
+    return data.get("result", -1)
+
+
+async def get_project_keywords(api_key: str, project_id: int, user_id: str = "") -> list[dict]:
+    """Return project keywords with cluster group info.
+
+    Each item: {name, group_id}
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(
+            f"{BASE_URL}/get/keywords_2/keywords",
+            headers=_headers(api_key, user_id),
+            json={
+                "project_id": project_id,
+                "fields": ["name", "group_id"],
+            },
+        )
+    if r.status_code != 200:
+        return []
+    data = r.json()
+    if data.get("errors"):
+        return []
+    return data.get("result") or []
+
+
 def get_topvisor_client_key(db) -> str | None:
     """Return Topvisor API key from settings, or None."""
     from app.services.settings_service import get_setting

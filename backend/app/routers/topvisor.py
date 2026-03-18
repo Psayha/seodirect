@@ -1,4 +1,4 @@
-"""Topvisor integration: project linking and position monitoring."""
+"""Topvisor integration: project linking, position monitoring, competitors, clustering."""
 from __future__ import annotations
 
 import logging
@@ -14,12 +14,17 @@ from app.db.session import get_db
 from app.models.project import Project
 from app.models.user import UserRole
 from app.services.topvisor import (
-    check_connection,
+    get_cluster_percent,
+    get_competitors,
     get_positions,
+    get_positions_summary,
+    get_project_keywords,
     get_snapshots,
     get_topvisor_client_key,
     get_topvisor_user_id,
     list_projects,
+    start_cluster_task,
+    trigger_positions_check,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +51,24 @@ def _require_credentials(db: Session) -> tuple[str, str]:
         )
     user_id = get_topvisor_user_id(db) or ""
     return key, user_id
+
+
+def _require_linked(project: Project) -> int:
+    if not project.topvisor_project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No Topvisor project linked. Use POST /topvisor/link first.",
+        )
+    return project.topvisor_project_id
+
+
+def _default_dates(date_from: str, date_to: str) -> tuple[str, str]:
+    from datetime import date, timedelta
+    today = date.today()
+    return (
+        date_from or (today - timedelta(days=30)).isoformat(),
+        date_to or today.isoformat(),
+    )
 
 
 # ── List available Topvisor projects ─────────────────────────────────────────
@@ -110,49 +133,48 @@ async def topvisor_positions(
     date_to: str = "",
     region_index: int = 0,
 ):
-    """Get keyword positions from the linked Topvisor project.
-
-    Requires the project to be linked via POST /topvisor/link first.
-    """
-    from datetime import date, timedelta
-
+    """Get keyword positions from the linked Topvisor project."""
     project = _check_project_access(project_id, current_user, db)
-    if not project.topvisor_project_id:
-        raise HTTPException(
-            status_code=400,
-            detail="No Topvisor project linked. Use POST /topvisor/link first.",
-        )
-
+    tv_id = _require_linked(project)
     key, user_id = _require_credentials(db)
-
-    today = date.today()
-    if not date_from:
-        date_from = (today - timedelta(days=30)).isoformat()
-    if not date_to:
-        date_to = today.isoformat()
+    date_from, date_to = _default_dates(date_from, date_to)
 
     try:
-        positions = await get_positions(
-            key,
-            project.topvisor_project_id,
-            date_from,
-            date_to,
-            region_index=region_index,
-            user_id=user_id,
-        )
+        positions = await get_positions(key, tv_id, date_from, date_to, region_index=region_index, user_id=user_id)
     except Exception:
         logger.exception("Topvisor get_positions failed for project %s", project_id)
         raise HTTPException(status_code=502, detail="Topvisor API error")
 
-    return {
-        "topvisor_project_id": project.topvisor_project_id,
-        "date_from": date_from,
-        "date_to": date_to,
-        "keywords": positions,
-    }
+    return {"topvisor_project_id": tv_id, "date_from": date_from, "date_to": date_to, "keywords": positions}
 
 
-# ── Snapshots (competitor SERP analysis) ─────────────────────────────────────
+# ── Positions summary ─────────────────────────────────────────────────────────
+
+@router.get("/projects/{project_id}/topvisor/summary")
+async def topvisor_summary(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    date_from: str = "",
+    date_to: str = "",
+    region_index: int = 0,
+):
+    """Get positions summary: avg position, visibility, TOP-3/10/30 distribution."""
+    project = _check_project_access(project_id, current_user, db)
+    tv_id = _require_linked(project)
+    key, user_id = _require_credentials(db)
+    date_from, date_to = _default_dates(date_from, date_to)
+
+    try:
+        summary = await get_positions_summary(key, tv_id, date_from, date_to, region_index=region_index, user_id=user_id)
+    except Exception:
+        logger.exception("Topvisor get_positions_summary failed for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Topvisor API error")
+
+    return {"topvisor_project_id": tv_id, "date_from": date_from, "date_to": date_to, "summary": summary}
+
+
+# ── Snapshots (SERP snapshots per keyword) ────────────────────────────────────
 
 @router.get("/projects/{project_id}/topvisor/snapshots")
 async def topvisor_snapshots(
@@ -162,33 +184,141 @@ async def topvisor_snapshots(
     date: str = "",
     region_index: int = 0,
 ):
-    """Get SERP snapshots for all keywords in the linked Topvisor project.
-
-    Returns competitor URLs and positions in search results.
-    """
+    """Get SERP snapshots for all keywords in the linked Topvisor project."""
     project = _check_project_access(project_id, current_user, db)
-    if not project.topvisor_project_id:
-        raise HTTPException(
-            status_code=400,
-            detail="No Topvisor project linked. Use POST /topvisor/link first.",
-        )
-
+    tv_id = _require_linked(project)
     key, user_id = _require_credentials(db)
 
     try:
-        snapshots = await get_snapshots(
-            key,
-            project.topvisor_project_id,
-            date=date,
-            region_index=region_index,
-            user_id=user_id,
-        )
+        snapshots = await get_snapshots(key, tv_id, date=date, region_index=region_index, user_id=user_id)
     except Exception:
         logger.exception("Topvisor get_snapshots failed for project %s", project_id)
         raise HTTPException(status_code=502, detail="Topvisor API error")
 
+    return {"topvisor_project_id": tv_id, "date": date, "keywords": snapshots}
+
+
+# ── Competitors (top domains in SERP) ─────────────────────────────────────────
+
+@router.get("/projects/{project_id}/topvisor/competitors")
+async def topvisor_competitors(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    date_from: str = "",
+    date_to: str = "",
+    region_index: int = 0,
+):
+    """Get top competitor domains from SERP snapshots."""
+    project = _check_project_access(project_id, current_user, db)
+    tv_id = _require_linked(project)
+    key, user_id = _require_credentials(db)
+    date_from, date_to = _default_dates(date_from, date_to)
+
+    try:
+        competitors = await get_competitors(key, tv_id, date_from, date_to, region_index=region_index, user_id=user_id)
+    except Exception:
+        logger.exception("Topvisor get_competitors failed for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Topvisor API error")
+
+    return {"topvisor_project_id": tv_id, "date_from": date_from, "date_to": date_to, "competitors": competitors}
+
+
+# ── Trigger positions check ───────────────────────────────────────────────────
+
+@router.post("/projects/{project_id}/topvisor/check-positions")
+async def topvisor_check_positions(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Trigger an on-demand positions check in Topvisor."""
+    project = _check_project_access(project_id, current_user, db)
+    tv_id = _require_linked(project)
+    key, user_id = _require_credentials(db)
+
+    try:
+        result = await trigger_positions_check(key, tv_id, user_id=user_id)
+    except Exception:
+        logger.exception("Topvisor trigger_check failed for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Topvisor API error")
+
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+# ── Clustering ────────────────────────────────────────────────────────────────
+
+@router.post("/projects/{project_id}/topvisor/cluster/start")
+async def topvisor_cluster_start(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Start a Topvisor clustering task (by TOP-10) for the linked project."""
+    project = _check_project_access(project_id, current_user, db)
+    tv_id = _require_linked(project)
+    key, user_id = _require_credentials(db)
+
+    try:
+        result = await start_cluster_task(key, tv_id, user_id=user_id)
+    except Exception:
+        logger.exception("Topvisor cluster start failed for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Topvisor API error")
+
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+@router.get("/projects/{project_id}/topvisor/cluster/status")
+async def topvisor_cluster_status(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Return clustering completion percentage (0–100). -1 means no active task."""
+    project = _check_project_access(project_id, current_user, db)
+    tv_id = _require_linked(project)
+    key, user_id = _require_credentials(db)
+
+    try:
+        percent = await get_cluster_percent(key, tv_id, user_id=user_id)
+    except Exception:
+        logger.exception("Topvisor cluster status failed for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Topvisor API error")
+
+    return {"percent": percent, "done": percent == 100}
+
+
+@router.get("/projects/{project_id}/topvisor/cluster/keywords")
+async def topvisor_cluster_keywords(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Return project keywords with cluster group assignments."""
+    project = _check_project_access(project_id, current_user, db)
+    tv_id = _require_linked(project)
+    key, user_id = _require_credentials(db)
+
+    try:
+        keywords = await get_project_keywords(key, tv_id, user_id=user_id)
+    except Exception:
+        logger.exception("Topvisor get_project_keywords failed for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Topvisor API error")
+
+    # Group by cluster
+    clusters: dict[str, list[str]] = {}
+    for kw in keywords:
+        group = str(kw.get("group_id") or "ungrouped")
+        clusters.setdefault(group, []).append(kw.get("name", ""))
+
     return {
-        "topvisor_project_id": project.topvisor_project_id,
-        "date": date,
-        "keywords": snapshots,
+        "topvisor_project_id": tv_id,
+        "total_keywords": len(keywords),
+        "clusters": [{"group_id": k, "keywords": v} for k, v in clusters.items()],
     }
