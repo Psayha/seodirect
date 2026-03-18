@@ -37,6 +37,15 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
     env:
       DATABASE_URL: postgresql+psycopg://test:test@localhost:5432/test
       REDIS_URL: redis://localhost:6379/0
@@ -69,6 +78,6 @@ jobs:
         with:
           node-version: '20'
       - name: Install dependencies
-        run: cd frontend && npm ci
+        run: cd frontend && npm install
       - name: Type check
         run: cd frontend && npx tsc --noEmit
