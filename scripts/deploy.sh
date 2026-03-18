@@ -8,8 +8,27 @@ set -euo pipefail
 
 APP_DIR="/opt/seodirect"
 COMPOSE_FILE="${APP_DIR}/docker-compose.prod.yml"
+ENV_FILE="${APP_DIR}/.env"
 
 cd "${APP_DIR}"
+
+# ── Pre-flight checks ──────────────────────────────────────────────────────────
+echo "[deploy] Checking prerequisites..."
+
+if [ ! -f "${ENV_FILE}" ]; then
+    echo "[deploy] ✗ .env file not found at ${ENV_FILE}"
+    echo "[deploy]   Copy .env.example → .env and fill in all secrets before deploying."
+    exit 1
+fi
+
+# Warn if any critical secret still has the placeholder value
+for key in POSTGRES_PASSWORD REDIS_PASSWORD SECRET_KEY ENCRYPTION_KEY; do
+    val=$(grep -E "^${key}=" "${ENV_FILE}" | cut -d= -f2- | tr -d '"' || true)
+    if [ "${val}" = "CHANGE_ME" ] || [ -z "${val}" ]; then
+        echo "[deploy] ✗ ${key} is not set or still has placeholder value in .env"
+        exit 1
+    fi
+done
 
 # Save current image digests for rollback
 echo "[deploy] Saving current image digests for rollback..."
@@ -24,6 +43,9 @@ docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
 
 echo "[deploy] Running migrations..."
 docker compose -f "${COMPOSE_FILE}" exec -T backend alembic upgrade head
+
+echo "[deploy] Initializing super admin..."
+docker compose -f "${COMPOSE_FILE}" exec -T backend python3 init_superadmin.py
 
 echo "[deploy] Health check..."
 sleep 5
