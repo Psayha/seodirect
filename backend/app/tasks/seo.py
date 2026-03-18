@@ -101,12 +101,17 @@ def task_generate_seo_meta(
         if not pages:
             raise RuntimeError("No pages in crawl")
 
-        # Get Claude client
-        api_key = get_setting("anthropic_api_key", db)
-        if not api_key:
-            raise RuntimeError("Anthropic API key not configured")
-        ai_model = get_setting("ai_model", db) or "claude-sonnet-4-20250514"
-        claude = ClaudeClient(api_key=api_key, model=ai_model, max_tokens=2000, temperature=0.4)
+        # Get Claude client (supports both Anthropic and OpenRouter)
+        from app.services.claude import get_claude_client
+        _base_client = get_claude_client(db)
+        # Re-create with task-specific settings (lower max_tokens, lower temperature)
+        claude = ClaudeClient(
+            api_key=_base_client.api_key,
+            model=_base_client.model,
+            max_tokens=2000,
+            temperature=0.4,
+            use_openrouter=_base_client.use_openrouter,
+        )
 
         system_prompt = """Ты — SEO-специалист. Генерируй краткие title и description для веб-страниц на русском языке.
 title: 50-65 символов, включает ключевое слово, конкретный и информативный.

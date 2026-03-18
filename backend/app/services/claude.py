@@ -151,5 +151,7 @@ def get_claude_client(db) -> ClaudeClient:
     # Fall back to direct Anthropic API
     api_key = get_setting("anthropic_api_key", db)
     if not api_key:
-        raise RuntimeError("Anthropic API key not configured. Set it in Settings → API ключи.")
+        raise RuntimeError(
+            "API ключ не настроен. Задайте Anthropic API key или OpenRouter API key в Настройки → API ключи."
+        )
     return ClaudeClient(api_key=api_key, model=model, max_tokens=max_tokens, temperature=temperature)

@@ -10,6 +10,7 @@ const CrawlTab = lazy(() => import('./tabs/CrawlTab'))
 const DirectTab = lazy(() => import('./tabs/DirectTab'))
 const SeoTab = lazy(() => import('./tabs/SeoTab'))
 const OgTab = lazy(() => import('./tabs/OgTab'))
+const SchemaTab = lazy(() => import('./tabs/SchemaTab'))
 const MediaplanTab = lazy(() => import('./tabs/MediaplanTab'))
 const AnalyticsTab = lazy(() => import('./tabs/AnalyticsTab'))
 const TopvisorTab = lazy(() => import('./tabs/TopvisorTab'))
@@ -19,7 +20,7 @@ const HistoryTab = lazy(() => import('./tabs/HistoryTab'))
 const ExportTab = lazy(() => import('./tabs/ExportTab'))
 const UtmTab = lazy(() => import('./tabs/UtmTab'))
 
-type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og' | 'mediaplan' | 'analytics' | 'topvisor' | 'content-plan' | 'reports' | 'history' | 'export' | 'utm'
+type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og' | 'schema' | 'mediaplan' | 'analytics' | 'topvisor' | 'content-plan' | 'reports' | 'history' | 'export' | 'utm'
 
 function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
@@ -50,6 +51,7 @@ export default function ProjectPage() {
     { key: 'direct', label: '📢 Директ' },
     { key: 'seo', label: '🔍 SEO' },
     { key: 'og', label: 'OpenGraph' },
+    { key: 'schema', label: '🏷️ Schema.org' },
     { key: 'mediaplan', label: '📅 Медиаплан' },
     { key: 'analytics', label: '📊 Аналитика' },
     { key: 'topvisor', label: '📈 Позиции' },
@@ -104,6 +106,7 @@ export default function ProjectPage() {
             {tab === 'direct' && <DirectTab projectId={id!} />}
             {tab === 'seo' && <SeoTab projectId={id!} />}
             {tab === 'og' && <OgTab projectId={id!} />}
+            {tab === 'schema' && <SchemaTab projectId={id!} />}
             {tab === 'mediaplan' && <MediaplanTab projectId={id!} />}
             {tab === 'analytics' && <AnalyticsTab projectId={id!} />}
             {tab === 'topvisor' && <TopvisorTab projectId={id!} />}
