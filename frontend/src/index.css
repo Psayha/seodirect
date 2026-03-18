@@ -2,95 +2,81 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── CSS custom properties — the single source of truth for both themes.
+   Tailwind's theme.colors reference these vars, so bg-surface / text-muted /
+   border-base etc. switch automatically when the 'dark' class is toggled on <html>.
+   No inline styles, no dark: prefixes needed for semantic tokens.            ── */
+
 @layer base {
   :root {
-    color-scheme: light;
-    --bg-page:      #f4f4f7;
-    --bg-surface:   #ffffff;
-    --bg-surface2:  #f0f0f5;
-    --bg-sb-icon:   #0d0e11;
-    --bg-sb-nav:    #14151a;
-    --border:       #e4e4eb;
-    --border-dark:  #2e2f3a;
-    --text-primary: #111215;
-    --text-muted:   #6b6e7e;
-    --accent:       #34c759;
+    --page:          #f4f4f7;
+    --surface:       #ffffff;
+    --surface-raised:#f0f0f5;
+    --border:        #e2e2ea;
+    --text:          #111215;
+    --muted:         #6b6e7e;
+
+    /* Sidebar (always dark regardless of page theme) */
+    --sb-bg:     #0d0e11;
+    --sb-panel:  #14151a;
+    --sb-text:   #7a7c8a;
+    --sb-active: #1e1f26;
+    --sb-border: #ffffff14;
   }
 
   .dark {
-    color-scheme: dark;
-    --bg-page:      #111216;
-    --bg-surface:   #1c1d24;
-    --bg-surface2:  #22232b;
-    --border:       #2e2f3a;
-    --text-primary: #f0f0f5;
-    --text-muted:   #8b8d98;
+    --page:          #111216;
+    --surface:       #1c1d24;
+    --surface-raised:#22232b;
+    --border:        #2e2f3a;
+    --text:          #f0f0f5;
+    --muted:         #8b8d98;
   }
 
-  html, body {
-    height: 100%;
-    margin: 0;
-  }
-
+  html { height: 100%; }
   body {
-    background-color: var(--bg-page);
-    color: var(--text-primary);
-    font-family: 'Inter', system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    transition: background-color 0.2s, color 0.2s;
+    @apply bg-page text-primary antialiased font-sans;
+    transition: background-color 0.15s, color 0.15s;
   }
 
-  * {
-    box-sizing: border-box;
-  }
-
-  /* Scrollbar */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  ::-webkit-scrollbar        { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track  { background: transparent; }
+  ::-webkit-scrollbar-thumb  { @apply bg-border rounded-full; }
 }
 
 @layer components {
-  /* Card */
+  /* Card — bg + border in one class */
   .card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    transition: border-color 0.15s;
+    @apply bg-surface border border-[var(--border)] rounded-2xl transition-[border-color] duration-150;
   }
-  .card:hover { border-color: var(--text-muted); }
+  .card-hover { @apply hover:border-muted; }
+
+  /* Form input */
+  .field {
+    @apply w-full bg-surface-raised border border-[var(--border)] text-primary rounded-xl
+           px-4 py-2.5 text-sm outline-none transition duration-150 placeholder:text-muted;
+  }
+  .field:focus {
+    @apply border-accent ring-2 ring-accent/20;
+  }
+
+  /* Buttons */
+  .btn        { @apply inline-flex items-center justify-center gap-2 font-medium rounded-xl transition duration-150 disabled:opacity-50; }
+  .btn-accent { @apply btn bg-accent hover:bg-accent-hover text-white text-sm px-5 py-2.5; }
+  .btn-ghost  { @apply btn border border-[var(--border)] bg-transparent hover:bg-surface-raised text-primary text-sm px-4 py-2.5; }
+  .btn-danger { @apply btn bg-red-600 hover:bg-red-700 text-white text-sm px-4 py-2; }
 
   /* Sidebar icon button */
-  .sb-icon-btn {
-    @apply flex flex-col items-center justify-center w-12 h-12 rounded-xl
-           text-sb-text transition-all duration-150 cursor-pointer select-none;
+  .sb-btn {
+    @apply flex items-center justify-center w-11 h-11 rounded-xl text-sb-text
+           hover:bg-white/8 hover:text-white transition duration-150 cursor-pointer;
   }
-  .sb-icon-btn:hover { background: var(--bg-surface2); color: white; }
-  .sb-icon-btn.active { background: #34c75920; color: #34c759; }
+  .sb-btn.active { @apply bg-accent/10 text-accent; }
 
-  /* Nav item in text panel */
+  /* Sidebar text nav item */
   .nav-item {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm
-           text-sb-text transition-all duration-150 cursor-pointer select-none;
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-sb-text
+           hover:bg-white/6 hover:text-white transition duration-150 cursor-pointer;
   }
-  .nav-item:hover { background: rgba(255,255,255,0.06); color: white; }
-  .nav-item.active { background: rgba(255,255,255,0.08); color: white; font-weight: 500; }
-
-  /* Input */
-  .field {
-    @apply w-full rounded-xl px-4 py-2.5 text-sm transition-all duration-150
-           outline-none border;
-    background: var(--bg-surface2);
-    border-color: var(--border);
-    color: var(--text-primary);
-  }
-  .field:focus { border-color: #34c759; box-shadow: 0 0 0 3px #34c75920; }
-
-  /* Button variants */
-  .btn { @apply inline-flex items-center justify-center gap-2 font-medium rounded-xl transition-all duration-150 disabled:opacity-50; }
-  .btn-accent { @apply btn px-5 py-2.5 text-sm bg-accent text-white hover:bg-accent-hover; }
-  .btn-ghost  { @apply btn px-4 py-2.5 text-sm; border: 1px solid var(--border); color: var(--text-primary); }
-  .btn-ghost:hover { background: var(--bg-surface2); }
-  .btn-danger { @apply btn px-4 py-2 text-sm bg-red-600 text-white hover:bg-red-700; }
+  .nav-item.active { @apply bg-white/8 text-white font-medium; }
 }

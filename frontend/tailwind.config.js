@@ -4,39 +4,44 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      // All colors reference CSS variables — one class works in both themes.
+      // Usage: bg-surface, text-muted, border-base, etc.
       colors: {
-        // Accent green — same as рег.облако
+        page:    'var(--page)',
+        surface: {
+          DEFAULT: 'var(--surface)',
+          raised:  'var(--surface-raised)',
+        },
+        muted:   'var(--muted)',
+        base:    'var(--base)',        // alias for border
+        primary: 'var(--text)',
         accent: {
           DEFAULT: '#34c759',
           hover:   '#2aab4a',
-          muted:   '#34c75920',
+          subtle:  '#34c75918',
         },
-        // Sidebar
         sb: {
-          icon:   '#0d0e11',   // narrow icon strip bg
-          nav:    '#14151a',   // text nav panel bg
-          active: '#1e1f26',   // active item bg
-          border: '#ffffff12',
-          text:   '#8b8d98',
-          hover:  '#1a1b22',
+          bg:     'var(--sb-bg)',
+          panel:  'var(--sb-panel)',
+          text:   'var(--sb-text)',
+          active: 'var(--sb-active)',
+          border: 'var(--sb-border)',
         },
-        // Surface (cards, modals)
-        surface: {
-          DEFAULT: '#1c1d24',
-          2:       '#22232b',
-          border:  '#2e2f3a',
-        },
-        // Page background
-        page: '#111216',
-        // Keep primary alias pointing to accent for backward compat
-        primary: {
-          50:  '#f0fdf4',
-          100: '#dcfce7',
-          300: '#86efac',
-          500: '#34c759',
-          600: '#2aab4a',
-          700: '#22923b',
-        },
+        // Status colours (theme-agnostic)
+        'status-active':    '#34c759',
+        'status-paused':    '#fbbf24',
+        'status-completed': '#60a5fa',
+        'status-archived':  '#9ca3af',
+      },
+      borderColor: {
+        DEFAULT: 'var(--border)',
+      },
+      textColor: {
+        DEFAULT: 'var(--text)',
+        muted:   'var(--muted)',
+      },
+      backgroundColor: {
+        DEFAULT: 'var(--surface)',
       },
       borderRadius: {
         '2xl': '16px',
