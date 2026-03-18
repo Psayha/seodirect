@@ -43,6 +43,10 @@ export default {
       backgroundColor: {
         DEFAULT: 'var(--surface)',
       },
+      opacity: {
+        '6': '0.06',
+        '8': '0.08',
+      },
       borderRadius: {
         '2xl': '16px',
         '3xl': '20px',
