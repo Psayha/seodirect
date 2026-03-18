@@ -38,7 +38,7 @@ jobs:
         ports:
           - 5432:5432
     env:
-      DATABASE_URL: postgresql://test:test@localhost:5432/test
+      DATABASE_URL: postgresql+psycopg://test:test@localhost:5432/test
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: testsecretkey-must-be-at-least-32-chars-long
       ENCRYPTION_KEY: testencrkey32charslong123456789a
@@ -68,8 +68,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: cd frontend && npm ci
       - name: Type check
