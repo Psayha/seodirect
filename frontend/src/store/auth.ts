@@ -16,7 +16,11 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       setTokens: (access) => set({ accessToken: access }),
       setUser: (user) => set({ user }),
-      logout: () => set({ accessToken: null, user: null }),
+      logout: () => {
+        set({ accessToken: null, user: null })
+        // Clear React Query cache to prevent stale data leak between sessions
+        import('../main').then((m) => m.queryClient.clear()).catch(() => {})
+      },
     }),
     { name: 'auth-storage' }
   )
