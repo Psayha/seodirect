@@ -127,8 +127,8 @@ async def test_api_key(
                     return {"ok": False, "message": "OAuth токен не задан"}
                 r = await client.post(
                     "https://api.wordstat.yandex.net/v1/topRequests",
-                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                    json={"phrases": ["тест"], "geo_id": [0]},
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json;charset=utf-8"},
+                    json={"phrases": ["тест"]},
                 )
                 if r.status_code == 200:
                     return {"ok": True, "message": "Подключено"}
