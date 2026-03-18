@@ -38,6 +38,6 @@ class ProjectEvent(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     user_login: Mapped[str | None] = mapped_column(String(255), nullable=True)  # denormalized for speed
-    event_type: Mapped[EventType] = mapped_column(Enum(EventType), nullable=False)
+    event_type: Mapped[EventType] = mapped_column(Enum(EventType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

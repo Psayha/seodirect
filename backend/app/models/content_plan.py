@@ -25,7 +25,7 @@ class ContentPlanArticle(Base, TimestampMixin):
     target_keyword: Mapped[str | None] = mapped_column(String(255), nullable=True)
     cluster: Mapped[str | None] = mapped_column(String(255), nullable=True)
     intent: Mapped[str | None] = mapped_column(String(100), nullable=True)  # informational/commercial/transactional
-    status: Mapped[ArticleStatus] = mapped_column(Enum(ArticleStatus), nullable=False, default=ArticleStatus.IDEA)
+    status: Mapped[ArticleStatus] = mapped_column(Enum(ArticleStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=ArticleStatus.IDEA)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     due_date: Mapped[str | None] = mapped_column(String(20), nullable=True)  # ISO date string
     assigned_to: Mapped[str | None] = mapped_column(String(255), nullable=True)

@@ -23,6 +23,6 @@ class User(Base, TimestampMixin):
     login: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False, default=UserRole.SPECIALIST)
+    role: Mapped[UserRole] = mapped_column(Enum(UserRole, values_callable=lambda x: [e.value for e in x]), nullable=False, default=UserRole.SPECIALIST)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
