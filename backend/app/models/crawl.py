@@ -2,7 +2,7 @@ import uuid
 import enum
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Float, Text, JSON, ForeignKey, Enum as SAEnum, DateTime
+from sqlalchemy import String, Integer, Float, Text, JSON, Boolean, ForeignKey, Enum as SAEnum, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -54,3 +54,10 @@ class Page(Base):
     load_time_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_modified: Mapped[str | None] = mapped_column(String(100), nullable=True)
     priority: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Redirect chain (list of URLs if page was redirected through multiple hops)
+    redirect_chain: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Core Web Vitals
+    cwv_lcp: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cwv_cls: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cwv_fid: Mapped[float | None] = mapped_column(Float, nullable=True)

@@ -111,4 +111,26 @@ export const directApi = {
     api.post<NegativeKeyword>(`/projects/${projectId}/direct/negative-keywords`, { phrase, block }).then((r) => r.data),
   deleteNegativeKeyword: (nkId: string) =>
     api.delete(`/direct/negative-keywords/${nkId}`),
+
+  // N-gram analysis
+  getNgrams: (projectId: string, n: number = 2) =>
+    api.get(`/projects/${projectId}/direct/ngrams`, { params: { n } }).then((r) => r.data),
+
+  // Heatmap
+  getHeatmap: (projectId: string) =>
+    api.get(`/projects/${projectId}/direct/heatmap`).then((r) => r.data),
+
+  // A/B testing
+  getAbStats: (projectId: string) =>
+    api.get(`/projects/${projectId}/direct/ab-stats`).then((r) => r.data),
+  markAdWinner: (adId: string) =>
+    api.post(`/direct/ads/${adId}/mark-winner`).then((r) => r.data),
+
+  // Search queries analysis
+  analyzeSearchQueries: (projectId: string, queries: string[]) =>
+    api.post(`/projects/${projectId}/direct/analyze-queries`, { queries }).then((r) => r.data),
+
+  // Local clustering
+  clusterLocal: (projectId: string, adGroupId?: string) =>
+    api.post(`/projects/${projectId}/direct/cluster-local`, { ad_group_id: adGroupId }).then((r) => r.data),
 }

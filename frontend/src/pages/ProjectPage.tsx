@@ -8,8 +8,11 @@ import { seoApi, type SeoPage, type ChecklistItem } from '../api/seo'
 import { ogApi, type OgPage, type OgStats } from '../api/og'
 import { mediaplanApi, type MediaPlanRow } from '../api/mediaplan'
 import { analyticsApi, type TrafficSource, type DailyVisit } from '../api/analytics'
+import { crawlApi } from '../api/crawl'
+import { utmApi } from '../api/utm'
+import { portalApi } from '../api/portal'
 
-type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og' | 'mediaplan' | 'analytics' | 'topvisor' | 'content-plan' | 'reports' | 'history' | 'export'
+type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og' | 'mediaplan' | 'analytics' | 'topvisor' | 'content-plan' | 'reports' | 'history' | 'export' | 'utm'
 
 function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
@@ -578,6 +581,12 @@ function CrawlTab({ projectId }: { projectId: string }) {
               </div>
             )}
           </div>
+
+          {/* Extended crawl sections */}
+          <LinkingSection projectId={projectId} />
+          <RedirectsSection projectId={projectId} />
+          <RobotsAuditSection projectId={projectId} />
+          <CwvSection projectId={projectId} />
         </>
       )}
     </div>
@@ -1006,6 +1015,8 @@ function DirectTab({ projectId }: { projectId: string }) {
   const [addingCampaign, setAddingCampaign] = useState(false)
   const [newCampaignName, setNewCampaignName] = useState('')
   const [negInput, setNegInput] = useState('')
+  const [showSearchQueriesModal, setShowSearchQueriesModal] = useState(false)
+  const [directSubSection, setDirectSubSection] = useState<'campaigns' | 'ngrams' | 'heatmap' | 'ab' | 'cluster'>('campaigns')
 
   const { data: strategyData, refetch: refetchStrategy } = useQuery({
     queryKey: ['direct-strategy', projectId],
@@ -1103,65 +1114,99 @@ function DirectTab({ projectId }: { projectId: string }) {
         )}
       </div>
 
-      {/* Campaigns */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold">Кампании ({(campaigns as Campaign[]).length})</h3>
-          <button onClick={() => setAddingCampaign(true)}
-            className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700">
-            + Кампания
+      {/* Sub-section navigation */}
+      <div className="flex gap-1 flex-wrap">
+        {([
+          ['campaigns', 'Кампании'],
+          ['ngrams', 'N-граммы'],
+          ['heatmap', 'Тепловая карта'],
+          ['ab', 'A/B сравнение'],
+          ['cluster', 'Автокластеризация'],
+        ] as const).map(([key, label]) => (
+          <button key={key} onClick={() => setDirectSubSection(key)}
+            className={cx('px-3 py-1.5 text-sm rounded-lg transition',
+              directSubSection === key ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+            {label}
           </button>
-        </div>
-        {addingCampaign && (
-          <div className="flex gap-2 mb-3">
-            <input autoFocus className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="Название кампании..."
-              value={newCampaignName}
-              onKeyDown={(e) => e.key === 'Enter' && createCampaignMut.mutate()}
-              onChange={(e) => setNewCampaignName(e.target.value)} />
-            <button onClick={() => createCampaignMut.mutate()} disabled={createCampaignMut.isPending}
-              className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">Создать</button>
-            <button onClick={() => setAddingCampaign(false)} className="border px-4 py-2 rounded-lg text-sm">✕</button>
-          </div>
-        )}
-        <div className="space-y-2">
-          {(campaigns as Campaign[]).map((c) => <CampaignBlock key={c.id} campaign={c} projectId={projectId} />)}
-          {(campaigns as Campaign[]).length === 0 && (
-            <div className="text-center py-10 text-gray-400 border-2 border-dashed rounded-lg">
-              <p>Нет кампаний. Сгенерируйте стратегию — она создаст структуру автоматически, или добавьте кампанию вручную.</p>
-            </div>
-          )}
-        </div>
+        ))}
       </div>
 
-      {/* Negative keywords */}
-      <div className="border rounded-lg bg-white p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold">Минус-слова ({(negKws as NegativeKeyword[]).length})</h3>
-          <button onClick={() => genNegMut.mutate()} disabled={genNegMut.isPending}
-            className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
-            {genNegMut.isPending ? '⏳...' : '✨ Сгенерировать'}
-          </button>
+      {/* Campaigns */}
+      {directSubSection === 'campaigns' && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold">Кампании ({(campaigns as Campaign[]).length})</h3>
+            <button onClick={() => setAddingCampaign(true)}
+              className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700">
+              + Кампания
+            </button>
+          </div>
+          {addingCampaign && (
+            <div className="flex gap-2 mb-3">
+              <input autoFocus className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="Название кампании..."
+                value={newCampaignName}
+                onKeyDown={(e) => e.key === 'Enter' && createCampaignMut.mutate()}
+                onChange={(e) => setNewCampaignName(e.target.value)} />
+              <button onClick={() => createCampaignMut.mutate()} disabled={createCampaignMut.isPending}
+                className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">Создать</button>
+              <button onClick={() => setAddingCampaign(false)} className="border px-4 py-2 rounded-lg text-sm">✕</button>
+            </div>
+          )}
+          <div className="space-y-2">
+            {(campaigns as Campaign[]).map((c) => <CampaignBlock key={c.id} campaign={c} projectId={projectId} />)}
+            {(campaigns as Campaign[]).length === 0 && (
+              <div className="text-center py-10 text-gray-400 border-2 border-dashed rounded-lg">
+                <p>Нет кампаний. Сгенерируйте стратегию — она создаст структуру автоматически, или добавьте кампанию вручную.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Negative keywords */}
+          <div className="border rounded-lg bg-white p-4 mt-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Минус-слова ({(negKws as NegativeKeyword[]).length})</h3>
+              <div className="flex gap-2">
+                <button onClick={() => setShowSearchQueriesModal(true)}
+                  className="border border-gray-300 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50 text-gray-600">
+                  📥 Загрузить запросы
+                </button>
+                <button onClick={() => genNegMut.mutate()} disabled={genNegMut.isPending}
+                  className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+                  {genNegMut.isPending ? '⏳...' : '✨ Сгенерировать'}
+                </button>
+              </div>
+            </div>
+            <div className="flex gap-2 mb-3">
+              <input className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="Добавить минус-слово..."
+                value={negInput}
+                onKeyDown={(e) => e.key === 'Enter' && negInput.trim() && addNegMut.mutate()}
+                onChange={(e) => setNegInput(e.target.value)} />
+              <button onClick={() => negInput.trim() && addNegMut.mutate()} disabled={!negInput.trim() || addNegMut.isPending}
+                className="bg-gray-700 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">+</button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(negKws as NegativeKeyword[]).map((nk) => (
+                <span key={nk.id} className="inline-flex items-center gap-1 bg-red-50 border border-red-200 text-red-700 text-xs px-2 py-1 rounded-full">
+                  -{nk.phrase}
+                  <button onClick={() => delNegMut.mutate(nk.id)} className="hover:text-red-900 ml-0.5">✕</button>
+                </span>
+              ))}
+              {(negKws as NegativeKeyword[]).length === 0 && <p className="text-sm text-gray-400">Нет минус-слов</p>}
+            </div>
+          </div>
         </div>
-        <div className="flex gap-2 mb-3">
-          <input className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-            placeholder="Добавить минус-слово..."
-            value={negInput}
-            onKeyDown={(e) => e.key === 'Enter' && negInput.trim() && addNegMut.mutate()}
-            onChange={(e) => setNegInput(e.target.value)} />
-          <button onClick={() => negInput.trim() && addNegMut.mutate()} disabled={!negInput.trim() || addNegMut.isPending}
-            className="bg-gray-700 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">+</button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {(negKws as NegativeKeyword[]).map((nk) => (
-            <span key={nk.id} className="inline-flex items-center gap-1 bg-red-50 border border-red-200 text-red-700 text-xs px-2 py-1 rounded-full">
-              -{nk.phrase}
-              <button onClick={() => delNegMut.mutate(nk.id)} className="hover:text-red-900 ml-0.5">✕</button>
-            </span>
-          ))}
-          {(negKws as NegativeKeyword[]).length === 0 && <p className="text-sm text-gray-400">Нет минус-слов</p>}
-        </div>
-      </div>
+      )}
+
+      {directSubSection === 'ngrams' && <NgramsSection projectId={projectId} />}
+      {directSubSection === 'heatmap' && <HeatmapSection projectId={projectId} />}
+      {directSubSection === 'ab' && <AbSection projectId={projectId} />}
+      {directSubSection === 'cluster' && <LocalClusterSection projectId={projectId} />}
+
+      {showSearchQueriesModal && (
+        <SearchQueriesModal projectId={projectId} onClose={() => setShowSearchQueriesModal(false)} />
+      )}
     </div>
   )
 }
@@ -1198,7 +1243,7 @@ function ChecklistSection({ items }: { items: ChecklistItem[] }) {
   )
 }
 
-function SeoPageRow({ page, projectId, onUpdate }: { page: SeoPage; projectId: string; onUpdate: () => void }) {
+function SeoPageRow({ page, projectId, onUpdate, onShowHistory }: { page: SeoPage; projectId: string; onUpdate: () => void; onShowHistory?: () => void }) {
   const [expanded, setExpanded] = useState(false)
   const [form, setForm] = useState({
     rec_title: page.rec_title || '',
@@ -1279,7 +1324,15 @@ function SeoPageRow({ page, projectId, onUpdate }: { page: SeoPage; projectId: s
               {saveMut.isPending ? 'Сохранение...' : 'Сохранить'}
             </button>
             <button onClick={() => setExpanded(false)} className="border px-3 py-1.5 rounded-lg text-sm hover:bg-white">Закрыть</button>
+            {onShowHistory && (
+              <button onClick={onShowHistory} className="text-xs text-primary-600 hover:text-primary-700 ml-auto">
+                История изменений
+              </button>
+            )}
           </div>
+
+          <SchemaSection projectId={projectId} pageUrl={page.page_url} />
+          <FaqSection projectId={projectId} pageUrl={page.page_url} />
         </div>
       )}
     </div>
@@ -1288,12 +1341,16 @@ function SeoPageRow({ page, projectId, onUpdate }: { page: SeoPage; projectId: s
 
 function SeoTab({ projectId }: { projectId: string }) {
   const qc = useQueryClient()
-  const [view, setView] = useState<'checklist' | 'pages' | 'cluster'>('checklist')
+  const [view, setView] = useState<'checklist' | 'pages' | 'cluster' | 'content-gap'>('checklist')
   const [issuesOnly, setIssuesOnly] = useState(true)
   const [generateOg, setGenerateOg] = useState(false)
   const [generateTaskId, setGenerateTaskId] = useState<string | null>(null)
   const [clusters, setClusters] = useState<any[] | null>(null)
   const [clusterSource, setClusterSource] = useState('')
+  const [onlyMissing, setOnlyMissing] = useState(false)
+  const [onlyIssues, setOnlyIssues] = useState(false)
+  const [selectedPageUrls, setSelectedPageUrls] = useState<Set<string>>(new Set())
+  const [historyPageUrl, setHistoryPageUrl] = useState<string | null>(null)
 
   const clusterMut = useMutation({
     mutationFn: () => api.post(`/projects/${projectId}/seo/cluster`).then((r) => r.data),
@@ -1320,7 +1377,12 @@ function SeoTab({ projectId }: { projectId: string }) {
   })
 
   const genMetaMut = useMutation({
-    mutationFn: () => seoApi.generateMeta(projectId, generateOg),
+    mutationFn: () => seoApi.generateMeta(projectId, {
+      generate_og: generateOg,
+      only_missing: onlyMissing,
+      only_issues: onlyIssues,
+      page_urls: selectedPageUrls.size > 0 ? Array.from(selectedPageUrls) : undefined,
+    }),
     onSuccess: (data: any) => setGenerateTaskId(data.task_id),
   })
 
@@ -1329,12 +1391,13 @@ function SeoTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="p-6 max-w-4xl">
-      <div className="flex items-center justify-between mb-5">
-        <div className="flex gap-1">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="flex gap-1 flex-wrap">
           {([
             ['checklist', '📋 Чеклист'],
             ['pages', '📄 Мета-теги'],
             ['cluster', '🔗 Кластеры'],
+            ['content-gap', '🔎 Контент-пробелы'],
           ] as const).map(([v, label]) => (
             <button key={v} onClick={() => setView(v as any)}
               className={cx('px-4 py-2 text-sm rounded-lg transition',
@@ -1343,16 +1406,29 @@ function SeoTab({ projectId }: { projectId: string }) {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
-            <input type="checkbox" className="rounded" checked={generateOg} onChange={(e) => setGenerateOg(e.target.checked)} />
-            + OG теги
-          </label>
-          <button onClick={() => genMetaMut.mutate()} disabled={genMetaMut.isPending || isRunning}
-            className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
-            {genMetaMut.isPending || isRunning ? '⏳ Генерация...' : '✨ Сгенерировать мета-теги'}
-          </button>
-        </div>
+      </div>
+
+      {/* Generate meta controls */}
+      <div className="bg-gray-50 border rounded-lg p-3 mb-5 flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+          <input type="checkbox" className="rounded" checked={generateOg} onChange={(e) => setGenerateOg(e.target.checked)} />
+          + OG теги
+        </label>
+        <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+          <input type="checkbox" className="rounded" checked={onlyMissing} onChange={(e) => setOnlyMissing(e.target.checked)} />
+          Только без мета-тегов
+        </label>
+        <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+          <input type="checkbox" className="rounded" checked={onlyIssues} onChange={(e) => setOnlyIssues(e.target.checked)} />
+          Только с проблемами
+        </label>
+        {selectedPageUrls.size > 0 && (
+          <span className="text-xs text-primary-600 font-medium">Выбрано: {selectedPageUrls.size} стр.</span>
+        )}
+        <button onClick={() => genMetaMut.mutate()} disabled={genMetaMut.isPending || isRunning}
+          className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50 ml-auto">
+          {genMetaMut.isPending || isRunning ? '⏳ Генерация...' : '✨ Сгенерировать мета-теги'}
+        </button>
       </div>
 
       {generateTaskId && (
@@ -1406,13 +1482,18 @@ function SeoTab({ projectId }: { projectId: string }) {
 
       {view === 'pages' && (
         <div>
-          <div className="flex items-center gap-3 mb-3">
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
             <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
               <input type="checkbox" className="rounded" checked={issuesOnly} onChange={(e) => setIssuesOnly(e.target.checked)} />
               Только страницы с проблемами
             </label>
             {pagesData && (
               <span className="text-sm text-gray-500">{pagesData.pages?.length ?? 0} из {pagesData.total ?? 0}</span>
+            )}
+            {selectedPageUrls.size > 0 && (
+              <button onClick={() => setSelectedPageUrls(new Set())} className="text-xs text-primary-600 hover:text-primary-700">
+                Снять выбор ({selectedPageUrls.size})
+              </button>
             )}
           </div>
           {pagesLoading ? <div className="text-gray-500">Загрузка...</div> :
@@ -1425,8 +1506,20 @@ function SeoTab({ projectId }: { projectId: string }) {
             ) : (
               <div className="space-y-2">
                 {(pagesData?.pages ?? []).map((page: SeoPage) => (
-                  <SeoPageRow key={page.page_url} page={page} projectId={projectId}
-                    onUpdate={() => qc.invalidateQueries({ queryKey: ['seo-pages', projectId] })} />
+                  <div key={page.page_url} className="flex items-start gap-2">
+                    <input type="checkbox" className="mt-2.5 rounded"
+                      checked={selectedPageUrls.has(page.page_url)}
+                      onChange={() => setSelectedPageUrls(s => {
+                        const n = new Set(s)
+                        n.has(page.page_url) ? n.delete(page.page_url) : n.add(page.page_url)
+                        return n
+                      })} />
+                    <div className="flex-1 min-w-0">
+                      <SeoPageRow page={page} projectId={projectId}
+                        onUpdate={() => qc.invalidateQueries({ queryKey: ['seo-pages', projectId] })}
+                        onShowHistory={() => setHistoryPageUrl(page.page_url)} />
+                    </div>
+                  </div>
                 ))}
                 {(pagesData?.pages ?? []).length === 0 && (
                   <div className="text-center py-10 text-gray-400">
@@ -1472,6 +1565,12 @@ function SeoTab({ projectId }: { projectId: string }) {
             </div>
           )}
         </div>
+      )}
+
+      {view === 'content-gap' && <ContentGapSection projectId={projectId} />}
+
+      {historyPageUrl && (
+        <MetaHistoryModal projectId={projectId} pageUrl={historyPageUrl} onClose={() => setHistoryPageUrl(null)} />
       )}
     </div>
   )
@@ -2213,6 +2312,9 @@ function AnalyticsTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="p-6 max-w-4xl">
+      {/* Anomaly banner */}
+      <AnomalyBanner projectId={projectId} />
+
       {/* Counter selector */}
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         <div className="flex items-center gap-2">
@@ -2434,6 +2536,8 @@ function AnalyticsTab({ projectId }: { projectId: string }) {
           </div>
         )}
       </div>
+
+      <RoiSection projectId={projectId} />
     </div>
   )
 }
@@ -2930,13 +3034,31 @@ function ContentPlanTab({ projectId }: { projectId: string }) {
 
 function ReportsTab({ projectId }: { projectId: string }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const qc = useQueryClient()
+
+  const generateNowMut = useMutation({
+    mutationFn: () => api.post(`/projects/${projectId}/report/generate`).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['history', projectId] }),
+  })
 
   return (
     <div className="p-6 max-w-3xl">
       <h2 className="text-lg font-semibold text-gray-900 mb-2">Автоотчёты для клиентов</h2>
-      <p className="text-sm text-gray-500 mb-6">
+      <p className="text-sm text-gray-500 mb-4">
         Готовые отчёты на основе данных проекта: Директ, SEO аудит, медиаплан.
       </p>
+
+      {/* Auto-report banner */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-blue-800">Автоматические отчёты</p>
+          <p className="text-xs text-blue-600 mt-0.5">Отчёты генерируются автоматически 1-го числа каждого месяца</p>
+        </div>
+        <button onClick={() => generateNowMut.mutate()} disabled={generateNowMut.isPending}
+          className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0">
+          {generateNowMut.isPending ? '⏳...' : 'Сгенерировать сейчас'}
+        </button>
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* HTML Report */}
@@ -3028,6 +3150,1352 @@ function ReportsTab({ projectId }: { projectId: string }) {
           </div>
         </div>
       )}
+
+      <ClientPortalSection projectId={projectId} />
+    </div>
+  )
+}
+
+// ─── UTM Tab ──────────────────────────────────────────────────────────────────
+
+function UtmTab({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ name: '', source: '', medium: '', campaign: '', content: '', term: '' })
+  const [buildUrl, setBuildUrl] = useState('')
+  const [selectedTemplate, setSelectedTemplate] = useState('')
+  const [builtUrl, setBuiltUrl] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['utm-templates', projectId],
+    queryFn: () => utmApi.list(projectId),
+  })
+
+  const createMut = useMutation({
+    mutationFn: () => utmApi.create(projectId, form),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['utm-templates', projectId] }); setShowForm(false); setForm({ name: '', source: '', medium: '', campaign: '', content: '', term: '' }) },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => utmApi.delete(projectId, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['utm-templates', projectId] }),
+  })
+
+  const buildMut = useMutation({
+    mutationFn: () => utmApi.build(projectId, { base_url: buildUrl, template_id: selectedTemplate }),
+    onSuccess: (d: any) => setBuiltUrl(d.url || d.built_url || ''),
+  })
+
+  const templates: any[] = data?.templates || []
+
+  const copy = () => {
+    if (builtUrl) { navigator.clipboard.writeText(builtUrl); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+  }
+
+  return (
+    <div className="p-6 max-w-3xl space-y-6">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-lg">UTM-конструктор</h3>
+        <button onClick={() => setShowForm(v => !v)}
+          className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700">
+          + Новый шаблон
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="bg-white border rounded-xl p-4 space-y-3">
+          <h4 className="font-medium text-sm text-gray-700">Новый UTM-шаблон</h4>
+          <div className="grid grid-cols-2 gap-3">
+            {([
+              { key: 'name', label: 'Название шаблона', placeholder: 'Яндекс Директ Search' },
+              { key: 'source', label: 'utm_source', placeholder: 'yandex' },
+              { key: 'medium', label: 'utm_medium', placeholder: 'cpc' },
+              { key: 'campaign', label: 'utm_campaign', placeholder: '{campaign_id}' },
+              { key: 'content', label: 'utm_content (опц.)', placeholder: '{ad_id}' },
+              { key: 'term', label: 'utm_term (опц.)', placeholder: '{keyword}' },
+            ] as const).map(({ key, label, placeholder }) => (
+              <div key={key}>
+                <label className="block text-xs text-gray-500 mb-1">{label}</label>
+                <input value={(form as any)[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder={placeholder} />
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => createMut.mutate()} disabled={createMut.isPending || !form.name || !form.source}
+              className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+              {createMut.isPending ? 'Сохранение...' : 'Сохранить'}
+            </button>
+            <button onClick={() => setShowForm(false)} className="border px-4 py-2 rounded-lg text-sm hover:bg-gray-50">Отмена</button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? <p className="text-gray-400 text-sm">Загрузка...</p> : templates.length === 0 ? (
+        <div className="text-center py-10 text-gray-400 border-2 border-dashed rounded-xl">
+          <p className="text-3xl mb-2">🔗</p>
+          <p>Нет шаблонов. Создайте первый!</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {templates.map((t: any) => (
+            <div key={t.id} className="bg-white border rounded-lg px-4 py-3 flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm text-gray-800">{t.name}</p>
+                <p className="text-xs text-gray-400 font-mono truncate">
+                  utm_source={t.source}&utm_medium={t.medium}&utm_campaign={t.campaign}
+                  {t.content ? `&utm_content=${t.content}` : ''}
+                  {t.term ? `&utm_term=${t.term}` : ''}
+                </p>
+              </div>
+              <button onClick={() => deleteMut.mutate(t.id)} className="text-red-400 hover:text-red-600 text-xs shrink-0">Удалить</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* URL builder */}
+      <div className="bg-white border rounded-xl p-4 space-y-3">
+        <h4 className="font-medium text-sm text-gray-700">Собрать UTM-ссылку</h4>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Базовый URL</label>
+          <input value={buildUrl} onChange={e => setBuildUrl(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            placeholder="https://example.com/landing" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Шаблон</label>
+          <select value={selectedTemplate} onChange={e => setSelectedTemplate(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+            <option value="">Выберите шаблон...</option>
+            {templates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+        <button onClick={() => buildMut.mutate()} disabled={buildMut.isPending || !buildUrl || !selectedTemplate}
+          className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          {buildMut.isPending ? '...' : 'Собрать ссылку'}
+        </button>
+        {builtUrl && (
+          <div className="bg-gray-50 border rounded-lg p-3 flex items-center gap-2">
+            <p className="text-xs font-mono text-gray-700 flex-1 break-all">{builtUrl}</p>
+            <button onClick={copy}
+              className={cx('text-xs px-2.5 py-1 rounded border shrink-0 transition', copied ? 'bg-green-100 text-green-700 border-green-300' : 'bg-white text-gray-600 hover:bg-gray-50')}>
+              {copied ? '✅ Скопировано' : '📋 Копировать'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── N-grams Section ──────────────────────────────────────────────────────────
+
+function NgramsSection({ projectId }: { projectId: string }) {
+  const [n, setN] = useState(2)
+  const [selected, setSelected] = useState<string | null>(null)
+
+  const { data, isFetching, refetch } = useQuery({
+    queryKey: ['ngrams', projectId, n],
+    queryFn: () => directApi.getNgrams(projectId, n),
+    enabled: false,
+  })
+
+  const ngrams: any[] = data?.ngrams || []
+
+  return (
+    <div className="border rounded-lg bg-white p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold">N-граммы</h3>
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1">
+            {[2, 3].map(v => (
+              <button key={v} onClick={() => setN(v)}
+                className={cx('px-3 py-1.5 text-sm rounded-lg transition',
+                  n === v ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+                {v}-грамм
+              </button>
+            ))}
+          </div>
+          <button onClick={() => refetch()} disabled={isFetching}
+            className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+            {isFetching ? '⏳ Анализ...' : 'Анализировать N-граммы'}
+          </button>
+        </div>
+      </div>
+      {ngrams.length > 0 && (
+        <div className="overflow-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b">
+                <th className="px-3 py-2 text-left text-xs text-gray-500">N-грамм</th>
+                <th className="px-3 py-2 text-right text-xs text-gray-500 w-32">Вхождений</th>
+                <th className="px-3 py-2 text-left text-xs text-gray-500">Примеры ключей</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ngrams.map((ng: any, i: number) => (
+                <>
+                  <tr key={i} className="border-b hover:bg-gray-50 cursor-pointer"
+                    onClick={() => setSelected(selected === ng.ngram ? null : ng.ngram)}>
+                    <td className="px-3 py-2 font-mono font-medium text-gray-800">{ng.ngram}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-gray-600">{ng.count}</td>
+                    <td className="px-3 py-2 text-xs text-gray-500 truncate max-w-xs">
+                      {(ng.examples || []).slice(0, 3).join(', ')}
+                    </td>
+                  </tr>
+                  {selected === ng.ngram && ng.keywords && (
+                    <tr key={`${i}-detail`}>
+                      <td colSpan={3} className="px-3 py-2 bg-blue-50">
+                        <p className="text-xs font-medium text-blue-700 mb-1">Все ключи с этим N-граммом:</p>
+                        <div className="flex flex-wrap gap-1">
+                          {ng.keywords.map((kw: string, j: number) => (
+                            <span key={j} className="text-xs bg-white border border-blue-200 text-blue-700 px-2 py-0.5 rounded">{kw}</span>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {!isFetching && ngrams.length === 0 && data && (
+        <p className="text-sm text-gray-400 py-4 text-center">Нет данных. Добавьте ключевые фразы и повторите анализ.</p>
+      )}
+    </div>
+  )
+}
+
+// ─── Heatmap Section ──────────────────────────────────────────────────────────
+
+function HeatmapSection({ projectId }: { projectId: string }) {
+  const { data, isFetching, refetch } = useQuery({
+    queryKey: ['heatmap', projectId],
+    queryFn: () => directApi.getHeatmap(projectId),
+    enabled: false,
+  })
+
+  const TEMPS = ['hot', 'warm', 'cold', 'none'] as const
+  const TEMP_LABELS: Record<string, string> = { hot: '🔥 Горячие', warm: '☀️ Тёплые', cold: '❄️ Холодные', none: 'Без темп.' }
+  const FREQ_RANGES = ['0', '1–100', '101–1000', '1001–10000', '10000+'] as const
+  const RANGE_KEYS = ['0', '1_100', '101_1000', '1001_10000', '10000+']
+
+  const heatmap: any = data?.heatmap || {}
+  const summary: any = data?.summary || {}
+
+  const getCellColor = (temp: string, count: number) => {
+    if (!count) return 'bg-gray-50 text-gray-300'
+    const opacity = count >= 50 ? 'opacity-100' : count >= 20 ? 'opacity-70' : count >= 5 ? 'opacity-40' : 'opacity-20'
+    if (temp === 'hot') return `bg-red-500 text-white ${opacity}`
+    if (temp === 'warm') return `bg-orange-400 text-white ${opacity}`
+    if (temp === 'cold') return `bg-blue-500 text-white ${opacity}`
+    return `bg-gray-400 text-white ${opacity}`
+  }
+
+  return (
+    <div className="border rounded-lg bg-white p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold">Тепловая карта ключей</h3>
+        <button onClick={() => refetch()} disabled={isFetching}
+          className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          {isFetching ? '⏳ Загрузка...' : 'Обновить'}
+        </button>
+      </div>
+
+      {Object.keys(heatmap).length > 0 && (
+        <>
+          <div className="overflow-auto mb-4">
+            <table className="text-xs border-collapse">
+              <thead>
+                <tr>
+                  <th className="px-3 py-2 text-left text-gray-500 bg-gray-50 border">Темп. / Частота</th>
+                  {FREQ_RANGES.map((r, i) => (
+                    <th key={i} className="px-3 py-2 text-center text-gray-500 bg-gray-50 border w-24">{r}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {TEMPS.map(temp => (
+                  <tr key={temp}>
+                    <td className="px-3 py-2 font-medium text-gray-700 bg-gray-50 border">{TEMP_LABELS[temp]}</td>
+                    {RANGE_KEYS.map((rk, i) => {
+                      const count = heatmap[temp]?.[rk] ?? 0
+                      return (
+                        <td key={i} className={cx('px-3 py-2 text-center border font-mono font-bold', getCellColor(temp, count))}>
+                          {count || '—'}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {Object.keys(summary).length > 0 && (
+            <div className="flex gap-4 text-sm">
+              {TEMPS.filter(t => t !== 'none').map(temp => {
+                const count = summary[temp] || 0
+                const total = summary.total || 1
+                const pct = Math.round((count / total) * 100)
+                return (
+                  <div key={temp} className="flex items-center gap-2">
+                    <span>{TEMP_LABELS[temp]}</span>
+                    <span className="font-medium">{count}</span>
+                    <span className="text-gray-400">({pct}%)</span>
+                  </div>
+                )
+              })}
+              <div className="flex items-center gap-2 ml-auto text-gray-500">
+                <span>Всего: <strong>{summary.total || 0}</strong></span>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+      {!isFetching && !data && (
+        <p className="text-sm text-gray-400 py-4 text-center">Нажмите «Обновить» для загрузки тепловой карты</p>
+      )}
+    </div>
+  )
+}
+
+// ─── A/B Comparison Section ───────────────────────────────────────────────────
+
+function AbSection({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ['ab-stats', projectId],
+    queryFn: () => directApi.getAbStats(projectId),
+  })
+
+  const winnerMut = useMutation({
+    mutationFn: (adId: string) => directApi.markAdWinner(adId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ab-stats', projectId] }),
+  })
+
+  const groups: any[] = data?.groups || []
+
+  if (isLoading) return <div className="p-4 text-gray-400 text-sm">Загрузка A/B статистики...</div>
+
+  return (
+    <div className="border rounded-lg bg-white p-4">
+      <h3 className="font-semibold mb-3">A/B сравнение объявлений</h3>
+      {groups.length === 0 ? (
+        <div className="text-center py-8 text-gray-400">
+          <p className="text-2xl mb-2">🧪</p>
+          <p className="text-sm">Нет групп с несколькими вариантами объявлений</p>
+        </div>
+      ) : groups.map((group: any, gi: number) => (
+        <div key={gi} className="mb-6">
+          <p className="text-sm font-medium text-gray-600 mb-2">Группа: {group.group_name}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {(group.ads || []).map((ad: any) => (
+              <div key={ad.id} className={cx('border rounded-lg p-3 text-sm', ad.is_winner ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white')}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-500">Вариант {ad.variant}</span>
+                  <div className="flex items-center gap-2">
+                    {ad.is_winner && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">🏆 Победитель</span>}
+                    <StatusBadge status={ad.status} />
+                  </div>
+                </div>
+                <p className="font-medium text-gray-800 leading-snug text-xs">
+                  {ad.headline1}{ad.headline2 ? ` | ${ad.headline2}` : ''}{ad.headline3 ? ` | ${ad.headline3}` : ''}
+                </p>
+                <p className="text-gray-500 text-xs mt-1 line-clamp-2">{ad.text}</p>
+                {!ad.is_winner && (
+                  <button onClick={() => winnerMut.mutate(ad.id)} disabled={winnerMut.isPending}
+                    className="mt-2 text-xs bg-primary-600 text-white px-2.5 py-1 rounded hover:bg-primary-700 disabled:opacity-50">
+                    Назначить победителем
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ─── Search Queries Analysis Section ─────────────────────────────────────────
+
+function SearchQueriesModal({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [queries, setQueries] = useState('')
+  const [results, setResults] = useState<any[] | null>(null)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+
+  const analyzeMut = useMutation({
+    mutationFn: () => directApi.analyzeSearchQueries(projectId, queries.split('\n').map(q => q.trim()).filter(Boolean)),
+    onSuccess: (d: any) => { setResults(d.suggestions || []); setSelected(new Set()) },
+  })
+
+  const addNegMut = useMutation({
+    mutationFn: async () => {
+      const toAdd = (results || []).filter((_: any, i: number) => selected.has(i))
+      for (const item of toAdd) {
+        await directApi.addNegativeKeyword(projectId, item.phrase, item.block || 'general')
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['neg-kws', projectId] })
+      onClose()
+    },
+  })
+
+  const toggleAll = () => {
+    if (!results) return
+    if (selected.size === results.length) setSelected(new Set())
+    else setSelected(new Set(results.map((_: any, i: number) => i)))
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h3 className="font-semibold">Анализ поисковых запросов</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="p-5 overflow-y-auto flex-1">
+          {!results ? (
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-gray-700">Вставьте список поисковых запросов (по одному на строке)</label>
+              <textarea rows={8} value={queries} onChange={e => setQueries(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="купить диван недорого&#10;диван купить цена&#10;детский диван со скидкой..." />
+              <button onClick={() => analyzeMut.mutate()} disabled={analyzeMut.isPending || !queries.trim()}
+                className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+                {analyzeMut.isPending ? '⏳ Анализ...' : 'Анализировать'}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-600">Найдено {results.length} рекомендаций</p>
+                <button onClick={toggleAll} className="text-xs text-primary-600 hover:text-primary-700">
+                  {selected.size === results.length ? 'Снять все' : 'Выбрать все'}
+                </button>
+              </div>
+              {results.length === 0 ? (
+                <p className="text-sm text-gray-400 py-4 text-center">Минус-слов не найдено</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b">
+                      <th className="px-3 py-2 w-8"></th>
+                      <th className="px-3 py-2 text-left text-xs text-gray-500">Минус-слово</th>
+                      <th className="px-3 py-2 text-left text-xs text-gray-500">Причина</th>
+                      <th className="px-3 py-2 text-left text-xs text-gray-500">Уровень</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.map((r: any, i: number) => (
+                      <tr key={i} className="border-b hover:bg-gray-50">
+                        <td className="px-3 py-2">
+                          <input type="checkbox" checked={selected.has(i)}
+                            onChange={() => setSelected(s => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n })} />
+                        </td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-800">-{r.phrase}</td>
+                        <td className="px-3 py-2 text-xs text-gray-500">{r.reason}</td>
+                        <td className="px-3 py-2 text-xs text-gray-500">{r.block || 'general'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => addNegMut.mutate()} disabled={addNegMut.isPending || selected.size === 0}
+                  className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+                  {addNegMut.isPending ? 'Добавление...' : `Добавить выбранные (${selected.size})`}
+                </button>
+                <button onClick={() => setResults(null)} className="border px-4 py-2 rounded-lg text-sm hover:bg-gray-50">Назад</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Local Clustering Section ─────────────────────────────────────────────────
+
+function LocalClusterSection({ projectId }: { projectId: string }) {
+  const [clusters, setClusters] = useState<any[] | null>(null)
+
+  const clusterMut = useMutation({
+    mutationFn: () => directApi.clusterLocal(projectId),
+    onSuccess: (d: any) => setClusters(d.clusters || []),
+  })
+
+  return (
+    <div className="border rounded-lg bg-white p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold">Автокластеризация (локальная)</h3>
+        <button onClick={() => clusterMut.mutate()} disabled={clusterMut.isPending}
+          className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          {clusterMut.isPending ? '⏳ Кластеризация...' : 'Автокластеризация (локальная)'}
+        </button>
+      </div>
+      {clusterMut.isError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 mb-3">
+          ❌ Ошибка кластеризации
+        </div>
+      )}
+      {clusters && clusters.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm text-gray-500">Найдено кластеров: <strong>{clusters.length}</strong></p>
+          {clusters.map((cl: any, i: number) => (
+            <ClusterCard key={i} cluster={cl} />
+          ))}
+        </div>
+      )}
+      {clusters && clusters.length === 0 && (
+        <p className="text-sm text-gray-400 py-4 text-center">Нет кластеров. Добавьте ключевые фразы.</p>
+      )}
+    </div>
+  )
+}
+
+// ─── Crawl Extended Sections ──────────────────────────────────────────────────
+
+function LinkingSection({ projectId }: { projectId: string }) {
+  const [filter, setFilter] = useState<'all' | 'orphan' | 'hub' | 'isolated'>('all')
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['crawl-linking', projectId],
+    queryFn: () => crawlApi.getLinking(projectId),
+    enabled: false,
+  })
+
+  const pages: any[] = data?.pages || []
+  const stats = data?.stats || {}
+  const filtered = filter === 'all' ? pages : pages.filter((p: any) => p.type === filter)
+
+  const typeColor = (type: string) => {
+    if (type === 'orphan') return 'text-red-600 bg-red-50'
+    if (type === 'hub') return 'text-green-600 bg-green-50'
+    if (type === 'isolated') return 'text-orange-600 bg-orange-50'
+    return 'text-gray-600 bg-gray-50'
+  }
+
+  const typeLabel = (type: string) => {
+    if (type === 'orphan') return 'Сирота'
+    if (type === 'hub') return 'Хаб'
+    if (type === 'isolated') return 'Изолированная'
+    return 'Нормальная'
+  }
+
+  return (
+    <div className="border rounded-lg bg-white p-4 mt-6">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold">Перелинковка</h3>
+        <button onClick={() => refetch()} disabled={isLoading}
+          className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          {isLoading ? '⏳ Загрузка...' : 'Проанализировать'}
+        </button>
+      </div>
+
+      {stats.total > 0 && (
+        <div className="grid grid-cols-4 gap-3 mb-4 text-sm">
+          {[
+            { label: 'Всего страниц', value: stats.total, color: 'text-gray-700' },
+            { label: 'Сирот', value: stats.orphans || 0, color: 'text-red-600' },
+            { label: 'Хабов', value: stats.hubs || 0, color: 'text-green-600' },
+            { label: 'Изолированных', value: stats.isolated || 0, color: 'text-orange-600' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="bg-gray-50 rounded-lg p-3 text-center">
+              <p className="text-xs text-gray-500 mb-1">{label}</p>
+              <p className={cx('text-xl font-bold', color)}>{value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {pages.length > 0 && (
+        <>
+          <div className="flex gap-1 mb-3">
+            {(['all', 'orphan', 'hub', 'isolated'] as const).map(f => (
+              <button key={f} onClick={() => setFilter(f)}
+                className={cx('px-3 py-1 text-xs rounded-full border transition',
+                  filter === f ? 'bg-primary-600 text-white border-primary-600' : 'border-gray-300 text-gray-600 hover:border-gray-400')}>
+                {f === 'all' ? 'Все' : typeLabel(f)}
+              </button>
+            ))}
+          </div>
+          <div className="overflow-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-50 border-b">
+                  <th className="px-3 py-2 text-left text-gray-500">URL</th>
+                  <th className="px-3 py-2 text-left text-gray-500 w-48">Title</th>
+                  <th className="px-3 py-2 text-center text-gray-500 w-16">Вход</th>
+                  <th className="px-3 py-2 text-center text-gray-500 w-16">Исход</th>
+                  <th className="px-3 py-2 text-center text-gray-500 w-24">Тип</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.slice(0, 100).map((p: any, i: number) => (
+                  <tr key={i} className="border-b hover:bg-gray-50">
+                    <td className="px-3 py-2">
+                      <a href={p.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate block max-w-xs">{p.url}</a>
+                    </td>
+                    <td className="px-3 py-2 text-gray-600 truncate max-w-xs">{p.title || '—'}</td>
+                    <td className="px-3 py-2 text-center tabular-nums">{p.incoming}</td>
+                    <td className="px-3 py-2 text-center tabular-nums">{p.outgoing}</td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={cx('px-1.5 py-0.5 rounded text-xs font-medium', typeColor(p.type))}>{typeLabel(p.type)}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function RedirectsSection({ projectId }: { projectId: string }) {
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['crawl-redirects', projectId],
+    queryFn: () => crawlApi.getRedirects(projectId),
+    enabled: false,
+  })
+
+  const redirects: any[] = data?.redirects || []
+  const stats = data?.stats || {}
+
+  const severityColor = (hops: number, is_loop: boolean) => {
+    if (is_loop) return 'text-red-700 bg-red-100'
+    if (hops >= 3) return 'text-red-600 bg-red-50'
+    if (hops === 2) return 'text-yellow-600 bg-yellow-50'
+    return 'text-green-600 bg-green-50'
+  }
+
+  return (
+    <div className="border rounded-lg bg-white p-4 mt-6">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold">Редиректы</h3>
+        <button onClick={() => refetch()} disabled={isLoading}
+          className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          {isLoading ? '⏳ Загрузка...' : 'Проанализировать'}
+        </button>
+      </div>
+
+      {stats.total > 0 && (
+        <div className="grid grid-cols-4 gap-3 mb-4 text-sm">
+          {[
+            { label: 'Всего редиректов', value: stats.total || 0, color: 'text-gray-700' },
+            { label: 'Нормальных (1 хоп)', value: stats.normal || 0, color: 'text-green-600' },
+            { label: 'Предупреждений (2)', value: stats.warnings || 0, color: 'text-yellow-600' },
+            { label: 'Ошибок (3+)', value: stats.errors || 0, color: 'text-red-600' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="bg-gray-50 rounded-lg p-3 text-center">
+              <p className="text-xs text-gray-500 mb-1">{label}</p>
+              <p className={cx('text-xl font-bold', color)}>{value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {stats.loops > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3 text-sm text-red-700">
+          ⚠️ Обнаружено петель редиректов: <strong>{stats.loops}</strong>
+        </div>
+      )}
+
+      {redirects.length > 0 && (
+        <div className="overflow-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 border-b">
+                <th className="px-3 py-2 text-left text-gray-500">Исходный URL</th>
+                <th className="px-3 py-2 text-left text-gray-500">Финальный URL</th>
+                <th className="px-3 py-2 text-center text-gray-500 w-16">Хопов</th>
+                <th className="px-3 py-2 text-center text-gray-500 w-24">Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+              {redirects.map((r: any, i: number) => (
+                <tr key={i} className="border-b hover:bg-gray-50">
+                  <td className="px-3 py-2 truncate max-w-xs">
+                    <a href={r.source} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{r.source}</a>
+                  </td>
+                  <td className="px-3 py-2 truncate max-w-xs">
+                    <a href={r.final} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{r.final}</a>
+                  </td>
+                  <td className="px-3 py-2 text-center tabular-nums">{r.hops}</td>
+                  <td className="px-3 py-2 text-center">
+                    <span className={cx('px-1.5 py-0.5 rounded text-xs font-medium', severityColor(r.hops, r.is_loop))}>
+                      {r.is_loop ? 'Петля' : r.hops >= 3 ? 'Ошибка' : r.hops === 2 ? 'Предупреждение' : 'OK'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RobotsAuditSection({ projectId }: { projectId: string }) {
+  const [showRobots, setShowRobots] = useState(false)
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['crawl-robots', projectId],
+    queryFn: () => crawlApi.getRobotsAudit(projectId),
+    enabled: false,
+  })
+
+  const audit: any = data || {}
+
+  return (
+    <div className="border rounded-lg bg-white p-4 mt-6">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold">Robots.txt & Sitemap</h3>
+        <button onClick={() => refetch()} disabled={isLoading}
+          className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+          {isLoading ? '⏳ Загрузка...' : 'Проверить'}
+        </button>
+      </div>
+
+      {data && (
+        <div className="space-y-4">
+          {audit.robots_txt && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-medium text-gray-700">robots.txt</h4>
+                <button onClick={() => setShowRobots(v => !v)} className="text-xs text-primary-600 hover:text-primary-700">
+                  {showRobots ? 'Скрыть ▲' : 'Показать ▼'}
+                </button>
+              </div>
+              {showRobots && (
+                <pre className="bg-gray-50 border rounded-lg p-3 text-xs font-mono overflow-auto max-h-48">{audit.robots_txt}</pre>
+              )}
+            </div>
+          )}
+
+          {(audit.disallow_rules || []).length > 0 && (
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Правила Disallow ({audit.disallow_rules.length})</h4>
+              <div className="flex flex-wrap gap-1">
+                {audit.disallow_rules.slice(0, 30).map((r: string, i: number) => (
+                  <span key={i} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono">{r}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(audit.blocked_important || []).length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <p className="text-sm font-medium text-red-700 mb-1">⚠️ Важные страницы заблокированы robots.txt:</p>
+              <div className="space-y-0.5">
+                {audit.blocked_important.map((url: string, i: number) => (
+                  <p key={i} className="text-xs font-mono text-red-600">{url}</p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs text-gray-500 mb-1">URL в sitemap</p>
+              <p className="text-xl font-bold text-gray-800">{audit.sitemap_urls ?? '—'}</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs text-gray-500 mb-1">Проиндексировано</p>
+              <p className="text-xl font-bold text-gray-800">{audit.crawled_urls ?? '—'}</p>
+            </div>
+          </div>
+
+          {(audit.sitemap_not_crawled || []).length > 0 && (
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">В sitemap, но не в краулере ({audit.sitemap_not_crawled.length})</h4>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {audit.sitemap_not_crawled.map((url: string, i: number) => (
+                  <a key={i} href={url} target="_blank" rel="noreferrer"
+                    className="block text-xs text-blue-600 hover:underline font-mono truncate">{url}</a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CwvSection({ projectId }: { projectId: string }) {
+  const [urlsText, setUrlsText] = useState('')
+  const [strategy, setStrategy] = useState<'mobile' | 'desktop'>('mobile')
+  const [results, setResults] = useState<any[] | null>(null)
+
+  const checkMut = useMutation({
+    mutationFn: () => crawlApi.checkCwv(projectId, urlsText.split('\n').map(u => u.trim()).filter(Boolean), strategy),
+    onSuccess: (d: any) => setResults(d.results || []),
+  })
+
+  const metricColor = (metric: string, value: number) => {
+    if (metric === 'lcp') return value <= 2500 ? 'text-green-600' : value <= 4000 ? 'text-yellow-600' : 'text-red-600'
+    if (metric === 'cls') return value <= 0.1 ? 'text-green-600' : value <= 0.25 ? 'text-yellow-600' : 'text-red-600'
+    if (metric === 'fid') return value <= 100 ? 'text-green-600' : value <= 300 ? 'text-yellow-600' : 'text-red-600'
+    return value >= 90 ? 'text-green-600' : value >= 50 ? 'text-yellow-600' : 'text-red-600'
+  }
+
+  return (
+    <div className="border rounded-lg bg-white p-4 mt-6">
+      <h3 className="font-semibold mb-3">Core Web Vitals</h3>
+      <div className="space-y-3 mb-4">
+        <div>
+          <label className="block text-sm text-gray-600 mb-1">URL для проверки (по одному на строке)</label>
+          <textarea rows={4} value={urlsText} onChange={e => setUrlsText(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500"
+            placeholder="https://example.com/&#10;https://example.com/about/" />
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex gap-1">
+            {(['mobile', 'desktop'] as const).map(s => (
+              <button key={s} onClick={() => setStrategy(s)}
+                className={cx('px-3 py-1.5 text-sm rounded-lg transition',
+                  strategy === s ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+                {s === 'mobile' ? '📱 Mobile' : '🖥 Desktop'}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => checkMut.mutate()} disabled={checkMut.isPending || !urlsText.trim()}
+            className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+            {checkMut.isPending ? '⏳ Проверка...' : 'Проверить'}
+          </button>
+        </div>
+      </div>
+
+      {results && results.length > 0 && (
+        <div className="overflow-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 border-b">
+                <th className="px-3 py-2 text-left text-gray-500">URL</th>
+                <th className="px-3 py-2 text-center text-gray-500 w-20">Score</th>
+                <th className="px-3 py-2 text-center text-gray-500 w-20">LCP</th>
+                <th className="px-3 py-2 text-center text-gray-500 w-16">CLS</th>
+                <th className="px-3 py-2 text-center text-gray-500 w-16">FID</th>
+                <th className="px-3 py-2 text-center text-gray-500 w-16">FCP</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((r: any, i: number) => (
+                <tr key={i} className="border-b hover:bg-gray-50">
+                  <td className="px-3 py-2 truncate max-w-xs">
+                    <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{r.url}</a>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <span className={cx('font-bold', metricColor('score', r.performance || 0))}>{r.performance ?? '—'}</span>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <span className={cx(metricColor('lcp', r.lcp || 9999))}>{r.lcp ? (r.lcp / 1000).toFixed(2) + 'с' : '—'}</span>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <span className={cx(metricColor('cls', r.cls || 99))}>{r.cls?.toFixed(3) ?? '—'}</span>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <span className={cx(metricColor('fid', r.fid || 9999))}>{r.fid ? r.fid + 'мс' : '—'}</span>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <span className={cx(metricColor('fcp', r.fcp || 9999))}>{r.fcp ? (r.fcp / 1000).toFixed(2) + 'с' : '—'}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── ROI Section ──────────────────────────────────────────────────────────────
+
+function RoiSection({ projectId }: { projectId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['roi', projectId],
+    queryFn: () => analyticsApi.getRoi(projectId),
+  })
+
+  const rows: any[] = data?.rows || []
+
+  return (
+    <div className="border rounded-lg bg-white p-4 mt-6">
+      <h3 className="font-semibold mb-3">ROI Калькулятор</h3>
+      {isLoading ? (
+        <p className="text-sm text-gray-400">Загрузка...</p>
+      ) : rows.length === 0 ? (
+        <div className="text-center py-8 text-gray-400">
+          <p className="text-2xl mb-2">📊</p>
+          <p className="text-sm">Нет данных для расчёта ROI. Заполните медиаплан.</p>
+        </div>
+      ) : (
+        <div className="overflow-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b">
+                {['Месяц', 'Бюджет', 'Прогноз лидов', 'Прогноз CPA', 'Факт лидов', 'Факт CPA', 'ROI%'].map(h => (
+                  <th key={h} className="px-3 py-2 text-left text-xs text-gray-500 font-medium">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r: any, i: number) => {
+                const roiOk = r.actual_leads != null && r.forecast_leads != null && r.actual_leads >= r.forecast_leads
+                return (
+                  <tr key={i} className={cx('border-b', roiOk ? 'bg-green-50' : r.actual_leads != null ? 'bg-red-50' : '')}>
+                    <td className="px-3 py-2 font-medium text-gray-700">{r.month_name}</td>
+                    <td className="px-3 py-2 tabular-nums">{r.budget?.toLocaleString() ?? '—'} ₽</td>
+                    <td className="px-3 py-2 tabular-nums text-blue-600">{r.forecast_leads?.toLocaleString() ?? '—'}</td>
+                    <td className="px-3 py-2 tabular-nums">{r.forecast_cpa?.toLocaleString() ?? '—'} ₽</td>
+                    <td className="px-3 py-2 tabular-nums font-medium">
+                      {r.actual_leads != null ? (
+                        <span className={roiOk ? 'text-green-600' : 'text-red-600'}>{r.actual_leads.toLocaleString()}</span>
+                      ) : '—'}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">{r.actual_cpa != null ? r.actual_cpa.toLocaleString() + ' ₽' : '—'}</td>
+                    <td className="px-3 py-2 tabular-nums font-medium">
+                      {r.roi_pct != null ? (
+                        <span className={r.roi_pct >= 0 ? 'text-green-600' : 'text-red-600'}>{r.roi_pct}%</span>
+                      ) : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Anomaly Banner ───────────────────────────────────────────────────────────
+
+function AnomalyBanner({ projectId }: { projectId: string }) {
+  const { data } = useQuery({
+    queryKey: ['anomalies', projectId],
+    queryFn: () => analyticsApi.getAnomalies(projectId),
+    refetchInterval: 30 * 60 * 1000,
+    retry: false,
+  })
+
+  const anomalies: any[] = data?.anomalies || []
+
+  if (!data) return null
+
+  if (anomalies.length === 0) {
+    return (
+      <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-4 text-sm text-green-700">
+        ✅ Трафик в норме
+      </div>
+    )
+  }
+
+  const levelColors: Record<string, string> = {
+    error: 'bg-red-50 border-red-200 text-red-800',
+    warn: 'bg-yellow-50 border-yellow-200 text-yellow-800',
+    info: 'bg-blue-50 border-blue-200 text-blue-800',
+  }
+  const levelIcons: Record<string, string> = { error: '🔴', warn: '🟡', info: '🔵' }
+
+  return (
+    <div className="space-y-2 mb-4">
+      {anomalies.map((a: any, i: number) => (
+        <div key={i} className={cx('flex items-start gap-3 border rounded-lg px-4 py-3 text-sm', levelColors[a.level] || levelColors.info)}>
+          <span>{levelIcons[a.level] || '🔵'}</span>
+          <div className="flex-1">
+            <p className="font-medium">{a.message}</p>
+            {a.current != null && a.previous != null && (
+              <p className="text-xs mt-0.5 opacity-80">
+                Текущий: {a.current} | Предыдущий: {a.previous}
+              </p>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ─── Schema.org Section ───────────────────────────────────────────────────────
+
+function SchemaSection({ projectId, pageUrl }: { projectId: string; pageUrl: string }) {
+  const [schemaType, setSchemaType] = useState('Organization')
+  const [copied, setCopied] = useState(false)
+
+  const { data: existing } = useQuery({
+    queryKey: ['schema', projectId, pageUrl],
+    queryFn: () => seoApi.getSchema(projectId, pageUrl),
+    retry: false,
+  })
+
+  const genMut = useMutation({
+    mutationFn: () => seoApi.generateSchema(projectId, pageUrl, schemaType),
+    onSuccess: () => {
+      // refetch via query invalidation
+    },
+  })
+
+  const schemaJson = genMut.data?.json_ld || existing?.json_ld || ''
+  const copy = () => { navigator.clipboard.writeText(schemaJson); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+
+  const SCHEMA_TYPES = ['Organization', 'LocalBusiness', 'Product', 'Article', 'FAQPage']
+
+  return (
+    <div className="border-t pt-3 mt-3">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Schema.org</p>
+      <div className="flex gap-2 items-center mb-2">
+        <select value={schemaType} onChange={e => setSchemaType(e.target.value)}
+          className="border rounded px-2 py-1 text-sm flex-1 max-w-xs">
+          {SCHEMA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <button onClick={() => genMut.mutate()} disabled={genMut.isPending}
+          className="bg-primary-600 text-white px-3 py-1 rounded text-xs hover:bg-primary-700 disabled:opacity-50">
+          {genMut.isPending ? '⏳...' : 'Сгенерировать'}
+        </button>
+      </div>
+      {schemaJson && (
+        <div className="relative">
+          <pre className="bg-gray-900 text-green-300 text-xs rounded-lg p-3 overflow-auto max-h-48 font-mono">{schemaJson}</pre>
+          <button onClick={copy}
+            className={cx('absolute top-2 right-2 text-xs px-2 py-1 rounded transition',
+              copied ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-200 hover:bg-gray-600')}>
+            {copied ? '✅' : '📋'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── FAQ Section ──────────────────────────────────────────────────────────────
+
+function FaqSection({ projectId, pageUrl }: { projectId: string; pageUrl: string }) {
+  const [count, setCount] = useState(8)
+  const [copied, setCopied] = useState(false)
+  const [editedFaqs, setEditedFaqs] = useState<Array<{ question: string; answer: string }> | null>(null)
+
+  const { data: existing } = useQuery({
+    queryKey: ['faq', projectId, pageUrl],
+    queryFn: () => seoApi.getFaq(projectId, pageUrl),
+    retry: false,
+  })
+
+  const genMut = useMutation({
+    mutationFn: () => seoApi.generateFaq(projectId, pageUrl, count),
+    onSuccess: (d: any) => setEditedFaqs(d.faqs || []),
+  })
+
+  const faqs = editedFaqs || existing?.faqs || []
+
+  const schemaJsonLd = faqs.length > 0 ? JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": faqs.map((f: any) => ({
+      "@type": "Question",
+      "name": f.question,
+      "acceptedAnswer": { "@type": "Answer", "text": f.answer }
+    }))
+  }, null, 2) : ''
+
+  const copySchema = () => { navigator.clipboard.writeText(schemaJsonLd); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+
+  return (
+    <div className="border-t pt-3 mt-3">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">FAQ</p>
+      <div className="flex gap-2 items-center mb-3">
+        <label className="text-xs text-gray-600">Вопросов:</label>
+        <input type="number" min={3} max={20} value={count} onChange={e => setCount(Number(e.target.value))}
+          className="border rounded px-2 py-1 text-sm w-16" />
+        <button onClick={() => genMut.mutate()} disabled={genMut.isPending}
+          className="bg-primary-600 text-white px-3 py-1 rounded text-xs hover:bg-primary-700 disabled:opacity-50">
+          {genMut.isPending ? '⏳ Генерация...' : 'Сгенерировать FAQ'}
+        </button>
+      </div>
+      {faqs.length > 0 && (
+        <div className="space-y-2 mb-3">
+          {faqs.map((f: any, i: number) => (
+            <div key={i} className="border rounded-lg p-2 bg-white">
+              <p className="text-xs font-medium text-gray-800 mb-0.5">
+                Q: <input className="border-none bg-transparent flex-1 w-full text-xs font-medium text-gray-800 focus:outline-none"
+                  value={f.question}
+                  onChange={e => setEditedFaqs(prev => (prev || faqs).map((x: any, j: number) => j === i ? { ...x, question: e.target.value } : x))} />
+              </p>
+              <textarea rows={2} className="w-full text-xs text-gray-600 border-none bg-transparent focus:outline-none resize-none"
+                value={f.answer}
+                onChange={e => setEditedFaqs(prev => (prev || faqs).map((x: any, j: number) => j === i ? { ...x, answer: e.target.value } : x))} />
+            </div>
+          ))}
+        </div>
+      )}
+      {schemaJsonLd && (
+        <div className="relative">
+          <pre className="bg-gray-900 text-green-300 text-xs rounded-lg p-3 overflow-auto max-h-40 font-mono">{schemaJsonLd}</pre>
+          <button onClick={copySchema}
+            className={cx('absolute top-2 right-2 text-xs px-2 py-1 rounded transition',
+              copied ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-200 hover:bg-gray-600')}>
+            {copied ? '✅' : '📋'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Meta History Modal ───────────────────────────────────────────────────────
+
+function MetaHistoryModal({ projectId, pageUrl, onClose }: { projectId: string; pageUrl: string; onClose: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['meta-history', projectId, pageUrl],
+    queryFn: () => seoApi.getMetaHistory(projectId, pageUrl),
+  })
+
+  const events: any[] = data?.history || []
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <div>
+            <h3 className="font-semibold">История изменений</h3>
+            <p className="text-xs text-gray-500 mt-0.5 font-mono truncate">{pageUrl}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="overflow-y-auto flex-1 p-5">
+          {isLoading ? (
+            <p className="text-gray-400 text-sm">Загрузка...</p>
+          ) : events.length === 0 ? (
+            <div className="text-center py-10 text-gray-400">
+              <p className="text-3xl mb-2">📋</p>
+              <p>История изменений пуста</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {events.map((e: any, i: number) => (
+                <div key={i} className="border rounded-lg p-3 bg-gray-50">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-gray-700 bg-white border px-2 py-0.5 rounded">{e.field}</span>
+                    <div className="flex items-center gap-2 text-xs text-gray-400">
+                      {e.user_login && <span>👤 {e.user_login}</span>}
+                      <span>{new Date(e.changed_at).toLocaleString('ru-RU')}</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <p className="text-gray-400 mb-0.5">Было:</p>
+                      <p className="text-red-600 bg-red-50 px-2 py-1 rounded">{e.old_value || <em className="text-gray-300">пусто</em>}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-400 mb-0.5">Стало:</p>
+                      <p className="text-green-600 bg-green-50 px-2 py-1 rounded">{e.new_value || <em className="text-gray-300">пусто</em>}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Content Gap Section ──────────────────────────────────────────────────────
+
+function ContentGapSection({ projectId }: { projectId: string }) {
+  const [urls, setUrls] = useState(['', '', ''])
+  const [results, setResults] = useState<any | null>(null)
+
+  const analyzeMut = useMutation({
+    mutationFn: () => seoApi.analyzeContentGap(projectId, urls.filter(u => u.trim())),
+    onSuccess: (d: any) => setResults(d),
+  })
+
+  const PRIORITY_CONFIG = [
+    { key: 'high', label: 'Высокий приоритет', icon: '🔴', color: 'border-red-200 bg-red-50' },
+    { key: 'medium', label: 'Средний приоритет', icon: '🟡', color: 'border-yellow-200 bg-yellow-50' },
+    { key: 'low', label: 'Низкий приоритет', icon: '🟢', color: 'border-green-200 bg-green-50' },
+  ]
+
+  const addToContentPlan = (item: any) => {
+    return api.post(`/projects/${projectId}/content-plan`, {
+      title: item.topic,
+      target_keyword: item.keyword || null,
+      notes: item.example_url || null,
+      status: 'idea',
+      priority: 0,
+    })
+  }
+
+  return (
+    <div className="border rounded-lg bg-white p-4 mt-6">
+      <h3 className="font-semibold mb-3">Контентные пробелы</h3>
+      <div className="space-y-2 mb-4">
+        {urls.map((url, i) => (
+          <div key={i}>
+            <label className="block text-xs text-gray-500 mb-1">URL конкурента {i + 1}</label>
+            <input value={url} onChange={e => setUrls(u => u.map((x, j) => j === i ? e.target.value : x))}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder={`https://competitor${i + 1}.com`} />
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <button onClick={() => analyzeMut.mutate()} disabled={analyzeMut.isPending || !urls.some(u => u.trim())}
+            className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+            {analyzeMut.isPending ? '⏳ Анализ (30–60 сек)...' : 'Анализировать'}
+          </button>
+        </div>
+      </div>
+
+      {analyzeMut.isPending && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
+          ⏳ Анализируем контент конкурентов... Это займёт 30–60 секунд.
+        </div>
+      )}
+
+      {results && (
+        <div className="space-y-4">
+          {PRIORITY_CONFIG.map(({ key, label, icon, color }) => {
+            const items: any[] = results[key] || []
+            if (!items.length) return null
+            return (
+              <div key={key}>
+                <h4 className="text-sm font-medium text-gray-700 mb-2">{icon} {label} ({items.length})</h4>
+                <div className={cx('border rounded-lg divide-y', color)}>
+                  {items.map((item: any, i: number) => (
+                    <div key={i} className="px-4 py-3 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800">{item.topic}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {item.content_type && <span className="text-xs bg-white border px-1.5 py-0.5 rounded text-gray-500">{item.content_type}</span>}
+                          {item.example_url && (
+                            <a href={item.example_url} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:underline truncate max-w-xs">
+                              {item.example_url}
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                      <button onClick={() => addToContentPlan(item)}
+                        className="text-xs bg-primary-600 text-white px-2.5 py-1 rounded hover:bg-primary-700 shrink-0">
+                        + Контент-план
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Client Portal Section (Reports tab) ─────────────────────────────────────
+
+function ClientPortalSection({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
+  const [showForm, setShowForm] = useState(false)
+  const [formData, setFormData] = useState({ label: '', expires_at: '' })
+  const [copiedToken, setCopiedToken] = useState<string | null>(null)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['portal-tokens', projectId],
+    queryFn: () => portalApi.listTokens(projectId),
+  })
+
+  const createMut = useMutation({
+    mutationFn: () => portalApi.createToken(projectId, { label: formData.label, expires_at: formData.expires_at || null }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['portal-tokens', projectId] }); setShowForm(false); setFormData({ label: '', expires_at: '' }) },
+  })
+
+  const revokeMut = useMutation({
+    mutationFn: (tokenId: string) => portalApi.revokeToken(projectId, tokenId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['portal-tokens', projectId] }),
+  })
+
+  const copyLink = (token: string) => {
+    const url = `${window.location.origin}/portal/${token}`
+    navigator.clipboard.writeText(url)
+    setCopiedToken(token)
+    setTimeout(() => setCopiedToken(null), 2000)
+  }
+
+  const tokens: any[] = data?.tokens || []
+
+  return (
+    <div className="border rounded-lg bg-white p-4 mt-6">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold">Ссылка для клиента</h3>
+        <button onClick={() => setShowForm(v => !v)}
+          className="bg-primary-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-primary-700">
+          Создать ссылку
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="bg-gray-50 border rounded-lg p-3 mb-4 space-y-2">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Метка (например: «Ссылка для Иванова»)</label>
+            <input value={formData.label} onChange={e => setFormData(f => ({ ...f, label: e.target.value }))}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="Ссылка для клиента" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Срок действия (необязательно)</label>
+            <input type="date" value={formData.expires_at} onChange={e => setFormData(f => ({ ...f, expires_at: e.target.value }))}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => createMut.mutate()} disabled={createMut.isPending}
+              className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
+              {createMut.isPending ? 'Создание...' : 'Создать'}
+            </button>
+            <button onClick={() => setShowForm(false)} className="border px-4 py-2 rounded-lg text-sm hover:bg-gray-50">Отмена</button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <p className="text-sm text-gray-400">Загрузка...</p>
+      ) : tokens.length === 0 ? (
+        <p className="text-sm text-gray-400 py-4 text-center">Нет активных клиентских ссылок</p>
+      ) : (
+        <div className="space-y-2">
+          {tokens.map((t: any) => (
+            <div key={t.id} className="flex items-center gap-3 border rounded-lg px-3 py-2 bg-gray-50">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-700">{t.label || 'Клиентская ссылка'}</p>
+                <p className="text-xs text-gray-400 font-mono truncate">{window.location.origin}/portal/{t.token}</p>
+                {t.expires_at && <p className="text-xs text-gray-400">До: {new Date(t.expires_at).toLocaleDateString('ru-RU')}</p>}
+              </div>
+              <button onClick={() => copyLink(t.token)}
+                className={cx('text-xs px-2.5 py-1 rounded border shrink-0 transition',
+                  copiedToken === t.token ? 'bg-green-100 text-green-700 border-green-300' : 'bg-white text-gray-600 hover:bg-gray-50')}>
+                {copiedToken === t.token ? '✅' : '📋 Копировать'}
+              </button>
+              <button onClick={() => { if (confirm('Отозвать ссылку?')) revokeMut.mutate(t.id) }}
+                className="text-xs text-red-500 hover:text-red-700 shrink-0">Отозвать</button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -3062,6 +4530,7 @@ export default function ProjectPage() {
     { key: 'reports', label: '📋 Отчёты' },
     { key: 'history', label: 'История' },
     { key: 'export', label: 'Экспорт' },
+    { key: 'utm', label: '🔗 UTM' },
   ]
 
   const statusColors: Record<string, string> = {
@@ -3132,6 +4601,7 @@ export default function ProjectPage() {
         {tab === 'reports' && <ReportsTab projectId={id!} />}
         {tab === 'history' && <HistoryTab projectId={id!} />}
         {tab === 'export' && <ExportTab projectId={id!} />}
+        {tab === 'utm' && <UtmTab projectId={id!} />}
       </div>
     </div>
   )

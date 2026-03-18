@@ -28,6 +28,7 @@ class EventType(str, enum.Enum):
     SEO_META_GENERATED = "seo_meta_generated"
     EXPORT_DOWNLOADED = "export_downloaded"
     MEDIAPLAN_UPDATED = "mediaplan_updated"
+    MONTHLY_REPORT_GENERATED = "monthly_report_generated"
 
 
 class ProjectEvent(Base):

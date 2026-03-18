@@ -14,6 +14,9 @@ from app.models.seo import SeoPageMeta
 from app.models.mediaplan import MediaPlan
 from app.models.history import ProjectEvent, EventType
 from app.models.task import Task, TaskType, TaskStatus
+from app.models.utm import UtmTemplate
+from app.models.meta_history import SeoMetaHistory
+from app.models.portal import ProjectAccessToken
 
 __all__ = [
     "User", "UserRole",
@@ -30,4 +33,7 @@ __all__ = [
     "MediaPlan",
     "ProjectEvent", "EventType",
     "Task", "TaskType", "TaskStatus",
+    "UtmTemplate",
+    "SeoMetaHistory",
+    "ProjectAccessToken",
 ]

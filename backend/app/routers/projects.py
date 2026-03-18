@@ -287,6 +287,86 @@ async def brief_chat(
     return {"response": reply}
 
 
+# ─── Project Duplication ──────────────────────────────────────────────────────
+
+@router.post("/{project_id}/duplicate", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
+def duplicate_project(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Duplicate a project with its brief and campaign/group structure (no keywords/ads)."""
+    from app.models.direct import Campaign, AdGroup
+
+    original = _get_project_or_404(project_id, current_user, db)
+
+    # Copy project
+    new_project = Project(
+        name=f"Копия {original.name}",
+        client_name=original.client_name,
+        url=original.url,
+        specialist_id=original.specialist_id,
+        budget=original.budget,
+        notes=original.notes,
+        status=original.status,
+    )
+    db.add(new_project)
+    db.flush()
+
+    # Copy brief
+    original_brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
+    if original_brief:
+        new_brief = Brief(
+            project_id=new_project.id,
+            niche=original_brief.niche,
+            products=original_brief.products,
+            price_segment=original_brief.price_segment,
+            geo=original_brief.geo,
+            target_audience=original_brief.target_audience,
+            pains=original_brief.pains,
+            usp=original_brief.usp,
+            competitors_urls=original_brief.competitors_urls,
+            campaign_goal=original_brief.campaign_goal,
+            ad_geo=original_brief.ad_geo,
+            excluded_geo=original_brief.excluded_geo,
+            monthly_budget=original_brief.monthly_budget,
+            restrictions=original_brief.restrictions,
+            raw_data=original_brief.raw_data,
+        )
+        db.add(new_brief)
+    else:
+        db.add(Brief(project_id=new_project.id))
+
+    # Copy campaign + group structure (no keywords/ads)
+    campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
+    for orig_camp in campaigns:
+        new_camp = Campaign(
+            project_id=new_project.id,
+            name=orig_camp.name,
+            type=orig_camp.type,
+            priority=orig_camp.priority,
+            geo=orig_camp.geo,
+            budget_monthly=orig_camp.budget_monthly,
+            sitelinks=orig_camp.sitelinks,
+            strategy_text=orig_camp.strategy_text,
+        )
+        db.add(new_camp)
+        db.flush()
+
+        groups = db.scalars(select(AdGroup).where(AdGroup.campaign_id == orig_camp.id)).all()
+        for orig_group in groups:
+            new_group = AdGroup(
+                campaign_id=new_camp.id,
+                name=orig_group.name,
+            )
+            db.add(new_group)
+
+    db.commit()
+    db.refresh(new_project)
+    return _project_response(new_project)
+
+
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def _get_project_or_404(project_id: uuid.UUID, current_user: User, db: Session) -> Project:

@@ -32,3 +32,7 @@ class SeoPageMeta(Base):
 
     manually_edited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Schema.org and FAQ content
+    schema_org_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    faq_json: Mapped[str | None] = mapped_column(Text, nullable=True)

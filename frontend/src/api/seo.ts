@@ -52,8 +52,10 @@ export const seoApi = {
   }) =>
     api.patch(`/projects/${projectId}/seo/meta`, data, { params: { page_url: pageUrl } }).then((r) => r.data),
 
-  generateMeta: (projectId: string, generate_og: boolean = false) =>
-    api.post<{ task_id: string }>(`/projects/${projectId}/seo/generate-meta`, null, { params: { generate_og } }).then((r) => r.data),
+  generateMeta: (projectId: string, opts?: { generate_og?: boolean; page_urls?: string[]; only_missing?: boolean; only_issues?: boolean }) =>
+    api.post<{ task_id: string }>(`/projects/${projectId}/seo/generate-meta`, opts || null, {
+      params: { generate_og: opts?.generate_og ?? false }
+    }).then((r) => r.data),
 
   getTaskStatus: (projectId: string, taskId: string) =>
     api.get<{ status: string; progress: number; result: Record<string, unknown> | null; error: string | null }>(
@@ -62,4 +64,22 @@ export const seoApi = {
 
   getChecklist: (projectId: string) =>
     api.get<SeoChecklist>(`/projects/${projectId}/seo/checklist`).then((r) => r.data),
+
+  getMetaHistory: (projectId: string, pageUrl: string) =>
+    api.get(`/projects/${projectId}/seo/meta-history`, { params: { page_url: pageUrl } }).then((r) => r.data),
+
+  generateSchema: (projectId: string, pageUrl: string, schemaType: string) =>
+    api.post(`/projects/${projectId}/seo/schema`, { page_url: pageUrl, schema_type: schemaType }).then((r) => r.data),
+
+  getSchema: (projectId: string, pageUrl: string) =>
+    api.get(`/projects/${projectId}/seo/schema`, { params: { page_url: pageUrl } }).then((r) => r.data),
+
+  generateFaq: (projectId: string, pageUrl: string, count: number = 8) =>
+    api.post(`/projects/${projectId}/seo/faq`, { page_url: pageUrl, count }).then((r) => r.data),
+
+  getFaq: (projectId: string, pageUrl: string) =>
+    api.get(`/projects/${projectId}/seo/faq`, { params: { page_url: pageUrl } }).then((r) => r.data),
+
+  analyzeContentGap: (projectId: string, competitorUrls: string[]) =>
+    api.post(`/projects/${projectId}/seo/content-gap`, { competitor_urls: competitorUrls }).then((r) => r.data),
 }

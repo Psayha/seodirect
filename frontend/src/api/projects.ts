@@ -36,6 +36,7 @@ export const projectsApi = {
   get: (id: string) => api.get<Project>(`/projects/${id}`).then((r) => r.data),
   create: (data: Partial<Project>) => api.post<Project>('/projects/', data).then((r) => r.data),
   update: (id: string, data: Partial<Project>) => api.patch<Project>(`/projects/${id}`, data).then((r) => r.data),
+  duplicate: (id: string) => api.post<Project>(`/projects/${id}/duplicate`).then((r) => r.data),
   getBrief: (id: string) => api.get<Brief>(`/projects/${id}/brief`).then((r) => r.data),
   updateBrief: (id: string, data: Partial<Brief>) => api.put<Brief>(`/projects/${id}/brief`, data).then((r) => r.data),
 }

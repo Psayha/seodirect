@@ -290,3 +290,75 @@ export const somethingApi = {
 const { data } = useQuery({ queryKey: ['something', projectId], queryFn: () => somethingApi.get(projectId) })
 const mutation = useMutation({ mutationFn: ..., onSuccess: () => qc.invalidateQueries(...) })
 ```
+
+---
+
+## Новые функции (features 1-20, 23) — реализованы 2026-03-18
+
+### Новые файлы
+- `backend/app/services/pagespeed.py` — клиент Google PageSpeed Insights API (`get_cwv(url, api_key, strategy)`)
+- `backend/app/routers/utm.py` — UTM-конструктор (CRUD шаблонов + генерация URL)
+- `backend/app/routers/portal.py` — клиентский портал (токены + публичные эндпоинты `/portal/{token}`)
+- `backend/app/tasks/reports.py` — Celery задача ежемесячных автоотчётов (`task_monthly_reports`)
+
+### Новые таблицы БД (миграция 0009)
+- `seo_meta_history` — история изменений мета-тегов
+- `project_access_tokens` — токены клиентского портала
+- `utm_templates` — UTM-шаблоны
+- `seo_page_meta.schema_org_json` + `.faq_json` — Schema.org и FAQ
+- `pages.redirect_chain` + `.cwv_lcp/.cwv_cls/.cwv_fid` — цепочки редиректов и Core Web Vitals
+
+### Новые эндпоинты
+
+**analytics.py:**
+- `GET /projects/{id}/analytics/roi` — ROI-калькулятор (медиаплан + Метрика)
+- `GET /projects/{id}/analytics/anomalies` — обнаружение аномалий трафика
+
+**crawl.py:**
+- `GET /projects/{id}/crawl/linking` — анализ внутренней перелинковки
+- `GET /projects/{id}/crawl/redirects` — анализ цепочек редиректов
+- `GET /projects/{id}/crawl/robots-audit` — аудит robots.txt и sitemap
+- `POST /projects/{id}/crawl/cwv` — замер Core Web Vitals через PageSpeed API
+
+**direct.py:**
+- `GET /projects/{id}/direct/ngrams?n=2&min_count=3` — N-gram анализ ключей
+- `GET /projects/{id}/direct/keywords/heatmap` — тепловая карта ключей
+- `GET /projects/{id}/direct/ads/ab-stats` — A/B статистика объявлений
+- `POST /direct/ads/{ad_id}/mark-winner` — выбор победителя A/B теста
+- `POST /projects/{id}/direct/analyze-search-queries` — анализ поисковых запросов через Claude
+- `POST /projects/{id}/direct/keywords/cluster-local` — локальная кластеризация (pymorphy2)
+
+**seo.py:**
+- `GET /projects/{id}/seo/meta-history` — история изменений мета-тегов
+- `POST /projects/{id}/seo/schema/generate` — генерация Schema.org JSON-LD
+- `GET /projects/{id}/seo/schema` — получение сохранённого Schema.org
+- `POST /projects/{id}/seo/faq/generate` — генерация FAQ + FAQPage Schema.org
+- `GET /projects/{id}/seo/faq` — получение сохранённого FAQ
+- `POST /projects/{id}/seo/content-gap` — анализ контентных пробелов
+- `POST /projects/{id}/seo/generate-meta` расширен полями `page_urls`, `only_missing`, `only_issues`
+
+**utm.py (новый роутер):**
+- `GET/POST /projects/{id}/utm-templates` — список/создание шаблонов
+- `DELETE /projects/{id}/utm-templates/{tid}` — удаление
+- `POST /projects/{id}/utm-templates/build` — генерация UTM URL
+
+**portal.py (новый роутер):**
+- `POST/GET /projects/{id}/portal/tokens` — управление токенами
+- `DELETE /projects/{id}/portal/tokens/{token_id}` — отзыв токена
+- `GET /portal/{token}` — обзор проекта (публичный)
+- `GET /portal/{token}/positions` — позиции Topvisor (публичный)
+- `GET /portal/{token}/analytics` — Метрика (публичный)
+- `GET /portal/{token}/mediaplan` — медиаплан (публичный)
+- `GET /portal/{token}/report` — HTML-отчёт (публичный)
+
+**reports.py:**
+- `POST /projects/{id}/report/generate` — ручной запуск генерации отчёта
+
+**projects.py (уже был):**
+- `POST /projects/{id}/duplicate` — дублирование проекта
+
+### Изменения в существующих файлах
+- `app/models/direct.py` — добавлен `AdStatus.PAUSED`
+- `app/models/history.py` — добавлен `EventType.MONTHLY_REPORT_GENERATED`
+- `app/celery_app.py` — добавлены `app.tasks.seo` и `app.tasks.reports` в `include`
+- `app/tasks/seo.py` — `task_generate_seo_meta` принимает `page_urls`, `only_missing`, `only_issues`

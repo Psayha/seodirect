@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.deps import CurrentUser
+from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 
 router = APIRouter()
@@ -198,3 +198,32 @@ def preview_report(
     html = _build_html(project, brief, crawl_report, keywords_total, ads_total, report_date)
 
     return Response(content=html.encode("utf-8"), media_type="text/html; charset=utf-8")
+
+
+@router.post("/projects/{project_id}/report/generate")
+def generate_report_manually(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Trigger monthly report generation manually for a project."""
+    from app.models.project import Project
+    from app.models.history import ProjectEvent, EventType
+
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    ev = ProjectEvent(
+        project_id=project_id,
+        user_id=current_user.id,
+        user_login=current_user.login if hasattr(current_user, "login") else None,
+        event_type=EventType.MONTHLY_REPORT_GENERATED,
+        description=f"Отчёт сформирован вручную пользователем {current_user.login if hasattr(current_user, 'login') else str(current_user.id)}",
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(ev)
+    db.commit()
+
+    return {"ok": True, "project_id": str(project_id), "report_url": f"/api/projects/{project_id}/report/preview"}

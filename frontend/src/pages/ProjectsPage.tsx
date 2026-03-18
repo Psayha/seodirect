@@ -4,30 +4,53 @@ import { useNavigate } from 'react-router-dom'
 import { projectsApi, Project } from '../api/projects'
 
 function ProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
+  const qc = useQueryClient()
+  const navigate = useNavigate()
   const statusColors: Record<string, string> = {
     active: 'bg-green-100 text-green-700',
     paused: 'bg-yellow-100 text-yellow-700',
     completed: 'bg-blue-100 text-blue-700',
     archived: 'bg-gray-100 text-gray-600',
   }
+  const dupMut = useMutation({
+    mutationFn: () => projectsApi.duplicate(project.id),
+    onSuccess: (newProject) => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      navigate(`/projects/${newProject.id}`)
+    },
+  })
+
   return (
     <div
-      onClick={onClick}
-      className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 cursor-pointer hover:shadow-md transition"
+      className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:shadow-md transition"
     >
-      <div className="flex items-start justify-between">
-        <div>
-          <h3 className="font-semibold text-gray-900">{project.name}</h3>
-          <p className="text-sm text-gray-500 mt-0.5">{project.client_name}</p>
+      <div
+        className="cursor-pointer"
+        onClick={onClick}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="font-semibold text-gray-900">{project.name}</h3>
+            <p className="text-sm text-gray-500 mt-0.5">{project.client_name}</p>
+          </div>
+          <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusColors[project.status] || 'bg-gray-100 text-gray-600'}`}>
+            {project.status}
+          </span>
         </div>
-        <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusColors[project.status] || 'bg-gray-100 text-gray-600'}`}>
-          {project.status}
-        </span>
+        <p className="text-xs text-gray-400 mt-3 truncate">{project.url}</p>
+        <p className="text-xs text-gray-400 mt-1">
+          {new Date(project.created_at).toLocaleDateString('ru-RU')}
+        </p>
       </div>
-      <p className="text-xs text-gray-400 mt-3 truncate">{project.url}</p>
-      <p className="text-xs text-gray-400 mt-1">
-        {new Date(project.created_at).toLocaleDateString('ru-RU')}
-      </p>
+      <div className="mt-3 flex justify-end">
+        <button
+          onClick={(e) => { e.stopPropagation(); dupMut.mutate() }}
+          disabled={dupMut.isPending}
+          className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded px-2 py-1 hover:bg-gray-50 transition disabled:opacity-50"
+        >
+          {dupMut.isPending ? '...' : 'Дублировать'}
+        </button>
+      </div>
     </div>
   )
 }
