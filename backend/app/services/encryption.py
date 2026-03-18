@@ -1,15 +1,17 @@
 import base64
+import hashlib
 import os
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 def _get_key(encryption_key: str) -> bytes:
-    """Derive 32-byte key from string (pad/truncate)."""
-    key_bytes = encryption_key.encode()
-    if len(key_bytes) < 32:
-        key_bytes = key_bytes.ljust(32, b"0")
-    return key_bytes[:32]
+    """Derive a 32-byte AES key from the raw encryption key using SHA-256.
+
+    This replaces the previous insecure ljust padding approach.
+    SHA-256 always produces exactly 32 bytes with full entropy distribution.
+    """
+    return hashlib.sha256(encryption_key.encode("utf-8")).digest()
 
 
 def encrypt(plaintext: str, encryption_key: str) -> str:

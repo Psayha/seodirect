@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import uuid
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -269,10 +270,49 @@ async def content_gap_analysis(
     competitor_pages: list[dict] = []
     pages_analyzed = 0
 
-    async def fetch_page(url: str) -> dict | None:
+    def _is_safe_url(url: str) -> bool:
+        """Block SSRF: reject internal IPs, non-http schemes, and metadata endpoints."""
+        import ipaddress
         try:
-            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client_http:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https"):
+                return False
+            hostname = parsed.hostname or ""
+            if not hostname:
+                return False
+            # Block obvious internal hostnames
+            if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+                return False
+            if hostname.endswith(".internal") or hostname.endswith(".local"):
+                return False
+            # Block cloud metadata endpoints
+            if hostname in ("169.254.169.254", "metadata.google.internal"):
+                return False
+            # Block private IP ranges
+            try:
+                ip = ipaddress.ip_address(hostname)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    return False
+            except ValueError:
+                pass  # hostname is a domain, not an IP — OK
+            return True
+        except Exception:
+            return False
+
+    async def fetch_page(url: str) -> dict | None:
+        if not _is_safe_url(url):
+            logger.warning("Blocked SSRF attempt to %s", url)
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client_http:
                 r = await client_http.get(url, headers={"User-Agent": "Mozilla/5.0"})
+                # Handle redirects manually to check target URL
+                if r.status_code in (301, 302, 303, 307, 308):
+                    redirect_url = str(r.headers.get("location", ""))
+                    if not _is_safe_url(redirect_url):
+                        logger.warning("Blocked SSRF redirect to %s", redirect_url)
+                        return None
+                    r = await client_http.get(redirect_url, headers={"User-Agent": "Mozilla/5.0"})
                 if r.status_code == 200:
                     soup = BeautifulSoup(r.text, "html.parser")
                     title_tag = soup.find("title")

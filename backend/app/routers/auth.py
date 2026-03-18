@@ -38,10 +38,17 @@ class MeResponse(BaseModel):
 
 
 def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """Extract client IP. Only trust X-Forwarded-For from trusted proxies (nginx)."""
+    client_ip = request.client.host if request.client else "unknown"
+    # Only trust the header if request comes from a local proxy (docker network)
+    trusted_proxies = ("127.0.0.1", "::1", "172.16.0.0/12", "10.0.0.0/8", "192.168.0.0/16")
+    if client_ip in ("127.0.0.1", "::1") or client_ip.startswith(("172.", "10.", "192.168.")):
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            # Take the LAST untrusted IP (rightmost entry added by our proxy)
+            parts = [p.strip() for p in forwarded.split(",")]
+            return parts[-1] if parts else client_ip
+    return client_ip
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -49,10 +56,10 @@ def login(body: LoginRequest, request: Request, db: Annotated[Session, Depends(g
     ip = _get_client_ip(request)
     settings = get_settings()
 
-    # Rate limit check
-    allowed, remaining = check_rate_limit(ip)
+    # Rate limit check (by IP + login combo)
+    allowed, remaining = check_rate_limit(ip, body.login)
     if not allowed:
-        ttl = get_ttl(ip)
+        ttl = get_ttl(ip, body.login)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Too many attempts. Try again in {ttl} seconds.",
@@ -77,13 +84,13 @@ def login(body: LoginRequest, request: Request, db: Annotated[Session, Depends(g
     else:
         user = db.scalar(select(User).where(User.login == body.login))
         if not user or not user.is_active or not verify_password(body.password, user.password_hash):
-            increment_attempts(ip)
+            increment_attempts(ip, body.login)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
             )
 
-    clear_attempts(ip)
+    clear_attempts(ip, body.login)
 
     # Update last_login
     db.execute(

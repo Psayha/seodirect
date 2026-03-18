@@ -13,10 +13,20 @@ from sqlalchemy.orm import Session
 from app.auth.deps import CurrentUser
 from app.db.session import get_db
 from app.models.project import Project
+from app.models.user import UserRole
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
 
 
 # ─── Counter management ───────────────────────────────────────────────────────
@@ -28,6 +38,7 @@ async def get_available_counters(
     db: Annotated[Session, Depends(get_db)],
 ):
     """List available Metrika counters from the OAuth token."""
+    _check_project_access(project_id, current_user, db)
     try:
         from app.services.metrika import get_metrika_client
         client = get_metrika_client(db)
@@ -35,8 +46,9 @@ async def get_available_counters(
         return {"counters": counters}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Metrika API error: {str(e)}")
+    except Exception:
+        logger.exception("Metrika API error for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Metrika API error")
 
 
 class SetCounterBody(BaseModel):
@@ -51,6 +63,7 @@ def set_counter(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Save Metrika counter ID to project settings."""
+    _check_project_access(project_id, current_user, db)
     from app.services.settings_service import set_setting
     set_setting(f"project_{project_id}_metrika_counter", str(body.counter_id), db, updated_by=current_user.id)
     return {"ok": True, "counter_id": body.counter_id}
@@ -62,6 +75,7 @@ def get_counter(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     from app.services.settings_service import get_setting
     counter_id = get_setting(f"project_{project_id}_metrika_counter", db)
     return {"counter_id": int(counter_id) if counter_id else None}
@@ -77,6 +91,7 @@ async def get_summary(
     date_from: str | None = None,
     date_to: str | None = None,
 ):
+    _check_project_access(project_id, current_user, db)
     counter_id = _get_counter_or_raise(project_id, db)
     try:
         from app.services.metrika import get_metrika_client
@@ -87,8 +102,9 @@ async def get_summary(
         return {"summary": summary, "sources": sources, "daily": daily}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Metrika API error: {str(e)[:200]}")
+    except Exception:
+        logger.exception("Metrika API error for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Metrika API error")
 
 
 @router.get("/projects/{project_id}/analytics/goals")
@@ -97,6 +113,7 @@ async def get_goals(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     counter_id = _get_counter_or_raise(project_id, db)
     try:
         from app.services.metrika import get_metrika_client
@@ -105,8 +122,9 @@ async def get_goals(
         return {"goals": goals}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e)[:200])
+    except Exception:
+        logger.exception("Metrika goals API error for project %s", project_id)
+        raise HTTPException(status_code=502, detail="Metrika API error")
 
 
 def _get_counter_or_raise(project_id: uuid.UUID, db: Session) -> int:
@@ -128,6 +146,7 @@ async def get_roi(
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ):
+    _check_project_access(project_id, current_user, db)
     """Return ROI data combining MediaPlan + Metrika actuals."""
     from app.models.mediaplan import MediaPlan
 
@@ -181,6 +200,7 @@ async def get_traffic_anomalies(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Detect traffic anomalies by comparing last 7 days vs previous 7 days."""
+    _check_project_access(project_id, current_user, db)
     from app.services.settings_service import get_setting
     counter_val = get_setting(f"project_{project_id}_metrika_counter", db)
     if not counter_val:
@@ -199,8 +219,9 @@ async def get_traffic_anomalies(
         daily = await client.get_daily_visits(int(counter_val), date_from, date_to)
     except RuntimeError as e:
         return {"anomalies": [], "message": str(e)}
-    except Exception as e:
-        return {"anomalies": [], "error": str(e)[:200]}
+    except Exception:
+        logger.exception("Failed to get traffic anomalies for project %s", project_id)
+        return {"anomalies": [], "error": "Failed to fetch traffic data"}
 
     if len(daily) < 14:
         return {"anomalies": [], "message": "Недостаточно данных для анализа (нужно минимум 14 дней)"}

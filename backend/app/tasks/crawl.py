@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 
 from app.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
 
 
 @celery_app.task(bind=True, name="tasks.crawl.run_crawl")
@@ -85,10 +88,35 @@ def run_crawl(self, task_id: str, session_id: str, project_id: str, url: str, se
         session.pages_done = len(pages)
         db.commit()
 
+        # Auto-audit: run SEO checklist immediately after crawl completes
+        audit_result = {}
+        try:
+            from app.services.auto_audit import run_seo_checklist
+            audit_result = run_seo_checklist(uuid.UUID(project_id), db)
+            logger.info(
+                "Auto-audit completed for project %s: score=%s, pages=%s",
+                project_id,
+                audit_result.get("score", "N/A"),
+                audit_result.get("pages_total", 0),
+            )
+        except Exception:
+            logger.exception("Auto-audit failed for project %s (non-critical)", project_id)
+
         if task:
             task.status = TaskStatus.SUCCESS
             task.progress = 100
-            task.result = {"pages_crawled": len(pages)}
+            task.result = {
+                "pages_crawled": len(pages),
+                "auto_audit": {
+                    "score": audit_result.get("score"),
+                    "pages_total": audit_result.get("pages_total"),
+                    "issues_summary": {
+                        i["name"]: i["count"]
+                        for i in audit_result.get("items", [])
+                        if i.get("status") != "ok"
+                    } if audit_result.get("items") else {},
+                },
+            }
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
 

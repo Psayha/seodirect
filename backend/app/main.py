@@ -47,9 +47,14 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+    # CORS: only allow localhost origins in development
+    allowed_origins = [settings.frontend_url]
+    if settings.app_env == "development":
+        allowed_origins.extend(["http://localhost:5173", "http://localhost:3000"])
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.frontend_url, "http://localhost:5173", "http://localhost:3000"],
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
@@ -105,31 +110,77 @@ def create_app() -> FastAPI:
     @app.get("/api/health", tags=["system"])
     def health():
         """Liveness probe — service process is running."""
-        return {"status": "ok"}
+        import platform
+        return {
+            "status": "ok",
+            "version": app.version,
+            "python": platform.python_version(),
+        }
 
     @app.get("/api/ready", tags=["system"])
     def readiness(db: Annotated[Session, Depends(get_db)]):
-        """Readiness probe — DB and Redis are reachable."""
+        """Readiness probe — DB, Redis, and Celery are reachable."""
         import redis as redis_lib
         errors: list[str] = []
+        components = {}
 
         # Check DB
         try:
             db.execute(text("SELECT 1"))
-        except Exception as e:
-            errors.append(f"db: {e}")
+            components["db"] = "ok"
+        except Exception:
+            errors.append("db: unreachable")
+            components["db"] = "error"
 
         # Check Redis
         try:
-            from app.config import get_settings
-            r = redis_lib.from_url(str(get_settings().redis_url), socket_connect_timeout=2)
+            r = redis_lib.from_url(str(settings.redis_url), socket_connect_timeout=2)
             r.ping()
-        except Exception as e:
-            errors.append(f"redis: {e}")
+            components["redis"] = "ok"
+        except Exception:
+            errors.append("redis: unreachable")
+            components["redis"] = "error"
+
+        # Check Celery
+        try:
+            from app.celery_app import celery_app as celery
+            inspect = celery.control.inspect(timeout=2)
+            ping_result = inspect.ping()
+            if ping_result:
+                worker_count = len(ping_result)
+                components["celery"] = f"ok ({worker_count} workers)"
+            else:
+                components["celery"] = "no workers"
+                errors.append("celery: no workers responding")
+        except Exception:
+            components["celery"] = "error"
+            errors.append("celery: unreachable")
 
         if errors:
-            raise HTTPException(status_code=503, detail={"errors": errors})
-        return {"status": "ready"}
+            raise HTTPException(status_code=503, detail={"errors": errors, "components": components})
+        return {"status": "ready", "components": components}
+
+    # ─── Prometheus metrics endpoint ──────────────────────────────────────────
+    @app.get("/api/metrics", tags=["system"], include_in_schema=False)
+    def prometheus_metrics():
+        """Expose Prometheus metrics (request counts, latencies, system info)."""
+        from prometheus_client import (
+            CollectorRegistry,
+            Counter,
+            Gauge,
+            Histogram,
+            generate_latest,
+            multiprocess,
+        )
+        from starlette.responses import Response as StarletteResponse
+
+        # Use the default registry which collects process metrics
+        from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY
+
+        return StarletteResponse(
+            content=generate_latest(REGISTRY),
+            media_type=CONTENT_TYPE_LATEST,
+        )
 
     @app.exception_handler(Exception)
     async def generic_exception_handler(request: Request, exc: Exception):
