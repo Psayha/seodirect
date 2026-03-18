@@ -22,7 +22,13 @@ def _run_async(coro):
         return asyncio.run(coro)
 
 
-@celery_app.task(bind=True, name="tasks.seo.generate_seo_meta")
+@celery_app.task(
+    bind=True,
+    name="tasks.seo.generate_seo_meta",
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3},
+    default_retry_delay=60,
+)
 def task_generate_seo_meta(
     self,
     task_id: str,

@@ -1,5 +1,7 @@
 """UTM Constructor — manage UTM templates and build UTM URLs."""
 from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
 
 import uuid
 from typing import Annotated

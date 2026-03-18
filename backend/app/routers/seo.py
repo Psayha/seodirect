@@ -1,18 +1,21 @@
 """SEO module: meta tags audit + generation, OG tags audit, technical checklist."""
 from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
 
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Optional
 from pydantic import StringConstraints
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
+from app.limiter import limiter
 from app.models.crawl import CrawlSession, CrawlStatus, Page
 from app.models.meta_history import SeoMetaHistory
 from app.models.seo import SeoPageMeta
@@ -197,7 +200,9 @@ class GenerateMetaRequest(BaseModel):
 
 
 @router.post("/projects/{project_id}/seo/generate-meta")
+@limiter.limit("10/minute")
 def generate_seo_meta(
+    request: Request,
     project_id: uuid.UUID,
     current_user: CurrentUser,
     _: Annotated[object, NonViewerRequired],

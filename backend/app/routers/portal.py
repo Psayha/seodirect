@@ -1,5 +1,7 @@
 """Client Portal — token-based public access to project data."""
 from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
 
 import secrets
 import uuid

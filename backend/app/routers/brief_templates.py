@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 """Brief templates by niche — static data."""
 from fastapi import APIRouter
 

@@ -21,7 +21,13 @@ def _run_async(coro):
         return asyncio.run(coro)
 
 
-@celery_app.task(bind=True, name="tasks.direct.generate_strategy")
+@celery_app.task(
+    bind=True,
+    name="tasks.direct.generate_strategy",
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3},
+    default_retry_delay=60,
+)
 def task_generate_strategy(self, task_id: str, project_id: str):
     from app.db.session import SessionLocal
     from app.models.task import Task, TaskStatus
@@ -74,7 +80,13 @@ def task_generate_strategy(self, task_id: str, project_id: str):
         db.close()
 
 
-@celery_app.task(bind=True, name="tasks.direct.check_frequencies")
+@celery_app.task(
+    bind=True,
+    name="tasks.direct.check_frequencies",
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 2},
+    default_retry_delay=30,
+)
 def task_check_frequencies(self, task_id: str, keyword_ids: list[str]):
     from app.db.session import SessionLocal
     from app.models.task import Task, TaskStatus

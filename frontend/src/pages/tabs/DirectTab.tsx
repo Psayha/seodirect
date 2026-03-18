@@ -49,12 +49,13 @@ function WordstatSparkline({ phrase }: { phrase: string }) {
     staleTime: 5 * 60 * 1000,
   })
   if (isFetching) return <span className="text-xs text-gray-400">⏳</span>
-  const items = data?.dynamics?.slice(-12) ?? []
+  type DynamicsItem = { year_month: string; count: number }
+  const items: DynamicsItem[] = data?.dynamics?.slice(-12) ?? []
   if (!items.length) return <span className="text-xs text-gray-400 italic">нет данных</span>
-  const max = Math.max(...items.map((d: any) => d.count), 1)
+  const max = Math.max(...items.map((d) => d.count), 1)
   return (
     <div className="flex items-end gap-0.5 h-8">
-      {items.map((d: any, i: number) => (
+      {items.map((d, i: number) => (
         <div key={i} title={`${d.year_month}: ${d.count.toLocaleString()}`}
           className="w-2 bg-primary-400 hover:bg-primary-600 rounded-sm transition-all cursor-default"
           style={{ height: `${Math.max(2, Math.round((d.count / max) * 32))}px` }} />

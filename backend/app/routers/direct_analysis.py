@@ -1,5 +1,7 @@
 """Direct analysis module: n-grams, heatmap, A/B stats, search query analysis, local clustering."""
 from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
 
 import uuid
 from typing import Annotated

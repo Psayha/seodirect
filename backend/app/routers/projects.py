@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 import uuid
 from typing import Annotated
 from urllib.parse import urlparse

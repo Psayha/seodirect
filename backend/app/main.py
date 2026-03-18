@@ -5,11 +5,14 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.session import get_db
+from app.limiter import limiter
 from app.observability import install_observability
 
 logger = logging.getLogger("seodirect")
@@ -39,6 +42,10 @@ def create_app() -> FastAPI:
     )
 
     install_observability(app)
+
+    # Rate limiting
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     app.add_middleware(
         CORSMiddleware,

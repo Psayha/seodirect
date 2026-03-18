@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated

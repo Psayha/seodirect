@@ -1,13 +1,18 @@
 """SEO enrichments module: Schema.org generation, FAQ generation, content gap analysis."""
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from app.limiter import limiter
+
+logger = logging.getLogger(__name__)
 
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
@@ -26,7 +31,9 @@ class SchemaGenerateRequest(BaseModel):
 
 
 @router.post("/projects/{project_id}/seo/schema/generate")
+@limiter.limit("10/minute")
 async def generate_schema_org(
+    request: Request,
     project_id: uuid.UUID,
     body: SchemaGenerateRequest,
     current_user: CurrentUser,
@@ -119,7 +126,9 @@ class FaqGenerateRequest(BaseModel):
 
 
 @router.post("/projects/{project_id}/seo/faq/generate")
+@limiter.limit("10/minute")
 async def generate_faq(
+    request: Request,
     project_id: uuid.UUID,
     body: FaqGenerateRequest,
     current_user: CurrentUser,
@@ -229,7 +238,9 @@ class ContentGapRequest(BaseModel):
 
 
 @router.post("/projects/{project_id}/seo/content-gap")
+@limiter.limit("5/minute")
 async def content_gap_analysis(
+    request: Request,
     project_id: uuid.UUID,
     body: ContentGapRequest,
     current_user: CurrentUser,
@@ -296,8 +307,8 @@ async def content_gap_analysis(
                         if pd:
                             competitor_pages.append(pd)
                             pages_analyzed += 1
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to crawl competitor URL %s: %s", comp_url, str(e)[:200])
 
     from app.services.claude import get_claude_client
     claude = get_claude_client(db)

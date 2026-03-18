@@ -1,17 +1,20 @@
 from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
 
 import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
+from app.limiter import limiter
 from app.models.direct import (
     Ad, AdGroup, AdStatus, Campaign, CampaignStatus,
     Keyword, KeywordStatus, KeywordTemperature, NegativeKeyword,
@@ -24,7 +27,9 @@ router = APIRouter()
 # ─── Strategy ─────────────────────────────────────────────────────────────────
 
 @router.post("/projects/{project_id}/direct/strategy/generate")
+@limiter.limit("10/minute")
 def generate_strategy(
+    request: Request,
     project_id: uuid.UUID,
     current_user: CurrentUser,
     _: Annotated[object, NonViewerRequired],
@@ -65,10 +70,14 @@ def get_strategy(
     return {"strategy_text": campaign.strategy_text, "campaign_id": str(campaign.id)}
 
 
+class UpdateStrategyRequest(BaseModel):
+    strategy_text: str = Field(default="", max_length=50000)
+
+
 @router.put("/projects/{project_id}/direct/strategy")
 def update_strategy(
     project_id: uuid.UUID,
-    body: dict,
+    body: UpdateStrategyRequest,
     current_user: CurrentUser,
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
@@ -79,7 +88,7 @@ def update_strategy(
     if not campaign:
         campaign = Campaign(project_id=project_id, name="Стратегия")
         db.add(campaign)
-    campaign.strategy_text = body.get("strategy_text", "")
+    campaign.strategy_text = body.strategy_text
     db.commit()
     return {"ok": True}
 
@@ -211,7 +220,9 @@ def list_keywords(
 
 
 @router.post("/direct/groups/{group_id}/keywords/generate")
+@limiter.limit("10/minute")
 def generate_keywords(
+    request: Request,
     group_id: uuid.UUID,
     current_user: CurrentUser,
     _: Annotated[object, NonViewerRequired],
@@ -327,7 +338,9 @@ def list_ads(
 
 
 @router.post("/direct/groups/{group_id}/ads/generate")
+@limiter.limit("10/minute")
 def generate_ads(
+    request: Request,
     group_id: uuid.UUID,
     current_user: CurrentUser,
     _: Annotated[object, NonViewerRequired],
@@ -367,7 +380,9 @@ def list_negative_keywords(
 
 
 @router.post("/projects/{project_id}/direct/negative-keywords/generate")
+@limiter.limit("10/minute")
 def generate_negative_keywords_endpoint(
+    request: Request,
     project_id: uuid.UUID,
     current_user: CurrentUser,
     _: Annotated[object, NonViewerRequired],

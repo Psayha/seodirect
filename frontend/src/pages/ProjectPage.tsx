@@ -1,27 +1,32 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { projectsApi } from '../api/projects'
+import ErrorBoundary from '../components/ErrorBoundary'
 
-import OverviewTab from './tabs/OverviewTab'
-import BriefTab from './tabs/BriefTab'
-import CrawlTab from './tabs/CrawlTab'
-import DirectTab from './tabs/DirectTab'
-import SeoTab from './tabs/SeoTab'
-import OgTab from './tabs/OgTab'
-import MediaplanTab from './tabs/MediaplanTab'
-import AnalyticsTab from './tabs/AnalyticsTab'
-import TopvisorTab from './tabs/TopvisorTab'
-import ContentPlanTab from './tabs/ContentPlanTab'
-import ReportsTab from './tabs/ReportsTab'
-import HistoryTab from './tabs/HistoryTab'
-import ExportTab from './tabs/ExportTab'
-import UtmTab from './tabs/UtmTab'
+const OverviewTab = lazy(() => import('./tabs/OverviewTab'))
+const BriefTab = lazy(() => import('./tabs/BriefTab'))
+const CrawlTab = lazy(() => import('./tabs/CrawlTab'))
+const DirectTab = lazy(() => import('./tabs/DirectTab'))
+const SeoTab = lazy(() => import('./tabs/SeoTab'))
+const OgTab = lazy(() => import('./tabs/OgTab'))
+const MediaplanTab = lazy(() => import('./tabs/MediaplanTab'))
+const AnalyticsTab = lazy(() => import('./tabs/AnalyticsTab'))
+const TopvisorTab = lazy(() => import('./tabs/TopvisorTab'))
+const ContentPlanTab = lazy(() => import('./tabs/ContentPlanTab'))
+const ReportsTab = lazy(() => import('./tabs/ReportsTab'))
+const HistoryTab = lazy(() => import('./tabs/HistoryTab'))
+const ExportTab = lazy(() => import('./tabs/ExportTab'))
+const UtmTab = lazy(() => import('./tabs/UtmTab'))
 
 type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og' | 'mediaplan' | 'analytics' | 'topvisor' | 'content-plan' | 'reports' | 'history' | 'export' | 'utm'
 
 function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
+}
+
+function TabFallback() {
+  return <div className="p-6 text-gray-400 text-sm">Загрузка вкладки...</div>
 }
 
 export default function ProjectPage() {
@@ -91,20 +96,24 @@ export default function ProjectPage() {
       </div>
 
       <div className="flex-1 bg-gray-50">
-        {tab === 'overview' && <OverviewTab projectId={id!} />}
-        {tab === 'brief' && <BriefTab projectId={id!} />}
-        {tab === 'crawl' && <CrawlTab projectId={id!} />}
-        {tab === 'direct' && <DirectTab projectId={id!} />}
-        {tab === 'seo' && <SeoTab projectId={id!} />}
-        {tab === 'og' && <OgTab projectId={id!} />}
-        {tab === 'mediaplan' && <MediaplanTab projectId={id!} />}
-        {tab === 'analytics' && <AnalyticsTab projectId={id!} />}
-        {tab === 'topvisor' && <TopvisorTab projectId={id!} />}
-        {tab === 'content-plan' && <ContentPlanTab projectId={id!} />}
-        {tab === 'reports' && <ReportsTab projectId={id!} />}
-        {tab === 'history' && <HistoryTab projectId={id!} />}
-        {tab === 'export' && <ExportTab projectId={id!} />}
-        {tab === 'utm' && <UtmTab projectId={id!} />}
+        <ErrorBoundary label={tab}>
+          <Suspense fallback={<TabFallback />}>
+            {tab === 'overview' && <OverviewTab projectId={id!} />}
+            {tab === 'brief' && <BriefTab projectId={id!} />}
+            {tab === 'crawl' && <CrawlTab projectId={id!} />}
+            {tab === 'direct' && <DirectTab projectId={id!} />}
+            {tab === 'seo' && <SeoTab projectId={id!} />}
+            {tab === 'og' && <OgTab projectId={id!} />}
+            {tab === 'mediaplan' && <MediaplanTab projectId={id!} />}
+            {tab === 'analytics' && <AnalyticsTab projectId={id!} />}
+            {tab === 'topvisor' && <TopvisorTab projectId={id!} />}
+            {tab === 'content-plan' && <ContentPlanTab projectId={id!} />}
+            {tab === 'reports' && <ReportsTab projectId={id!} />}
+            {tab === 'history' && <HistoryTab projectId={id!} />}
+            {tab === 'export' && <ExportTab projectId={id!} />}
+            {tab === 'utm' && <UtmTab projectId={id!} />}
+          </Suspense>
+        </ErrorBoundary>
       </div>
     </div>
   )

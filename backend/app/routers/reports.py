@@ -1,5 +1,7 @@
 """Client auto-reports: HTML snapshot of project state."""
 from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
 
 import uuid
 from datetime import date, datetime, timezone
