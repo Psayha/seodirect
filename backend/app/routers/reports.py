@@ -191,7 +191,7 @@ def generate_report_manually(
     """Trigger monthly report generation manually for a project."""
     from app.models.history import EventType, ProjectEvent
 
-    project = _check_project_access(project_id, current_user, db)
+    _check_project_access(project_id, current_user, db)
 
     ev = ProjectEvent(
         project_id=project_id,
