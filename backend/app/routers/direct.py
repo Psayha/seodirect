@@ -99,6 +99,7 @@ class CampaignUpdate(BaseModel):
     status: str | None = None
     geo: dict | None = None
     budget_monthly: float | None = None
+    sitelinks: list | None = None
 
 
 @router.get("/projects/{project_id}/direct/campaigns")
@@ -374,6 +375,7 @@ def _campaign_dict(c: Campaign) -> dict:
         "status": c.status.value,
         "geo": c.geo,
         "budget_monthly": c.budget_monthly,
+        "sitelinks": c.sitelinks or [],
         "strategy_text": c.strategy_text,
         "created_at": c.created_at.isoformat(),
     }

@@ -44,6 +44,7 @@ class Campaign(Base, TimestampMixin):
     geo: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     strategy_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     budget_monthly: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sitelinks: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
 class AdGroup(Base, TimestampMixin):
