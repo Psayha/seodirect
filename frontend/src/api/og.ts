@@ -8,6 +8,9 @@ export interface OgPage {
   og_type: string | null
   rec_og_title: string | null
   rec_og_description: string | null
+  twitter_card: string | null
+  twitter_title: string | null
+  twitter_description: string | null
   meta_id: string | null
   missing_title: boolean
   missing_description: boolean
@@ -38,7 +41,7 @@ export const ogApi = {
       `/projects/${projectId}/og/export-html`
     ).then((r) => r.data),
 
-  // Reuse SEO meta update for OG
-  updateMeta: (projectId: string, pageUrl: string, data: { rec_og_title?: string; rec_og_description?: string }) =>
+  // Reuse SEO meta update for OG + Twitter Card
+  updateMeta: (projectId: string, pageUrl: string, data: { rec_og_title?: string; rec_og_description?: string; twitter_card?: string; twitter_title?: string; twitter_description?: string }) =>
     api.patch(`/projects/${projectId}/seo/meta`, data, { params: { page_url: pageUrl } }).then((r) => r.data),
 }

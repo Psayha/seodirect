@@ -135,6 +135,8 @@ def get_pages(
         q = q.where(Page.robots_meta.like("%noindex%"))
     elif issue == "slow":
         q = q.where(Page.load_time_ms > 3000)
+    elif issue == "multi_h1":
+        q = q.where(Page.h1_count > 1)
     elif issue == "orphan":
         orphan_urls = _get_orphan_urls(all_pages)
         if orphan_urls:
@@ -167,6 +169,7 @@ def get_pages(
                 "title": p.title,
                 "description": p.description,
                 "h1": p.h1,
+                "h1_count": p.h1_count,
                 "robots_meta": p.robots_meta,
                 "word_count": p.word_count,
                 "load_time_ms": p.load_time_ms,
@@ -208,6 +211,7 @@ def crawl_report(
         "no_title": sum(1 for p in pages if not p.title),
         "no_description": sum(1 for p in pages if not p.description),
         "no_h1": sum(1 for p in pages if not p.h1),
+        "multi_h1": sum(1 for p in pages if p.h1_count > 1),
         "noindex_pages": sum(1 for p in pages if p.robots_meta and "noindex" in p.robots_meta),
         "slow_pages": sum(1 for p in pages if p.load_time_ms > 3000),
         "images_without_alt": sum(p.images_without_alt for p in pages),

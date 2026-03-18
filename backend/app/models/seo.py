@@ -25,5 +25,10 @@ class SeoPageMeta(Base):
     rec_og_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
     rec_og_description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Twitter Card
+    twitter_card: Mapped[str | None] = mapped_column(String(50), nullable=True)   # summary | summary_large_image
+    twitter_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    twitter_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     manually_edited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

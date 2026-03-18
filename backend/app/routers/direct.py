@@ -262,6 +262,25 @@ def check_keyword_frequency(
     return {"task_id": str(task.id)}
 
 
+@router.get("/direct/keywords/dynamics")
+async def keyword_dynamics(
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    phrase: str = "",
+):
+    """Return monthly frequency dynamics for a phrase from Wordstat."""
+    if not phrase:
+        raise HTTPException(status_code=400, detail="phrase required")
+    from app.services.wordstat import WordstatClient
+    from app.services.settings_service import get_setting
+    token = get_setting("wordstat_oauth_token", db)
+    if not token:
+        raise HTTPException(status_code=400, detail="Wordstat OAuth token not configured")
+    client = WordstatClient(token)
+    data = await client.get_dynamics(phrase)
+    return {"phrase": phrase, "dynamics": data}
+
+
 @router.post("/direct/keywords", status_code=201)
 def add_keyword(current_user: CurrentUser, body: dict, db: Annotated[Session, Depends(get_db)]):
     kw = Keyword(

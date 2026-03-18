@@ -327,7 +327,7 @@ function BriefTab({ projectId }: { projectId: string }) {
 
 // ─── Crawl Tab ────────────────────────────────────────────────────────────────
 
-type AuditIssue = 'no_title' | 'no_description' | 'no_h1' | 'noindex' | 'slow' | 'no_alt' | 'orphan' | 'dup_title' | 'dup_description'
+type AuditIssue = 'no_title' | 'no_description' | 'no_h1' | 'multi_h1' | 'noindex' | 'slow' | 'no_alt' | 'orphan' | 'dup_title' | 'dup_description'
 
 function UrlTreeNode({ node, depth = 0 }: { node: Record<string, any>; depth?: number }) {
   const [expanded, setExpanded] = useState(depth < 2)
@@ -408,6 +408,7 @@ function CrawlTab({ projectId }: { projectId: string }) {
     no_title: 'Без title',
     no_description: 'Без description',
     no_h1: 'Без H1',
+    multi_h1: 'Несколько H1',
     noindex: 'noindex',
     slow: 'Медленных (>3с)',
     no_alt: 'Картинок без alt',
@@ -421,6 +422,7 @@ function CrawlTab({ projectId }: { projectId: string }) {
     { key: 'no_title' as const, label: 'Без title', value: report.no_title, bad: report.no_title > 0, issue: 'no_title' as AuditIssue },
     { key: 'no_description' as const, label: 'Без description', value: report.no_description, bad: report.no_description > 0, issue: 'no_description' as AuditIssue },
     { key: 'no_h1' as const, label: 'Без H1', value: report.no_h1, bad: report.no_h1 > 0, issue: 'no_h1' as AuditIssue },
+    { key: 'multi_h1' as const, label: 'Несколько H1', value: report.multi_h1 ?? 0, bad: (report.multi_h1 ?? 0) > 0, issue: 'multi_h1' as AuditIssue },
     { key: 'noindex_pages' as const, label: 'noindex страниц', value: report.noindex_pages, bad: report.noindex_pages > 0, issue: 'noindex' as AuditIssue },
     { key: 'slow_pages' as const, label: 'Медленных (>3с)', value: report.slow_pages, bad: report.slow_pages > 0, issue: 'slow' as AuditIssue },
     { key: 'images_without_alt' as const, label: 'Картинок без alt', value: report.images_without_alt, bad: report.images_without_alt > 0, issue: 'no_alt' as AuditIssue },
@@ -672,11 +674,33 @@ function AdCard({ ad, onUpdate }: { ad: Ad; onUpdate: () => void }) {
 
 // ─── Direct: Group Content ────────────────────────────────────────────────────
 
+function WordstatSparkline({ phrase }: { phrase: string }) {
+  const { data, isFetching } = useQuery({
+    queryKey: ['wordstat-dynamics', phrase],
+    queryFn: () => api.get<{ dynamics: Array<{ year_month: string; count: number }> }>(`/direct/keywords/dynamics`, { params: { phrase } }).then((r) => r.data),
+    staleTime: 5 * 60 * 1000,
+  })
+  if (isFetching) return <span className="text-xs text-gray-400">⏳</span>
+  const items = data?.dynamics?.slice(-12) ?? []
+  if (!items.length) return <span className="text-xs text-gray-400 italic">нет данных</span>
+  const max = Math.max(...items.map((d) => d.count), 1)
+  return (
+    <div className="flex items-end gap-0.5 h-8">
+      {items.map((d, i) => (
+        <div key={i} title={`${d.year_month}: ${d.count.toLocaleString()}`}
+          className="w-2 bg-primary-400 hover:bg-primary-600 rounded-sm transition-all cursor-default"
+          style={{ height: `${Math.max(2, Math.round((d.count / max) * 32))}px` }} />
+      ))}
+    </div>
+  )
+}
+
 function GroupContent({ group }: { group: AdGroup }) {
   const qc = useQueryClient()
   const [subtab, setSubtab] = useState<'keywords' | 'ads'>('keywords')
   const [newKw, setNewKw] = useState('')
   const [newKwTemp, setNewKwTemp] = useState('warm')
+  const [dynamicsKw, setDynamicsKw] = useState<string | null>(null)
 
   const { data: keywords = [] } = useQuery({
     queryKey: ['keywords', group.id],
@@ -736,14 +760,28 @@ function GroupContent({ group }: { group: AdGroup }) {
           {checkFreqMut.isSuccess && <p className="text-xs text-blue-600">⏳ Задача запущена, частоты обновятся через ~30с</p>}
           <div className="space-y-1">
             {(keywords as Keyword[]).map((kw) => (
-              <div key={kw.id} className="flex items-center gap-2 py-1.5 px-2 bg-white border rounded text-sm hover:bg-gray-50">
-                <TempBadge temp={kw.temperature} />
-                <span className="flex-1 font-mono text-xs">{kw.phrase}</span>
-                {kw.frequency !== null && (
-                  <span className="text-xs text-gray-500 tabular-nums w-16 text-right">{kw.frequency.toLocaleString()}</span>
+              <div key={kw.id} className="bg-white border rounded text-sm">
+                <div className="flex items-center gap-2 py-1.5 px-2 hover:bg-gray-50">
+                  <TempBadge temp={kw.temperature} />
+                  <span className="flex-1 font-mono text-xs">{kw.phrase}</span>
+                  {kw.frequency !== null && (
+                    <span className="text-xs text-gray-500 tabular-nums w-16 text-right">{kw.frequency.toLocaleString()}</span>
+                  )}
+                  <StatusBadge status={kw.status} />
+                  <button
+                    title="Сезонность (Wordstat)"
+                    onClick={() => setDynamicsKw(dynamicsKw === kw.phrase ? null : kw.phrase)}
+                    className={cx('text-xs px-1.5 py-0.5 rounded transition', dynamicsKw === kw.phrase ? 'bg-primary-100 text-primary-700' : 'text-gray-400 hover:text-primary-600')}>
+                    📈
+                  </button>
+                  <button onClick={() => delKwMut.mutate(kw.id)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                </div>
+                {dynamicsKw === kw.phrase && (
+                  <div className="px-3 pb-2 border-t bg-gray-50">
+                    <p className="text-xs text-gray-500 mb-1">Сезонность за 12 мес. (Wordstat)</p>
+                    <WordstatSparkline phrase={kw.phrase} />
+                  </div>
                 )}
-                <StatusBadge status={kw.status} />
-                <button onClick={() => delKwMut.mutate(kw.id)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
               </div>
             ))}
             {(keywords as Keyword[]).length === 0 && (
@@ -1582,6 +1620,10 @@ function MediaPlanTab({ projectId }: { projectId: string }) {
           {data?.total_frequency > 0 && (
             <span className="text-xs text-gray-500">Суммарная частота ключей: {data.total_frequency.toLocaleString()}</span>
           )}
+          <a href={`/api/projects/${projectId}/export/mediaplan-xlsx`}
+            className="border px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-1">
+            📥 XLSX
+          </a>
           <button onClick={() => resetMut.mutate()} disabled={resetMut.isPending}
             className="border px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50">
             ↺ Сброс
@@ -1733,8 +1775,10 @@ function OgTab({ projectId }: { projectId: string }) {
   const [issuesOnly, setIssuesOnly] = useState(false)
   const [taskId, setTaskId] = useState<string | null>(null)
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null)
-  const [editForms, setEditForms] = useState<Record<string, { rec_og_title: string; rec_og_description: string }>>({})
+  const [editForms, setEditForms] = useState<Record<string, { rec_og_title: string; rec_og_description: string; twitter_card: string; twitter_title: string; twitter_description: string }>>({})
   const [previewPlatform, setPreviewPlatform] = useState<'telegram' | 'vk' | 'whatsapp'>('telegram')
+  const [showHtmlExport, setShowHtmlExport] = useState(false)
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['og-audit', projectId, issuesOnly],
@@ -1750,6 +1794,18 @@ function OgTab({ projectId }: { projectId: string }) {
       return s === 'running' || s === 'pending' ? 2000 : false
     },
   })
+
+  const { data: htmlSnippets, refetch: refetchSnippets } = useQuery({
+    queryKey: ['og-html-export', projectId],
+    queryFn: () => ogApi.exportHtml(projectId),
+    enabled: showHtmlExport,
+  })
+
+  const copySnippet = (url: string, html: string) => {
+    navigator.clipboard.writeText(html)
+    setCopiedUrl(url)
+    setTimeout(() => setCopiedUrl(null), 2000)
+  }
 
   const genMut = useMutation({
     mutationFn: () => ogApi.generate(projectId),
@@ -1816,7 +1872,7 @@ function OgTab({ projectId }: { projectId: string }) {
           <div className="space-y-2">
             {(data?.pages ?? []).map((page: OgPage) => {
               const isExpanded = expandedUrl === page.page_url
-              const form = editForms[page.page_url] || { rec_og_title: page.rec_og_title || '', rec_og_description: page.rec_og_description || '' }
+              const form = editForms[page.page_url] || { rec_og_title: page.rec_og_title || '', rec_og_description: page.rec_og_description || '', twitter_card: page.twitter_card || 'summary_large_image', twitter_title: page.twitter_title || '', twitter_description: page.twitter_description || '' }
               return (
                 <div key={page.page_url} className={cx('border rounded-lg bg-white overflow-hidden',
                   page.has_rec ? 'border-green-200' : (page.missing_title || page.missing_description) ? 'border-red-200' : '')}>
@@ -1928,6 +1984,28 @@ function OgTab({ projectId }: { projectId: string }) {
                             value={form.rec_og_description}
                             onChange={(e) => setEditForms((f) => ({ ...f, [page.page_url]: { ...form, rec_og_description: e.target.value } }))} />
                         </div>
+
+                        {/* Twitter Card */}
+                        <div className="pt-1 border-t">
+                          <p className="text-xs font-semibold text-gray-500 mb-1.5">Twitter Card</p>
+                          <div className="flex gap-2 mb-1.5">
+                            {(['summary', 'summary_large_image'] as const).map((v) => (
+                              <button key={v} type="button"
+                                onClick={() => setEditForms((f) => ({ ...f, [page.page_url]: { ...form, twitter_card: v } }))}
+                                className={cx('text-xs px-2 py-1 rounded border', form.twitter_card === v ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600')}>
+                                {v === 'summary' ? 'summary' : 'summary_large_image'}
+                              </button>
+                            ))}
+                          </div>
+                          <input className="w-full border rounded px-2 py-1 text-sm bg-white mb-1"
+                            placeholder="twitter:title (авто из og:title)"
+                            value={form.twitter_title}
+                            onChange={(e) => setEditForms((f) => ({ ...f, [page.page_url]: { ...form, twitter_title: e.target.value } }))} />
+                          <textarea rows={2} className="w-full border rounded px-2 py-1 text-sm bg-white"
+                            placeholder="twitter:description (авто из og:description)"
+                            value={form.twitter_description}
+                            onChange={(e) => setEditForms((f) => ({ ...f, [page.page_url]: { ...form, twitter_description: e.target.value } }))} />
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <button onClick={() => saveMut.mutate({ url: page.page_url, form })}
@@ -1948,6 +2026,47 @@ function OgTab({ projectId }: { projectId: string }) {
           </div>
         )
       }
+
+      {/* HTML Export section */}
+      <div className="mt-6 border-t pt-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="font-semibold text-sm text-gray-700">Экспорт HTML-кода OG тегов</h4>
+          <button
+            onClick={() => { setShowHtmlExport((v) => !v); if (!showHtmlExport) refetchSnippets() }}
+            className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+          >
+            {showHtmlExport ? 'Скрыть ▲' : 'Показать ▼'}
+          </button>
+        </div>
+        {showHtmlExport && (
+          <div className="space-y-2">
+            {!htmlSnippets ? (
+              <p className="text-sm text-gray-400">Загрузка...</p>
+            ) : htmlSnippets.total === 0 ? (
+              <p className="text-sm text-gray-400">Нет страниц с рекомендациями. Сначала сгенерируйте OG теги.</p>
+            ) : (
+              <>
+                <p className="text-xs text-gray-500 mb-2">{htmlSnippets.total} страниц с рекомендациями</p>
+                {htmlSnippets.snippets.map((s) => (
+                  <div key={s.page_url} className="border rounded-lg bg-white overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b">
+                      <span className="text-xs font-mono text-gray-600 truncate flex-1">{s.page_url}</span>
+                      <button
+                        onClick={() => copySnippet(s.page_url, s.html)}
+                        className={cx('text-xs px-2.5 py-1 rounded ml-2 shrink-0 transition font-medium',
+                          copiedUrl === s.page_url ? 'bg-green-100 text-green-700' : 'bg-primary-50 text-primary-600 hover:bg-primary-100')}
+                      >
+                        {copiedUrl === s.page_url ? '✅ Скопировано' : '📋 Скопировать'}
+                      </button>
+                    </div>
+                    <pre className="text-xs text-gray-700 p-3 overflow-x-auto bg-gray-50 font-mono leading-relaxed">{s.html}</pre>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
