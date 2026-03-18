@@ -12,22 +12,31 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-seodirect}"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 5
+    command: >
+      postgres
+        -c shared_buffers=128MB
+        -c work_mem=4MB
+        -c maintenance_work_mem=32MB
+        -c effective_cache_size=256MB
+        -c max_connections=30
+    mem_limit: 384m
 
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set} --save ""
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 5
+    mem_limit: 96m
 
   backend:
-    build: ./backend
+    image: ghcr.io/${GITHUB_REPO:-psayha/seodirect}/backend:latest
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -35,9 +44,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    mem_limit: 384m
 
   celery:
-    build: ./backend
+    image: ghcr.io/${GITHUB_REPO:-psayha/seodirect}/backend:latest
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -45,13 +56,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.celery_app worker -l info -c 4
+    command: celery -A app.celery_app worker -l warning -c 1 --max-memory-per-child=200000
+    mem_limit: 320m
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: ghcr.io/${GITHUB_REPO:-psayha/seodirect}/frontend:latest
     restart: unless-stopped
+    mem_limit: 32m
 
   nginx:
     image: nginx:alpine
@@ -60,11 +71,12 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - backend
       - frontend
+    mem_limit: 32m
 
 volumes:
   postgres_data:

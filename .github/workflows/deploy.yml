@@ -1,0 +1,89 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ghcr.io/${{ github.repository }}/backend
+  FRONTEND_IMAGE: ghcr.io/${{ github.repository }}/frontend
+
+jobs:
+  deploy:
+    name: Build & Deploy to Production
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # ── Login to GitHub Container Registry ──────────────────────────────────
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Build & push backend image ─────────────────────────────────────────
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:latest
+            ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+
+      # ── Build & push frontend image (prod multi-stage) ─────────────────────
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile.prod
+          push: true
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+
+      # ── Deploy to server via SSH ───────────────────────────────────────────
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REPO: ${{ github.repository }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: GHCR_TOKEN,GITHUB_ACTOR,GITHUB_REPO
+          script: |
+            set -e
+            APP_DIR="/opt/seodirect"
+            mkdir -p "${APP_DIR}"
+            cd "${APP_DIR}"
+
+            # Pull latest compose and config files from repo
+            if [ ! -d .git ]; then
+              git clone --depth 1 https://github.com/${GITHUB_REPO}.git .tmp_repo
+              cp .tmp_repo/docker-compose.prod.yml .
+              cp -r .tmp_repo/nginx .
+              cp -r .tmp_repo/scripts .
+              rm -rf .tmp_repo
+            else
+              git fetch origin main --depth 1
+              git checkout origin/main -- docker-compose.prod.yml nginx/ scripts/
+            fi
+
+            # Login to GHCR on server
+            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+            # Run deploy
+            bash scripts/deploy.sh
