@@ -11,6 +11,7 @@ from app.services.encryption import decrypt, encrypt
 # Определяем какие ключи являются API ключами (шифруются)
 API_KEY_FIELDS = {
     "anthropic_api_key",
+    "openrouter_api_key",
     "wordstat_oauth_token",
     "topvisor_api_key",
     "metrika_oauth_token",
