@@ -1,8 +1,7 @@
 """Client Portal — token-based public access to project data."""
 from __future__ import annotations
-import logging
-logger = logging.getLogger(__name__)
 
+import logging
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -17,6 +16,8 @@ from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.models.portal import ProjectAccessToken
 from app.models.project import Project
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -133,10 +134,11 @@ def portal_overview(token: str, db: Annotated[Session, Depends(get_db)]):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    from sqlalchemy import func
+
     from app.models.brief import Brief
     from app.models.crawl import CrawlSession, CrawlStatus
-    from app.models.direct import Campaign, AdGroup, Keyword, Ad
-    from sqlalchemy import func
+    from app.models.direct import Ad, AdGroup, Campaign, Keyword
 
     brief = db.scalar(select(Brief).where(Brief.project_id == project.id))
     crawl = db.scalar(
@@ -184,8 +186,8 @@ async def portal_positions(token: str, db: Annotated[Session, Depends(get_db)]):
     """Return Topvisor positions for client portal."""
     tok = _resolve_token(token, db)
     try:
-        from app.services.topvisor import get_positions, get_topvisor_client_key
         from app.models.project import Project as ProjectModel
+        from app.services.topvisor import get_positions, get_topvisor_client_key
         project = db.get(ProjectModel, tok.project_id)
         if not project or not project.topvisor_project_id:
             return {"positions": [], "message": "Topvisor не подключён"}
@@ -239,12 +241,14 @@ def portal_report(token: str, db: Annotated[Session, Depends(get_db)]):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    from datetime import date
+
+    from sqlalchemy import func
+
     from app.models.brief import Brief
     from app.models.crawl import CrawlSession, CrawlStatus
-    from app.models.direct import Campaign, AdGroup, Keyword, Ad
+    from app.models.direct import Ad, AdGroup, Campaign, Keyword
     from app.routers.reports import _build_html
-    from sqlalchemy import func
-    from datetime import date
 
     brief = db.scalar(select(Brief).where(Brief.project_id == project.id))
     crawl = db.scalar(

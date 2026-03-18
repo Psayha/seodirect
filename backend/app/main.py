@@ -1,5 +1,5 @@
-from contextlib import asynccontextmanager
 import logging
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -56,28 +56,28 @@ def create_app() -> FastAPI:
     )
 
     # Routers
+    from app.routers.analytics import router as analytics_router
     from app.routers.auth import router as auth_router
-    from app.routers.projects import router as projects_router
+    from app.routers.brief_templates import router as brief_templates_router
+    from app.routers.content_plan import router as content_plan_router
     from app.routers.crawl import router as crawl_router
     from app.routers.direct import router as direct_router
-    from app.routers.settings import router as settings_router
-    from app.routers.export import router as export_router
-    from app.routers.users import router as users_router
-    from app.routers.tasks import router as tasks_router
-    from app.routers.seo import router as seo_router
-    from app.routers.og import router as og_router
-    from app.routers.mediaplan import router as mediaplan_router
-    from app.routers.history import router as history_router
-    from app.routers.analytics import router as analytics_router
-    from app.routers.topvisor import router as topvisor_router
-    from app.routers.content_plan import router as content_plan_router
-    from app.routers.reports import router as reports_router
-    from app.routers.brief_templates import router as brief_templates_router
-    from app.routers.push import router as push_router
-    from app.routers.utm import router as utm_router
-    from app.routers.portal import router as portal_router
-    from app.routers.seo_enrichments import router as seo_enrichments_router
     from app.routers.direct_analysis import router as direct_analysis_router
+    from app.routers.export import router as export_router
+    from app.routers.history import router as history_router
+    from app.routers.mediaplan import router as mediaplan_router
+    from app.routers.og import router as og_router
+    from app.routers.portal import router as portal_router
+    from app.routers.projects import router as projects_router
+    from app.routers.push import router as push_router
+    from app.routers.reports import router as reports_router
+    from app.routers.seo import router as seo_router
+    from app.routers.seo_enrichments import router as seo_enrichments_router
+    from app.routers.settings import router as settings_router
+    from app.routers.tasks import router as tasks_router
+    from app.routers.topvisor import router as topvisor_router
+    from app.routers.users import router as users_router
+    from app.routers.utm import router as utm_router
 
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(projects_router, prefix="/api/projects", tags=["projects"])

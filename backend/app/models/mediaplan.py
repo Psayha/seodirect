@@ -1,10 +1,10 @@
 """MediaPlan — monthly budget breakdown per project."""
 import uuid
+from datetime import datetime
 
-from sqlalchemy import String, Float, Integer, JSON, ForeignKey, DateTime
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
-from datetime import datetime
 
 from app.db.base import Base
 

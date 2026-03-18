@@ -1,19 +1,20 @@
 """OpenGraph audit router."""
 from __future__ import annotations
-import logging
-logger = logging.getLogger(__name__)
 
+import logging
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.models.crawl import CrawlSession, CrawlStatus, Page
 from app.models.seo import SeoPageMeta
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -112,7 +113,8 @@ def generate_og_tags(
 ):
     """Trigger async Claude generation of OG tags (reuses SEO task with generate_og=True)."""
     from datetime import datetime, timezone
-    from app.models.task import Task, TaskType, TaskStatus
+
+    from app.models.task import Task, TaskStatus, TaskType
 
     crawl = _get_latest_crawl(project_id, db)
     if not crawl:

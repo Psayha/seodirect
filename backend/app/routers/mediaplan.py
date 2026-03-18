@@ -1,8 +1,7 @@
 """MediaPlan router — monthly budget breakdown + forecasts."""
 from __future__ import annotations
-import logging
-logger = logging.getLogger(__name__)
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
@@ -14,9 +13,11 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
+from app.models.direct import Campaign, Keyword
 from app.models.mediaplan import MediaPlan
 from app.models.project import Project
-from app.models.direct import Campaign, Keyword
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -185,7 +186,7 @@ def reset_mediaplan(
 def _log_event(project_id, user, event_type_str: str, description: str, db: Session):
     """Helper to log project event."""
     try:
-        from app.models.history import ProjectEvent, EventType
+        from app.models.history import EventType, ProjectEvent
         ev = ProjectEvent(
             project_id=project_id,
             user_id=user.id if hasattr(user, 'id') else None,

@@ -14,10 +14,11 @@ from app.celery_app import celery_app
 )
 def task_monthly_reports():
     """Generate and save monthly reports for all active projects."""
-    from app.db.session import SessionLocal
-    from app.models.project import Project, ProjectStatus
-    from app.models.history import ProjectEvent
     from sqlalchemy import select
+
+    from app.db.session import SessionLocal
+    from app.models.history import ProjectEvent
+    from app.models.project import Project, ProjectStatus
 
     db = SessionLocal()
     try:
@@ -30,9 +31,10 @@ def task_monthly_reports():
         for project in projects:
             try:
                 # Gather basic stats for the report summary
-                from app.models.direct import Campaign, AdGroup, Keyword, Ad
-                from app.models.crawl import CrawlSession, CrawlStatus
                 from sqlalchemy import func
+
+                from app.models.crawl import CrawlSession, CrawlStatus
+                from app.models.direct import Ad, AdGroup, Campaign, Keyword
 
                 campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project.id)).all()
                 campaign_ids = [c.id for c in campaigns]

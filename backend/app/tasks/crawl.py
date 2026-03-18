@@ -10,10 +10,10 @@ from app.celery_app import celery_app
 @celery_app.task(bind=True, name="tasks.crawl.run_crawl")
 def run_crawl(self, task_id: str, session_id: str, project_id: str, url: str, settings_dict: dict):
     """Celery task: crawl a website and save results to DB."""
+    from app.crawl.crawler import SiteCrawler
     from app.db.session import SessionLocal
     from app.models.crawl import CrawlSession, CrawlStatus, Page
     from app.models.task import Task, TaskStatus
-    from app.crawl.crawler import SiteCrawler
 
     db = SessionLocal()
     try:

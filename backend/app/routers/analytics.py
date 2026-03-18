@@ -1,8 +1,7 @@
 """Analytics router — Яндекс Метрика integration."""
 from __future__ import annotations
-import logging
-logger = logging.getLogger(__name__)
 
+import logging
 import uuid
 from typing import Annotated
 
@@ -14,6 +13,8 @@ from sqlalchemy.orm import Session
 from app.auth.deps import CurrentUser
 from app.db.session import get_db
 from app.models.project import Project
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -129,7 +130,6 @@ async def get_roi(
 ):
     """Return ROI data combining MediaPlan + Metrika actuals."""
     from app.models.mediaplan import MediaPlan
-    from sqlalchemy import select
 
     plan = db.scalar(select(MediaPlan).where(MediaPlan.project_id == project_id))
     plan_rows = []
@@ -187,8 +187,9 @@ async def get_traffic_anomalies(
         return {"anomalies": [], "message": "Счётчик Метрики не подключён"}
 
     try:
-        from app.services.metrika import get_metrika_client
         from datetime import date, timedelta
+
+        from app.services.metrika import get_metrika_client
 
         client = get_metrika_client(db)
         today = date.today()

@@ -1,8 +1,7 @@
 """Content plan: blog article planning per project."""
 from __future__ import annotations
-import logging
-logger = logging.getLogger(__name__)
 
+import logging
 import uuid
 from typing import Annotated
 
@@ -13,7 +12,9 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
-from app.models.content_plan import ContentPlanArticle, ArticleStatus
+from app.models.content_plan import ArticleStatus, ContentPlanArticle
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

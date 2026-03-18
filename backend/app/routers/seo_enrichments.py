@@ -10,15 +10,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.limiter import limiter
-
-logger = logging.getLogger(__name__)
-
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
+from app.limiter import limiter
 from app.models.crawl import Page
 from app.models.seo import SeoPageMeta
 from app.routers.seo import _get_latest_crawl
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -63,10 +62,14 @@ async def generate_schema_org(
     brief_context = ""
     if brief:
         parts = []
-        if brief.products: parts.append(f"Продукт/услуга: {brief.products}")
-        if brief.geo: parts.append(f"Гео: {brief.geo}")
-        if brief.usp: parts.append(f"УТП: {brief.usp}")
-        if brief.niche: parts.append(f"Ниша: {brief.niche}")
+        if brief.products:
+            parts.append(f"Продукт/услуга: {brief.products}")
+        if brief.geo:
+            parts.append(f"Гео: {brief.geo}")
+        if brief.usp:
+            parts.append(f"УТП: {brief.usp}")
+        if brief.niche:
+            parts.append(f"Ниша: {brief.niche}")
         brief_context = "\n".join(parts)
 
     system_prompt = "Ты — SEO-специалист. Генерируй корректный Schema.org JSON-LD. Отвечай только валидным JSON-LD объектом."
@@ -152,7 +155,7 @@ async def generate_faq(
     from app.models.brief import Brief
     brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
 
-    from app.models.direct import Campaign, AdGroup, Keyword
+    from app.models.direct import AdGroup, Campaign, Keyword
     campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
     keyword_phrases: list[str] = []
     if campaigns:
@@ -250,6 +253,7 @@ async def content_gap_analysis(
     """Analyze content gaps between client site and competitors."""
     import json
     import re
+
     import httpx
     from bs4 import BeautifulSoup
 

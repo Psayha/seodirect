@@ -38,13 +38,14 @@ def task_generate_seo_meta(
     only_missing: bool = False,
     only_issues: bool = False,
 ):
+    from sqlalchemy import select
+
     from app.db.session import SessionLocal
-    from app.models.task import Task, TaskStatus
     from app.models.crawl import CrawlSession, CrawlStatus, Page
     from app.models.seo import SeoPageMeta
-    from app.services.settings_service import get_setting
+    from app.models.task import Task, TaskStatus
     from app.services.claude import ClaudeClient
-    from sqlalchemy import select
+    from app.services.settings_service import get_setting
 
     db = SessionLocal()
     try:
@@ -80,7 +81,8 @@ def task_generate_seo_meta(
 
         # Apply only_issues filter
         if only_issues:
-            from sqlalchemy import or_, func as sqlfunc
+            from sqlalchemy import func as sqlfunc
+            from sqlalchemy import or_
             page_query = page_query.where(
                 or_(
                     Page.title.is_(None),
@@ -156,7 +158,8 @@ H2: {', '.join((page.h2_list or [])[:3])}
             try:
                 response_text = _run_async(claude.generate(system_prompt, user_msg))
                 # Parse JSON from response
-                import json, re
+                import json
+                import re
                 json_match = re.search(r'\{[^{}]+\}', response_text, re.DOTALL)
                 if json_match:
                     data = json.loads(json_match.group())

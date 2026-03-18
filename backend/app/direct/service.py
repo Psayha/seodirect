@@ -3,12 +3,22 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.brief import Brief
 from app.models.crawl import CrawlSession, CrawlStatus, Page
-from app.models.direct import Campaign, AdGroup, Keyword, NegativeKeyword, Ad, KeywordTemperature, AdStatus, KeywordStatus
+from app.models.direct import (
+    Ad,
+    AdGroup,
+    AdStatus,
+    Campaign,
+    Keyword,
+    KeywordStatus,
+    KeywordTemperature,
+    NegativeKeyword,
+)
 
 
 def _brief_to_text(brief: Brief) -> str:

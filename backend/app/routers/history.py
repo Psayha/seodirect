@@ -1,8 +1,7 @@
 """Project history (audit log) router."""
 from __future__ import annotations
-import logging
-logger = logging.getLogger(__name__)
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
@@ -14,6 +13,8 @@ from sqlalchemy.orm import Session
 from app.auth.deps import CurrentUser
 from app.db.session import get_db
 from app.models.history import ProjectEvent
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -59,7 +60,7 @@ def get_history(
 
 def log_event(project_id: uuid.UUID, user, event_type_str: str, description: str, db: Session):
     """Reusable helper imported by other routers."""
-    from app.models.history import ProjectEvent, EventType
+    from app.models.history import EventType, ProjectEvent
     try:
         ev = ProjectEvent(
             project_id=project_id,

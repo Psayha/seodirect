@@ -1,8 +1,9 @@
-import uuid
 import enum
+import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Float, Text, JSON, Boolean, ForeignKey, Enum as SAEnum, DateTime
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 

@@ -1,25 +1,33 @@
 from __future__ import annotations
-import logging
-logger = logging.getLogger(__name__)
 
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.limiter import limiter
 from app.models.direct import (
-    Ad, AdGroup, AdStatus, Campaign, CampaignStatus,
-    Keyword, KeywordStatus, KeywordTemperature, NegativeKeyword,
+    Ad,
+    AdGroup,
+    AdStatus,
+    Campaign,
+    CampaignStatus,
+    Keyword,
+    KeywordStatus,
+    KeywordTemperature,
+    NegativeKeyword,
 )
-from app.models.task import Task, TaskType, TaskStatus
+from app.models.task import Task, TaskStatus, TaskType
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -292,8 +300,8 @@ async def keyword_dynamics(
     """Return monthly frequency dynamics for a phrase from Wordstat."""
     if not phrase:
         raise HTTPException(status_code=400, detail="phrase required")
-    from app.services.wordstat import WordstatClient
     from app.services.settings_service import get_setting
+    from app.services.wordstat import WordstatClient
     token = get_setting("wordstat_oauth_token", db)
     if not token:
         raise HTTPException(status_code=400, detail="Wordstat OAuth token not configured")

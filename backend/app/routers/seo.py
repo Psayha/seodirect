@@ -1,16 +1,14 @@
 """SEO module: meta tags audit + generation, OG tags audit, technical checklist."""
 from __future__ import annotations
-import logging
-logger = logging.getLogger(__name__)
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Optional
-from pydantic import StringConstraints
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from pydantic import BaseModel, Field, StringConstraints
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser, NonViewerRequired
@@ -19,7 +17,9 @@ from app.limiter import limiter
 from app.models.crawl import CrawlSession, CrawlStatus, Page
 from app.models.meta_history import SeoMetaHistory
 from app.models.seo import SeoPageMeta
-from app.models.task import Task, TaskType, TaskStatus
+from app.models.task import Task, TaskStatus, TaskType
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -436,7 +436,8 @@ async def cluster_keywords(
     Topvisor project and the API key is configured.
     """
     from sqlalchemy import select
-    from app.models.direct import Campaign, AdGroup, Keyword
+
+    from app.models.direct import AdGroup, Campaign, Keyword
 
     # Collect all Direct keywords for this project
     campaigns = db.scalars(
@@ -460,14 +461,11 @@ async def cluster_keywords(
         return {"source": "local", "clusters": [], "total_keywords": 0}
 
     # Try Topvisor clustering if project is linked and API key exists
-    project = db.scalar(
-        select(Campaign).where(Campaign.project_id == project_id)
-    )
     from app.models.project import Project as ProjectModel
     prj = db.get(ProjectModel, project_id)
     if prj and prj.topvisor_project_id:
-        from app.services.topvisor import get_topvisor_client_key
         from app.services.settings_service import get_setting
+        from app.services.topvisor import get_topvisor_client_key
         api_key = get_setting("topvisor_api_key", db)
         if api_key:
             try:

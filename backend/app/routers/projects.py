@@ -1,19 +1,20 @@
 import logging
-logger = logging.getLogger(__name__)
 import uuid
 from typing import Annotated
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select, or_
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.auth.deps import CurrentUser, require_roles, NonViewerRequired
+from app.auth.deps import CurrentUser, NonViewerRequired, require_roles
 from app.db.session import get_db
 from app.models.brief import Brief
 from app.models.project import Project, ProjectStatus
 from app.models.user import User, UserRole
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -266,20 +267,29 @@ async def brief_chat(
     project = _get_project_or_404(project_id, current_user, db)
     brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
 
-    from app.services.claude import get_claude_client
     import httpx
+
+    from app.services.claude import get_claude_client
     client = get_claude_client(db)
 
     brief_parts = []
     if brief:
-        if brief.niche:           brief_parts.append(f"Ниша: {brief.niche}")
-        if brief.products:        brief_parts.append(f"Продукты/услуги: {brief.products}")
-        if brief.usp:             brief_parts.append(f"УТП: {brief.usp}")
-        if brief.target_audience: brief_parts.append(f"Целевая аудитория: {brief.target_audience}")
-        if brief.pains:           brief_parts.append(f"Боли клиентов: {brief.pains}")
-        if brief.campaign_goal:   brief_parts.append(f"Цель кампании: {brief.campaign_goal}")
-        if brief.monthly_budget:  brief_parts.append(f"Месячный бюджет: {brief.monthly_budget} ₽")
-        if brief.geo:             brief_parts.append(f"Гео: {brief.geo}")
+        if brief.niche:
+            brief_parts.append(f"Ниша: {brief.niche}")
+        if brief.products:
+            brief_parts.append(f"Продукты/услуги: {brief.products}")
+        if brief.usp:
+            brief_parts.append(f"УТП: {brief.usp}")
+        if brief.target_audience:
+            brief_parts.append(f"Целевая аудитория: {brief.target_audience}")
+        if brief.pains:
+            brief_parts.append(f"Боли клиентов: {brief.pains}")
+        if brief.campaign_goal:
+            brief_parts.append(f"Цель кампании: {brief.campaign_goal}")
+        if brief.monthly_budget:
+            brief_parts.append(f"Месячный бюджет: {brief.monthly_budget} ₽")
+        if brief.geo:
+            brief_parts.append(f"Гео: {brief.geo}")
 
     brief_context = "\n".join(brief_parts) if brief_parts else "Бриф не заполнен"
 
@@ -328,7 +338,7 @@ def duplicate_project(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Duplicate a project with its brief and campaign/group structure (no keywords/ads)."""
-    from app.models.direct import Campaign, AdGroup
+    from app.models.direct import AdGroup, Campaign
 
     original = _get_project_or_404(project_id, current_user, db)
 

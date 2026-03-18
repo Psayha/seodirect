@@ -7,17 +7,17 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-
-logger = logging.getLogger(__name__)
 
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.config import get_settings
 from app.db.session import get_db
 from app.models.crawl import CrawlSession, CrawlStatus, Page
 from app.models.project import Project
-from app.models.task import Task, TaskType, TaskStatus
+from app.models.task import Task, TaskStatus, TaskType
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -396,8 +396,9 @@ async def robots_audit(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Audit robots.txt and sitemap against crawled pages."""
-    import httpx
     import re as _re
+
+    import httpx
 
     project = _check_project_access(project_id, current_user, db)
     session = db.scalar(
@@ -498,7 +499,7 @@ async def run_cwv(
     if len(body.urls) > 10:
         raise HTTPException(status_code=400, detail="Max 10 URLs per request")
 
-    project = _check_project_access(project_id, current_user, db)
+    _check_project_access(project_id, current_user, db)
     api_key = get_setting("pagespeed_api_key", db)  # optional
 
     session = db.scalar(

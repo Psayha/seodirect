@@ -44,6 +44,7 @@ jobs:
       ENCRYPTION_KEY: testencrkey32charslong123456789a
       SUPER_ADMIN_LOGIN: admin
       SUPER_ADMIN_PASSWORD_HASH: $2b$12$placeholder
+      SUPER_ADMIN_EMAIL: admin@test.local
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

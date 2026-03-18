@@ -15,6 +15,7 @@ os.environ.setdefault("SECRET_KEY", "testsecretkey-must-be-at-least-32-chars-lon
 os.environ.setdefault("ENCRYPTION_KEY", "testencrkey32charslong1234567890")
 os.environ.setdefault("SUPER_ADMIN_LOGIN", "admin")
 os.environ.setdefault("SUPER_ADMIN_PASSWORD_HASH", "$2b$12$placeholder")
+os.environ.setdefault("SUPER_ADMIN_EMAIL", "admin@test.local")
 
 
 @pytest.fixture(scope="session")

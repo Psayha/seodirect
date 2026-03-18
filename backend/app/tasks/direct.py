@@ -30,10 +30,10 @@ def _run_async(coro):
 )
 def task_generate_strategy(self, task_id: str, project_id: str):
     from app.db.session import SessionLocal
-    from app.models.task import Task, TaskStatus
-    from app.models.project import Project
-    from app.models.direct import Campaign
     from app.direct.service import generate_strategy
+    from app.models.direct import Campaign
+    from app.models.project import Project
+    from app.models.task import Task, TaskStatus
 
     db = SessionLocal()
     try:
@@ -88,11 +88,12 @@ def task_generate_strategy(self, task_id: str, project_id: str):
     default_retry_delay=30,
 )
 def task_check_frequencies(self, task_id: str, keyword_ids: list[str]):
-    from app.db.session import SessionLocal
-    from app.models.task import Task, TaskStatus
-    from app.models.direct import Keyword, KeywordStatus
-    from app.services.wordstat import get_wordstat_client
     from sqlalchemy import select
+
+    from app.db.session import SessionLocal
+    from app.models.direct import Keyword, KeywordStatus
+    from app.models.task import Task, TaskStatus
+    from app.services.wordstat import get_wordstat_client
 
     db = SessionLocal()
     try:

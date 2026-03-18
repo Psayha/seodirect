@@ -1,8 +1,7 @@
 """Direct analysis module: n-grams, heatmap, A/B stats, search query analysis, local clustering."""
 from __future__ import annotations
-import logging
-logger = logging.getLogger(__name__)
 
+import logging
 import uuid
 from typing import Annotated
 
@@ -14,10 +13,16 @@ from sqlalchemy.orm import Session
 from app.auth.deps import CurrentUser, NonViewerRequired
 from app.db.session import get_db
 from app.models.direct import (
-    Ad, AdGroup, AdStatus, Campaign,
-    Keyword, NegativeKeyword,
+    Ad,
+    AdGroup,
+    AdStatus,
+    Campaign,
+    Keyword,
+    NegativeKeyword,
 )
 from app.routers.direct import _ad_dict
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -34,7 +39,7 @@ def get_ngrams(
 ):
     """Analyse n-grams across all project keywords."""
     import re
-    from collections import defaultdict, Counter
+    from collections import Counter, defaultdict
 
     if n not in (2, 3):
         raise HTTPException(status_code=400, detail="n must be 2 or 3")

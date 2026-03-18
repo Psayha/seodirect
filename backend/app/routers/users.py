@@ -1,5 +1,4 @@
 import logging
-logger = logging.getLogger(__name__)
 import uuid
 from typing import Annotated
 
@@ -12,6 +11,8 @@ from app.auth.deps import CurrentUser, require_roles
 from app.auth.security import hash_password
 from app.db.session import get_db
 from app.models.user import User, UserRole
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
