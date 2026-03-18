@@ -481,72 +481,93 @@ export default function CrawlTab({ projectId }: { projectId: string }) {
   const scoreColor = score === null ? 'text-muted' : score >= 80 ? 'text-green-600' : score >= 50 ? 'text-yellow-600' : 'text-red-600'
 
   return (
-    <div className="p-6 max-w-4xl">
-      <div className="flex items-center gap-4 mb-6">
-        <h3 className="font-semibold text-lg">Технический SEO аудит</h3>
+    <div className="p-6 max-w-7xl">
+      {/* Header */}
+      <div className="flex items-center gap-4 mb-5">
+        <div>
+          <h3 className="font-semibold text-lg text-primary">Технический SEO аудит</h3>
+          {status && status.status !== 'not_started' && (
+            <p className="text-xs text-muted mt-0.5">
+              <strong className="text-primary">{status.status}</strong>
+              {status.pages_total > 0 && ` · ${status.pages_done}/${status.pages_total} страниц`}
+            </p>
+          )}
+        </div>
         <button onClick={() => startMutation.mutate()}
           disabled={startMutation.isPending || status?.status === 'running'}
-          className="btn-accent px-4 py-2 rounded-xl text-sm hover:bg-accent transition disabled:opacity-50">
+          className="btn-accent">
           {status?.status === 'running' ? '⏳ Парсинг...' : 'Запустить сканирование'}
         </button>
         {score !== null && (
-          <div className="ml-auto text-center">
-            <p className={cx('text-3xl font-bold', scoreColor)}>{score}</p>
-            <p className="text-xs text-muted">SEO-score</p>
+          <div className="ml-auto flex items-baseline gap-1.5">
+            <p className={cx('text-4xl font-bold tabular-nums', scoreColor)}>{score}</p>
+            <p className="text-sm text-muted">/ 100</p>
           </div>
         )}
       </div>
 
-      {status && status.status !== 'not_started' && (
-        <div className="bg-surface-raised rounded-xl p-4 mb-4">
-          <div className="flex justify-between text-sm mb-2">
-            <span>Статус: <strong>{status.status}</strong></span>
-            <span>{status.pages_done} / {status.pages_total} страниц</span>
+      {status?.status === 'running' && (
+        <div className="mb-5">
+          <div className="w-full bg-surface-raised rounded-full h-1.5">
+            <div className="h-1.5 rounded-full transition-all" style={{
+              background: 'var(--accent)',
+              width: `${status.pages_total ? Math.round((status.pages_done / status.pages_total) * 100) : 5}%`,
+            }} />
           </div>
-          {status.status === 'running' && (
-            <div className="w-full bg-surface-raised rounded-full h-2">
-              <div className="bg-accent h-2 rounded-full transition-all"
-                style={{ width: `${status.pages_total ? Math.round((status.pages_done / status.pages_total) * 100) : 0}%` }} />
-            </div>
-          )}
-          {status.error && <p className="text-red-500 text-sm mt-2">{status.error}</p>}
         </div>
       )}
+      {status?.error && <p className="text-red-500 text-sm mb-4">{status.error}</p>}
 
       {report && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6 text-sm">
-            {auditItems.map((item) => (
-              <div
-                key={item.key}
-                onClick={() => item.issue && item.bad ? setActiveIssue(item.issue === activeIssue ? null : item.issue) : null}
-                className={cx(
-                  'bg-surface rounded-xl p-3 border transition',
-                  item.bad ? 'border-red-200 cursor-pointer hover:border-red-400' : 'border-[var(--border)]',
-                  activeIssue === item.issue ? 'ring-2 ring-red-400' : ''
-                )}
-              >
-                <p className="text-muted text-xs">{item.label}</p>
-                <p className={cx('text-xl font-bold mt-1', item.bad ? 'text-red-600' : 'text-primary')}>{item.value}</p>
-                {item.issue && item.bad && <p className="text-xs text-red-400 mt-0.5">нажмите для деталей</p>}
-              </div>
-            ))}
-          </div>
+          {/* Two-column: cards + issues panel */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+              {auditItems.map((item) => (
+                <div
+                  key={item.key}
+                  onClick={() => item.issue && item.bad ? setActiveIssue(item.issue === activeIssue ? null : item.issue) : null}
+                  className={cx(
+                    'bg-surface rounded-2xl p-4 border transition',
+                    item.bad ? 'border-red-400/50 cursor-pointer hover:border-red-400 hover:shadow-card-md' : 'border-[var(--border)]',
+                    activeIssue === item.issue ? 'ring-2 ring-red-400' : ''
+                  )}
+                >
+                  <p className="text-muted text-xs mb-1">{item.label}</p>
+                  <p className={cx('text-2xl font-bold tabular-nums', item.bad ? 'text-red-500' : 'text-primary')}>{item.value}</p>
+                  {item.issue && item.bad && <p className="text-xs text-red-400 mt-1">нажмите →</p>}
+                </div>
+              ))}
+            </div>
 
-          {issues.length === 0 ? (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-700">
-              ✅ Технических проблем не обнаружено
+            {/* Issues summary */}
+            <div className="card-bordered overflow-hidden self-start">
+              <div className="px-4 py-3 border-b border-[var(--border)] bg-surface-raised">
+                <h4 className="text-xs font-semibold uppercase tracking-widest text-muted">
+                  {issues.length === 0 ? '✅ Проблем нет' : `⚠️ Проблем: ${issues.length}`}
+                </h4>
+              </div>
+              <div className="p-3">
+                {issues.length === 0 ? (
+                  <p className="text-sm text-emerald-500 px-1">Всё в порядке</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {issues.map((i) => (
+                      <li key={i.key}
+                        onClick={() => i.issue && setActiveIssue(i.issue === activeIssue ? null : i.issue)}
+                        className={cx(
+                          'flex items-center justify-between text-sm py-1.5 px-2 rounded-xl cursor-pointer transition',
+                          activeIssue === i.issue ? 'bg-red-500/10' : 'hover:bg-surface-raised'
+                        )}>
+                        <span className="text-muted text-xs">{i.label}</span>
+                        <span className="font-bold text-red-500 tabular-nums">{i.value}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
-          ) : (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
-              <p className="text-sm font-medium text-red-700 mb-2">⚠️ Найдено проблем: {issues.length}</p>
-              <ul className="text-sm text-red-600 space-y-0.5">
-                {issues.map((i) => (
-                  <li key={i.key}>• {i.label}: <strong>{i.value}</strong> страниц</li>
-                ))}
-              </ul>
-            </div>
-          )}
+          </div>
 
           {activeIssue && (
             <div className="bg-surface rounded-xl border border-[var(--border)] mt-4 overflow-hidden">
