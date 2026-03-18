@@ -7,7 +7,7 @@ def test_login_missing_credentials(client):
 
 
 def test_login_wrong_credentials(client):
-    resp = client.post("/api/auth/login", json={"login": "nobody", "password": "wrong"})
+    resp = client.post("/api/auth/login", json={"login": "nobody", "password": "wrongpass1"})
     assert resp.status_code == 401
 
 

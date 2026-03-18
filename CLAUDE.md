@@ -322,7 +322,7 @@ Super admin создаётся из `.env`: `SUPER_ADMIN_LOGIN`, `SUPER_ADMIN_PA
 | `utm.ts` | `utmApi` (шаблоны + сборка URL) |
 | `portal.ts` | `portalApi` (токены) |
 | `settings.ts` | `settingsApi` (настройки, пользователи, промпты) |
-| `client.ts` | Axios-инстанс с инжектом токена |
+| `client.ts` | Axios-инстанс с инжектом токена + автоматический refresh при 401 |
 
 ---
 
@@ -333,6 +333,15 @@ Super admin создаётся из `.env`: `SUPER_ADMIN_LOGIN`, `SUPER_ADMIN_PA
 ```python
 from app.auth.deps import CurrentUser, NonViewerRequired
 
+def _check_project_access(project_id: uuid.UUID, current_user, db: Session) -> Project:
+    """Стандартная проверка доступа — копировать в каждый роутер."""
+    project = db.get(Project, project_id)
+    if not project or project.deleted_at is not None:  # ← soft delete обязателен!
+        raise HTTPException(status_code=404, detail="Project not found")
+    if current_user.role == UserRole.SPECIALIST and project.specialist_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return project
+
 @router.post("/projects/{project_id}/something", status_code=201)
 def do_something(
     project_id: uuid.UUID,
@@ -341,13 +350,11 @@ def do_something(
     _: Annotated[object, NonViewerRequired],  # только для write-операций
     db: Annotated[Session, Depends(get_db)],
 ):
-    project = db.get(Project, project_id)
-    if not project:
-        raise HTTPException(404)
-    if current_user.role == "specialist" and project.specialist_id != current_user.id:
-        raise HTTPException(403)
+    _check_project_access(project_id, current_user, db)
     ...
 ```
+
+> **Важно:** Всегда проверяй `project.deleted_at is not None` при доступе к проекту. Не используй `db.get(Project, id)` без этой проверки.
 
 ### Backend — новая миграция
 
@@ -380,7 +387,7 @@ const mutation = useMutation({ mutationFn: ..., onSuccess: () => qc.invalidateQu
 
 ```bash
 SUPER_ADMIN_LOGIN=admin
-SUPER_ADMIN_PASSWORD_HASH=$2b$12$...
+SUPER_ADMIN_PASSWORD_HASH=$$2b$$12$$...   # ⚠️ Каждый $ удваивается → $$ для docker-compose!
 SUPER_ADMIN_EMAIL=admin@company.ru
 
 # БД — ОБЯЗАТЕЛЬНО сменить пароль!
@@ -460,14 +467,15 @@ GOOGLE_PAGESPEED_API_KEY=             # опционально, без него 
 - API-ключи: AES-256-GCM, хранятся в таблице `settings` (`auth/encryption.py`)
 - Пароли: bcrypt (`auth/security.py`)
 - JWT: HS256/384/512, access 15 мин + refresh 30 дней (90 дней с remember me)
-- Refresh-токены: jti-blacklist + per-user generation counter в Redis
-- `POST /auth/logout` — отзыв refresh-токена
+- Refresh-токены: jti-blacklist + per-user generation counter в Redis + rotation при каждом refresh
+- `POST /auth/logout` — отзыв refresh-токена (фронтенд вызывает автоматически)
+- Фронтенд: автоматический refresh при 401 с очередью запросов (`api/client.ts`)
 - Автоинвалидация при: деактивации, смене роли, сбросе пароля
 - Timing-safe login (dummy hash при несуществующем пользователе)
 
 ### SSRF-защита
 
-- `crawl/crawler.py` — `_is_private_or_reserved()` блокирует приватные/зарезервированные IP через DNS resolution
+- `crawl/crawler.py` — `_is_private_or_reserved()` блокирует приватные/зарезервированные IP через DNS resolution (включая sitemap URL из robots.txt)
 - `seo_enrichments.py` — `_is_safe_url()` в content gap анализе блокирует internal IP, metadata endpoints, unsafe redirects
 
 ### Soft delete
@@ -477,6 +485,117 @@ GOOGLE_PAGESPEED_API_KEY=             # опционально, без него 
 ### Бэкапы
 
 `scripts/backup_db.sh` — pg_dump + gzip + ротация 30 дней. Запускать через cron.
+
+---
+
+## Известные проблемы и технический долг
+
+> Аудит production-readiness от 2026-03-18. Исправленные пункты помечены ✅, оставшиеся — действующий техдолг.
+
+### Безопасность
+
+| Статус | Проблема | Файл | Приоритет |
+|--------|----------|------|-----------|
+| ✅ | Password min_length=1 → 8 | `routers/auth.py` | Critical |
+| ✅ | SSRF: sitemap URL из robots.txt не валидировались | `crawl/crawler.py` | Critical |
+| ✅ | str(e) в HTTP-ответах — утечка внутренних ошибок | `topvisor.py`, `portal.py` | Critical |
+| ✅ | Missing access checks в direct_analysis | `direct_analysis.py` | Critical |
+| ✅ | HSTS без preload | `observability.py` | Medium |
+| ⬜ | SHA256 вместо PBKDF2 для encryption key derivation | `auth/encryption.py:8` | Medium |
+| ⬜ | Content-gap rate limit 5/min, но каждый запрос → 50+ outbound HTTP | `seo_enrichments.py:258` | Medium |
+| ⬜ | Rate limiter fallback на IP для аутентифицированных (request.state.current_user не установлен до limiter) | `limiter.py` | Low |
+| ⬜ | Refresh token remember_me=90 дней — долго, рассмотреть сокращение до 30-60 | `config.py` | Low |
+
+### Обработка ошибок
+
+| Статус | Проблема | Файл | Приоритет |
+|--------|----------|------|-----------|
+| ✅ | Brief chat без try/except вокруг Claude API | `routers/projects.py:321` | Critical |
+| ✅ | Schema.org: невалидный JSON сохранялся как текст | `seo_enrichments.py:99` | High |
+| ✅ | Celery retry без jitter — thundering herd | `tasks/direct.py`, `tasks/seo.py`, `tasks/reports.py` | High |
+| ⬜ | settings.py test_api_key ловит Exception слишком широко — невозможно отличить timeout от bad key | `routers/settings.py:196` | Medium |
+| ⬜ | Content-gap fetch_page молча возвращает None — нет логирования причины | `seo_enrichments.py:315-339` | Medium |
+| ⬜ | Task progress коммитит в БД каждую страницу — батчить по 10 | `tasks/seo.py:120` | Low |
+| ⬜ | Crawl task: inner exception handler может проглотить ошибку если БД недоступна | `tasks/crawl.py:123-141` | Low |
+| ⬜ | CWV endpoint truncates error to 200 chars | `routers/crawl.py:530` | Low |
+
+### БД и целостность данных
+
+| Статус | Проблема | Файл | Приоритет |
+|--------|----------|------|-----------|
+| ✅ | Пагинация отсутствовала на list_projects | `routers/projects.py` | Critical |
+| ✅ | pool_recycle не был задан | `db/session.py` | Medium |
+| ⬜ | **Race condition**: MediaPlan check-then-create не атомарен | `routers/mediaplan.py:82-95` | Critical |
+| ⬜ | **Race condition**: CrawlSession — дубли при параллельных запусках | `routers/crawl.py:45-52` | Critical |
+| ⬜ | **Race condition**: SeoPageMeta — дубли при конкурентных запросах | `routers/seo.py:145-152` | High |
+| ⬜ | **N+1 queries**: direct_analysis загружает campaigns → groups → keywords 3 отдельными запросами | `direct_analysis.py:47-56` | High |
+| ⬜ | **N+1 queries**: duplicate_project — цикл по кампаниям с отдельными запросами групп | `routers/projects.py:384-405` | Medium |
+| ⬜ | **Нет пагинации**: list_campaigns, list_groups, crawl_tree | `direct.py:164`, `direct.py:226`, `crawl.py:574` | High |
+| ⬜ | Task + Celery dispatch не атомарны — task в БД без воркера при ошибке Celery | `direct.py:77-93` | High |
+| ⬜ | duplicate_project — множественные flush/commit без единой транзакции | `projects.py:334-409` | Medium |
+| ⬜ | Отсутствуют composite indexes: (project_id, deleted_at), (project_id, page_url) на SeoPageMeta | models | Medium |
+| ⬜ | Отсутствуют ondelete CASCADE на FK Project→User | `0001_initial_schema.py` | Medium |
+| ⬜ | Migration 0005: nullable created_at/updated_at без server_default | `0005_content_plan_push.py` | Low |
+| ⬜ | Нет CHECK constraints: Keyword.frequency >= 0, Page.load_time_ms >= 0 | models | Low |
+
+### Инфраструктура (Docker, nginx, CI/CD)
+
+| Статус | Проблема | Файл | Приоритет |
+|--------|----------|------|-----------|
+| ✅ | Нет healthchecks для backend/frontend/nginx | `docker-compose.prod.yml` | Critical |
+| ✅ | Backend 384MB RAM → 1GB | `docker-compose.prod.yml` | High |
+| ✅ | Celery -c 1 → -c 4 | `docker-compose.prod.yml` | High |
+| ✅ | Redis 64MB → 256MB | `docker-compose.prod.yml` | High |
+| ✅ | nginx depends_on без condition | `docker-compose.prod.yml` | High |
+| ✅ | Celery result_expires не был задан | `celery_app.py` | Medium |
+| ✅ | Backup script stat flags: macOS first → Linux first | `scripts/backup_db.sh` | Low |
+| ⬜ | Frontend nginx запускается под root | `frontend/Dockerfile.prod` | High |
+| ⬜ | Бэкапы не шифруются (pg_dump + gzip без encryption) | `scripts/backup_db.sh` | High |
+| ⬜ | CI/CD: нет валидации secrets перед деплоем | `.github/workflows/deploy.yml` | High |
+| ⬜ | SSL session cache 2MB — мало для прода (рекомендуется 10m) | `nginx/nginx.prod.conf:52` | Medium |
+| ⬜ | Нет явных proxy_connect/send/read_timeout в nginx | `nginx/nginx.prod.conf` | Medium |
+| ⬜ | Redis persistence отключена (--save "") — JWT blacklist теряется при рестарте | `docker-compose.prod.yml` | Medium |
+| ⬜ | DLQ настроена, но нет мониторинга/алертов | `celery_app.py` | Medium |
+| ⬜ | Deploy script без rollback при провале healthcheck | `scripts/deploy.sh` | Medium |
+| ⬜ | Certbot cron: docker compose exec без cd в /opt/seodirect | `scripts/setup_server.sh:76` | Medium |
+| ⬜ | setup_server.sh: хардкод домена/IP | `scripts/setup_server.sh` | Low |
+
+### Фронтенд
+
+| Статус | Проблема | Файл | Приоритет |
+|--------|----------|------|-----------|
+| ✅ | Нет token refresh — 401 → разлогин | `api/client.ts` | Critical |
+| ✅ | Logout не вызывает /auth/logout | `store/auth.ts` | High |
+| ✅ | Source maps не отключены для production | `vite.config.ts` | Medium |
+| ✅ | refresh_token не сохранялся в store | `store/auth.ts`, `LoginPage.tsx` | Critical |
+| ⬜ | **Мутации без onError** — ошибки API молча проглатываются во всех табах | `tabs/*.tsx` (8+ файлов) | High |
+| ⬜ | **Query errors не отображаются** — isError извлекается, но нет UI | `tabs/*.tsx` (6+ файлов) | High |
+| ⬜ | console.error в ErrorBoundary — стектрейсы в консоли браузера у клиента | `ErrorBoundary.tsx:22` | Medium |
+| ⬜ | Нет retry для transient errors (429, 5xx) в axios | `api/client.ts` | Medium |
+| ⬜ | TypeScript: noUnusedLocals/noUnusedParameters=false | `tsconfig.json` | Low |
+| ⬜ | React Query: нет global error handler, retry: 1 для всех запросов включая 4xx | `main.tsx` | Low |
+
+### Рекомендации по порядку исправлений
+
+**Следующий приоритет (P0 — до прода):**
+1. Race conditions в MediaPlan, CrawlSession (нужна миграция с unique constraint / advisory lock)
+2. Пагинация на list_campaigns, list_groups, crawl_tree
+3. Frontend: onError на все мутации + отображение ошибок запросов
+4. Frontend Dockerfile: запуск nginx не под root
+
+**P1 — первый спринт после прода:**
+5. N+1 queries (direct_analysis, duplicate_project)
+6. Шифрование бэкапов (нужен BACKUP_ENCRYPTION_KEY)
+7. CI/CD: валидация secrets
+8. SSL session cache, proxy timeouts в nginx
+9. Task + Celery atomic dispatch
+
+**P2 — техдолг:**
+10. Encryption key: SHA256 → PBKDF2
+11. Composite indexes, CHECK constraints, CASCADE
+12. DLQ мониторинг, Redis persistence
+13. Deploy rollback
+14. TypeScript strict checks
 
 ---
 
@@ -504,7 +623,7 @@ docker-compose -f docker-compose.prod.yml up -d
 docker-compose -f docker-compose.prod.yml exec backend alembic upgrade head
 ```
 
-Prod-отличия: нет volume mounts, нет `--reload`, нет exposed портов (только nginx 80/443), Redis с `--requirepass`, 4 Celery-воркера, SSL через nginx.
+Prod-отличия: нет volume mounts, нет `--reload`, нет exposed портов (только nginx 80/443), Redis с `--requirepass` (256MB), backend 1GB + 2 workers, Celery 1.5GB + 4 воркера, healthchecks на всех сервисах, SSL через nginx.
 
 ### Обновление
 
