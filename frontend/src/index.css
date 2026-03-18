@@ -78,14 +78,15 @@
   .btn-accent { @apply btn bg-accent hover:bg-accent-hover text-white text-sm px-5 py-2.5 shadow-sm; }
   .btn-ghost  { @apply btn border border-[var(--border)] bg-transparent hover:bg-surface-raised text-primary text-sm px-4 py-2.5; }
   .btn-danger { @apply btn bg-red-600 hover:bg-red-700 text-white text-sm px-4 py-2; }
-  .btn-subtle { @apply btn bg-[var(--accent-subtle)] hover:bg-accent/20 text-accent text-sm px-4 py-2.5; }
+  .btn-subtle { @apply btn bg-[var(--accent-subtle)] text-accent text-sm px-4 py-2.5; }
+  .btn-subtle:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 
   /* ── Sidebar icon button ── */
   .sb-btn {
     @apply flex items-center justify-center w-11 h-11 rounded-xl text-sb-text
            hover:bg-white/8 hover:text-white transition duration-150 cursor-pointer;
   }
-  .sb-btn.active { @apply bg-accent/10 text-accent; }
+  .sb-btn.active { background: var(--accent-subtle); @apply text-accent; }
 
   /* ── Sidebar text nav item ── */
   .nav-item {
