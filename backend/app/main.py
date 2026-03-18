@@ -110,12 +110,7 @@ def create_app() -> FastAPI:
     @app.get("/api/health", tags=["system"])
     def health():
         """Liveness probe — service process is running."""
-        import platform
-        return {
-            "status": "ok",
-            "version": app.version,
-            "python": platform.python_version(),
-        }
+        return {"status": "ok"}
 
     @app.get("/api/ready", tags=["system"])
     def readiness(db: Annotated[Session, Depends(get_db)]):
@@ -164,18 +159,8 @@ def create_app() -> FastAPI:
     @app.get("/api/metrics", tags=["system"], include_in_schema=False)
     def prometheus_metrics():
         """Expose Prometheus metrics (request counts, latencies, system info)."""
-        from prometheus_client import (
-            CollectorRegistry,
-            Counter,
-            Gauge,
-            Histogram,
-            generate_latest,
-            multiprocess,
-        )
+        from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
         from starlette.responses import Response as StarletteResponse
-
-        # Use the default registry which collects process metrics
-        from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY
 
         return StarletteResponse(
             content=generate_latest(REGISTRY),

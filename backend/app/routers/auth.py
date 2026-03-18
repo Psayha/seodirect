@@ -41,7 +41,6 @@ def _get_client_ip(request: Request) -> str:
     """Extract client IP. Only trust X-Forwarded-For from trusted proxies (nginx)."""
     client_ip = request.client.host if request.client else "unknown"
     # Only trust the header if request comes from a local proxy (docker network)
-    trusted_proxies = ("127.0.0.1", "::1", "172.16.0.0/12", "10.0.0.0/8", "192.168.0.0/16")
     if client_ip in ("127.0.0.1", "::1") or client_ip.startswith(("172.", "10.", "192.168.")):
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:

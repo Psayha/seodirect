@@ -102,8 +102,9 @@ def get_mediaplan(
 
 def _get_total_frequency(project_id: uuid.UUID, db: Session) -> int:
     """Sum of all keyword frequencies for rough click forecast. Single JOIN query."""
-    from app.models.direct import AdGroup
     from sqlalchemy import func as sa_func
+
+    from app.models.direct import AdGroup
 
     result = db.scalar(
         select(sa_func.coalesce(sa_func.sum(Keyword.frequency), 0))
