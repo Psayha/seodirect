@@ -23,6 +23,7 @@ from app.models.marketing import (
     SemanticProject,
 )
 from app.models.project import Project
+from app.models.task import Task, TaskStatus, TaskType
 from app.models.user import UserRole
 
 logger = logging.getLogger(__name__)
@@ -448,3 +449,73 @@ def list_keywords(
     ).all()
 
     return {"items": items, "total": total, "page": page, "per_page": per_page}
+
+
+# ─── Semantic Expansion ───────────────────────────────────────────────────────
+
+class ExpandRequest(BaseModel):
+    min_freq_exact: int = Field(0, ge=0, description="Минимальная точная частотность (0 = не фильтровать)")
+    use_brief: bool = Field(True, description="Использовать контекст бриф при генерации")
+
+
+class TaskResponse(BaseModel):
+    task_id: str
+    status: str
+
+
+@router.post(
+    "/projects/{project_id}/marketing/semantic/{sem_id}/expand",
+    response_model=TaskResponse,
+    status_code=202,
+)
+def start_expand(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    body: ExpandRequest,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Start async semantic expansion via Claude + Wordstat. Returns task_id to poll."""
+    _check_project_access(project_id, current_user, db)
+    sp = _get_sem_project(sem_id, project_id, db)
+
+    if sp.pipeline_step < 1:
+        raise HTTPException(
+            status_code=422,
+            detail="Сначала соберите статистику масок (шаг 2)",
+        )
+
+    # Check at least one mask is selected
+    selected_count = db.scalar(
+        select(SemanticKeyword).where(
+            SemanticKeyword.semantic_project_id == sem_id,
+            SemanticKeyword.is_mask.is_(True),
+            SemanticKeyword.mask_selected.is_(True),
+        ).with_only_columns(SemanticKeyword.id)
+    )
+    if not selected_count:
+        raise HTTPException(status_code=422, detail="Нет выбранных масок")
+
+    now = datetime.now(timezone.utc)
+    task = Task(
+        project_id=project_id,
+        type=TaskType.SEMANTIC_EXPAND,
+        status=TaskStatus.PENDING,
+        progress=0,
+        created_at=now,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    from app.tasks.marketing import task_semantic_expand
+    task_semantic_expand.delay(
+        task_id=str(task.id),
+        sem_project_id=str(sem_id),
+        project_id=str(project_id),
+        min_freq_exact=body.min_freq_exact,
+        use_brief=body.use_brief,
+    )
+
+    return {"task_id": str(task.id), "status": "pending"}
