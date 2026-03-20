@@ -122,6 +122,35 @@ def _build_html(project, brief, crawl_report, keywords_total: int, ads_total: in
 </html>"""
 
 
+def _build_crawl_report(crawl, db) -> dict | None:
+    """Build crawl report dict from pages data."""
+    if not crawl:
+        return None
+    from app.models.crawl import Page
+
+    pages = db.scalars(select(Page).where(Page.crawl_session_id == crawl.id)).all()
+    if not pages:
+        return None
+
+    pages_total = len(pages)
+    no_title = sum(1 for p in pages if not p.title)
+    no_description = sum(1 for p in pages if not p.description)
+    no_h1 = sum(1 for p in pages if not p.h1)
+    noindex_pages = sum(1 for p in pages if p.robots_meta and "noindex" in (p.robots_meta or "").lower())
+    slow_pages = sum(1 for p in pages if p.load_time_ms and p.load_time_ms > 3000)
+    images_without_alt = sum(p.images_without_alt or 0 for p in pages)
+
+    return {
+        "pages_total": pages_total,
+        "no_title": no_title,
+        "no_description": no_description,
+        "no_h1": no_h1,
+        "noindex_pages": noindex_pages,
+        "slow_pages": slow_pages,
+        "images_without_alt": images_without_alt,
+    }
+
+
 def _build_report_data(project, project_id, db):
     from app.models.brief import Brief
     from app.models.crawl import CrawlSession, CrawlStatus
@@ -134,7 +163,7 @@ def _build_report_data(project, project_id, db):
         .where(CrawlSession.project_id == project_id, CrawlSession.status == CrawlStatus.DONE)
         .order_by(CrawlSession.finished_at.desc())
     )
-    crawl_report = crawl.report if crawl else None
+    crawl_report = _build_crawl_report(crawl, db)
 
     campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
     campaign_ids = [c.id for c in campaigns]

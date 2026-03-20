@@ -131,7 +131,7 @@ og:description: 150-200 символов, интригующий анонс ст
         generated = 0
         consecutive_failures = 0
         for i, page in enumerate(pages):
-            if task and i % 10 == 0:
+            if task:
                 task.progress = round(i / len(pages) * 100)
                 db.commit()
 
@@ -337,8 +337,9 @@ def task_generate_schema_bulk(
         system_prompt = "Ты — SEO-специалист. Генерируй корректный Schema.org JSON-LD. Отвечай только валидным JSON-LD объектом без markdown и пояснений."
 
         generated = 0
+        consecutive_failures = 0
         for i, page in enumerate(pages):
-            if task and i % 5 == 0:
+            if task:
                 task.progress = round(i / len(pages) * 100)
                 db.commit()
 
@@ -357,6 +358,12 @@ Description: {page.description or 'нет'}
                 response_text = _run_async(claude.generate(system_prompt, user_msg))
                 json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
                 if not json_match:
+                    consecutive_failures += 1
+                    if generated == 0 and consecutive_failures >= 3:
+                        raise RuntimeError(
+                            f"Первые {consecutive_failures} страниц не удалось обработать. "
+                            "Проверьте настройки API ключа."
+                        )
                     continue
                 schema_json = json_match.group()
                 json.loads(schema_json)  # validate
@@ -373,7 +380,16 @@ Description: {page.description or 'нет'}
                 meta.schema_org_json = schema_json
                 db.commit()
                 generated += 1
-            except Exception:
+                consecutive_failures = 0
+            except RuntimeError:
+                raise
+            except Exception as page_err:
+                consecutive_failures += 1
+                if generated == 0 and consecutive_failures >= 3:
+                    raise RuntimeError(
+                        f"Первые {consecutive_failures} страниц не удалось обработать. "
+                        f"Проверьте настройки API ключа. Последняя ошибка: {page_err}"
+                    ) from page_err
                 continue
 
         if task:

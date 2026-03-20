@@ -175,8 +175,8 @@ class WordstatClient:
 
 
 def get_wordstat_client(db) -> WordstatClient | None:
-    from app.settings.service import get_api_key
-    token = get_api_key(db, "wordstat", "oauth_token")
+    from app.services.settings_service import get_setting
+    token = get_setting("wordstat_oauth_token", db)
     if not token:
         return None
     return WordstatClient(token)

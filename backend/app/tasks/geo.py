@@ -12,7 +12,7 @@ from app.models.geo import AiReadinessAudit, GeoKeyword, GeoScanResult
 from app.models.project import Project
 from app.models.task import Task, TaskStatus, TaskType
 from app.services import ai_checker
-from app.services.settings_service import settings_service
+from app.services.settings_service import get_setting
 
 
 def _run_async(coro):
@@ -52,7 +52,7 @@ def task_geo_scan(
             _update_task(db, task, status=TaskStatus.FAILED, error="Project not found")
             return
 
-        openrouter_key = settings_service.get_api_key(db, "openrouter", "api_key")
+        openrouter_key = get_setting("openrouter_api_key", db)
         if not openrouter_key:
             _update_task(db, task, status=TaskStatus.FAILED, error="OpenRouter API key not configured")
             return
