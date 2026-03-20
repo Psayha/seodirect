@@ -77,7 +77,7 @@ async def generate_strategy(project_id: uuid.UUID, db: Session) -> str:
     user_msg = f"ДАННЫЕ БРИФА:\n{brief_text}\n\nДАННЫЕ САЙТА:\n{crawl_text}"
 
     from app.services.claude import get_claude_client
-    client = get_claude_client(db)
+    client = get_claude_client(db, task_type="direct_strategy")
     result = await client.generate(system_prompt, user_msg)
     return result
 
@@ -103,7 +103,7 @@ async def generate_keywords_for_group(
     )
 
     from app.services.claude import get_claude_client
-    client = get_claude_client(db)
+    client = get_claude_client(db, task_type="direct_keywords")
     raw = await client.generate(
         "Возврати ТОЛЬКО валидный JSON массив, без пояснений.",
         user_msg,
@@ -167,7 +167,7 @@ async def generate_ads_for_group(
     )
 
     from app.services.claude import get_claude_client
-    client = get_claude_client(db)
+    client = get_claude_client(db, task_type="direct_ads")
     raw = await client.generate(
         "Возврати ТОЛЬКО валидный JSON массив, без пояснений.",
         user_msg,
@@ -222,7 +222,7 @@ async def generate_negative_keywords(project_id: uuid.UUID, db: Session) -> list
     )
 
     from app.services.claude import get_claude_client
-    client = get_claude_client(db)
+    client = get_claude_client(db, task_type="direct_negative_kw")
     raw = await client.generate(
         "Возврати ТОЛЬКО валидный JSON объект, без пояснений.",
         user_msg,

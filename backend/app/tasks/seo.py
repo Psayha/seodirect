@@ -46,7 +46,6 @@ def task_generate_seo_meta(
     from app.models.crawl import CrawlSession, CrawlStatus, Page
     from app.models.seo import SeoPageMeta
     from app.models.task import Task, TaskStatus
-    from app.services.claude import ClaudeClient
     from app.services.settings_service import get_setting
 
     db = SessionLocal()
@@ -107,17 +106,9 @@ def task_generate_seo_meta(
                 db.commit()
             return
 
-        # Get Claude client (supports both Anthropic and OpenRouter)
+        # Get LLM client with per-task settings
         from app.services.claude import get_claude_client
-        _base_client = get_claude_client(db)
-        # Re-create with task-specific settings (lower max_tokens, lower temperature)
-        claude = ClaudeClient(
-            api_key=_base_client.api_key,
-            model=_base_client.model,
-            max_tokens=2000,
-            temperature=0.4,
-            use_openrouter=_base_client.use_openrouter,
-        )
+        claude = get_claude_client(db, task_type="seo_meta")
 
         system_prompt = """Ты — SEO-специалист. Генерируй краткие title и description для веб-страниц на русском языке.
 title: 50-65 символов, включает ключевое слово, конкретный и информативный.
@@ -333,7 +324,7 @@ def task_generate_schema_bulk(
         allowed_types = schema_types if schema_types else _DEFAULT_SCHEMA_TYPES
         types_list = ", ".join(allowed_types)
 
-        claude = get_claude_client(db)
+        claude = get_claude_client(db, task_type="seo_schema_bulk")
         system_prompt = "Ты — SEO-специалист. Генерируй корректный Schema.org JSON-LD. Отвечай только валидным JSON-LD объектом без markdown и пояснений."
 
         generated = 0

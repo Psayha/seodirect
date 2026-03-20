@@ -72,7 +72,7 @@ async def generate_schema_org(
 
     try:
         from app.services.claude import get_claude_client
-        claude = get_claude_client(db)
+        claude = get_claude_client(db, task_type="seo_schema")
     except (RuntimeError, Exception) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -251,7 +251,7 @@ async def generate_faq(
 
     try:
         from app.services.claude import get_claude_client
-        claude = get_claude_client(db)
+        claude = get_claude_client(db, task_type="seo_faq")
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -450,7 +450,7 @@ async def content_gap_analysis(
             logger.warning("Failed to crawl competitor URL %s: %s", comp_url, str(e)[:200])
 
     from app.services.claude import get_claude_client
-    claude = get_claude_client(db)
+    claude = get_claude_client(db, task_type="seo_content_gap")
 
     client_list = "\n".join(
         f"- {p['url']}: {p.get('title', '')} | {p.get('h1', '')}"

@@ -188,7 +188,7 @@ def task_semantic_expand(
             logging.getLogger(__name__).warning("Failed to load crawl data for semantic expand", exc_info=True)
 
         # ── Claude: generate keywords per mask ───────────────────────────────
-        claude = get_claude_client(db)
+        claude = get_claude_client(db, task_type="semantic_expand")
         all_phrases: list[str] = []
         total_masks = len(mask_phrases)
 
@@ -478,7 +478,7 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
             db.commit()
 
         # ── Call Claude in batches of 300 ─────────────────────────────────────
-        claude = get_claude_client(db)
+        claude = get_claude_client(db, task_type="semantic_cluster")
         all_clusters: list[dict] = []
         batch_size = 300
         phrase_set = set(phrases)

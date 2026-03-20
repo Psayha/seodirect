@@ -12,4 +12,7 @@ export const crawlApi = {
 
   checkCwv: (projectId: string, urls: string[], strategy: string) =>
     api.post(`/projects/${projectId}/crawl/cwv`, { urls, strategy }).then(r => r.data),
+
+  aiAnalysis: (projectId: string) =>
+    api.post(`/projects/${projectId}/crawl/ai-analysis`).then(r => r.data),
 }

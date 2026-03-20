@@ -799,7 +799,7 @@ async def analyze_offers(
         ads_data = ads_data[:50]  # ограничиваем чтобы не превышать контекст
 
     from app.services.claude import get_claude_client
-    client = get_claude_client(db)
+    client = get_claude_client(db, task_type="direct_ad_rating")
 
     SYSTEM_PROMPT = """\
 Ты — старший специалист по Яндекс Директу с 10+ годами опыта. \

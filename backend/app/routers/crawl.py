@@ -593,3 +593,109 @@ def crawl_tree(
     url_list = [(p.url, p.title, p.status_code) for p in pages]
     tree = build_tree(url_list)
     return {"tree": tree, "total": len(pages)}
+
+
+# ── AI Crawl Analysis ───────────────────────────────────────────────────────
+
+@router.post("/projects/{project_id}/crawl/ai-analysis")
+async def crawl_ai_analysis(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Ask LLM to analyze crawl results and provide SEO recommendations."""
+    project = _check_project_access(project_id, current_user, db)
+
+    crawl = db.scalar(
+        select(CrawlSession)
+        .where(
+            CrawlSession.project_id == project_id,
+            CrawlSession.status == CrawlStatus.DONE,
+        )
+        .order_by(CrawlSession.finished_at.desc())
+    )
+    if not crawl:
+        raise HTTPException(status_code=404, detail="Нет завершённого обхода. Сначала запустите краулинг.")
+
+    pages = db.scalars(
+        select(Page).where(Page.crawl_session_id == crawl.id).order_by(Page.url)
+    ).all()
+    if not pages:
+        raise HTTPException(status_code=404, detail="Нет страниц в результатах обхода")
+
+    # Build summary for LLM
+    total = len(pages)
+    status_counts = Counter(p.status_code for p in pages)
+    no_title = sum(1 for p in pages if not p.title)
+    no_desc = sum(1 for p in pages if not p.description)
+    no_h1 = sum(1 for p in pages if not p.h1)
+    multi_h1 = sum(1 for p in pages if p.h1_count and p.h1_count > 1)
+    no_alt = sum(p.images_without_alt or 0 for p in pages)
+    slow_pages = sum(1 for p in pages if p.load_time_ms and p.load_time_ms > 3000)
+    no_canonical = sum(1 for p in pages if not p.canonical)
+    noindex = sum(1 for p in pages if p.robots_meta and "noindex" in (p.robots_meta or "").lower())
+
+    # Sample pages for context
+    sample_pages = []
+    for p in pages[:30]:
+        info = f"  URL: {p.url} | status: {p.status_code} | title: {(p.title or 'НЕТ')[:80]}"
+        if p.h1:
+            info += f" | H1: {p.h1[:60]}"
+        if p.word_count:
+            info += f" | слов: {p.word_count}"
+        if p.load_time_ms:
+            info += f" | загрузка: {p.load_time_ms}мс"
+        if p.content_text:
+            info += f"\n    Контент: {p.content_text[:300]}"
+        sample_pages.append(info)
+
+    summary = f"""Сайт: {project.url}
+Всего страниц: {total}
+Статусы: {dict(status_counts)}
+
+Проблемы:
+- Без title: {no_title}
+- Без description: {no_desc}
+- Без H1: {no_h1}
+- Несколько H1: {multi_h1}
+- Изображения без alt: {no_alt}
+- Медленные (>3с): {slow_pages}
+- Без canonical: {no_canonical}
+- С noindex: {noindex}
+
+Примеры страниц:
+{chr(10).join(sample_pages)}"""
+
+    system_prompt = """Ты — ведущий SEO-специалист с 10-летним опытом аудита сайтов.
+Проанализируй результаты обхода (краулинга) сайта и дай детальный отчёт.
+
+Структура ответа:
+
+## Общая оценка
+Краткая оценка состояния сайта (1-2 предложения).
+
+## Критические проблемы
+Список критических SEO-проблем, которые нужно исправить первыми.
+
+## Рекомендации по структуре
+Анализ структуры URL, навигации, внутренней перелинковки.
+
+## Рекомендации по контенту
+Анализ контента страниц: качество, полнота, уникальность.
+
+## Технические рекомендации
+Скорость, мета-теги, canonical, robots, alt-теги и прочее.
+
+## Приоритетный план действий
+Пронумерованный список действий в порядке приоритета (до 10 пунктов).
+
+Пиши на русском языке. Будь конкретным — указывай URL страниц с проблемами."""
+
+    try:
+        from app.services.claude import get_claude_client
+        client = get_claude_client(db, task_type="crawl_analysis")
+        result = await client.generate(system_prompt, summary)
+        return {"analysis": result, "pages_total": total, "project_url": project.url}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

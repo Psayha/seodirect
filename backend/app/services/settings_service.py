@@ -10,7 +10,6 @@ from app.services.encryption import decrypt, encrypt
 
 # Определяем какие ключи являются API ключами (шифруются)
 API_KEY_FIELDS = {
-    "anthropic_api_key",
     "openrouter_api_key",
     "wordstat_oauth_token",
     "topvisor_api_key",
@@ -35,6 +34,10 @@ PLAIN_FIELDS = {
     "white_label_logo_url",
     "white_label_primary_color",
 }
+
+# Per-task LLM settings are stored with prefix llm_{task_id}_{field}
+# e.g. llm_direct_strategy_model, llm_direct_strategy_temperature
+LLM_TASK_SETTING_PREFIX = "llm_"
 
 # Дефолтные промпты
 DEFAULT_PROMPTS = {
@@ -120,7 +123,7 @@ def get_setting(key: str, db: Session) -> str | None:
             return decrypt(setting.value_encrypted, enc_key)
         except Exception:
             return None
-    return setting.value_encrypted  # plain for non-API fields
+    return setting.value_encrypted  # plain for non-API fields and llm_ prefixed keys
 
 
 def set_setting(key: str, value: str, db: Session, updated_by=None) -> None:
