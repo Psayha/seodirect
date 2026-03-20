@@ -1,5 +1,6 @@
 from app.models.brief import Brief
 from app.models.crawl import CrawlSession, CrawlStatus, Page
+from app.models.geo import AiReadinessAudit, GeoKeyword, GeoScanResult
 from app.models.direct import (
     Ad,
     AdGroup,
@@ -40,4 +41,5 @@ __all__ = [
     "UtmTemplate",
     "SeoMetaHistory",
     "ProjectAccessToken",
+    "GeoKeyword", "GeoScanResult", "AiReadinessAudit",
 ]
