@@ -187,7 +187,7 @@ export default function ProjectsPage() {
   const countLabel = count === 1 ? 'проект' : count < 5 ? 'проекта' : 'проектов'
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6">
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>

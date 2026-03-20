@@ -222,7 +222,7 @@ export default function BriefTab({ projectId }: { projectId: string }) {
   )
 
   return (
-    <div className="p-6 max-w-7xl">
+    <div className="p-6">
       {/* Improve modal */}
       {improveOpen && improved && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">

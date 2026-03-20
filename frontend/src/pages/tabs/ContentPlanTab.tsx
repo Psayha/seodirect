@@ -163,7 +163,7 @@ export default function ContentPlanTab({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="p-6 max-w-5xl">
+    <div className="p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-primary">Контент-план блога</h2>
         <button onClick={() => { setShowForm(true); setEditId(null); setForm(emptyArticle) }}

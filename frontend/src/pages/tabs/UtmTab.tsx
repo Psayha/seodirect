@@ -42,7 +42,7 @@ export default function UtmTab({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="p-6 max-w-3xl space-y-6">
+    <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-lg">UTM-конструктор</h3>
         <button onClick={() => setShowForm(v => !v)}

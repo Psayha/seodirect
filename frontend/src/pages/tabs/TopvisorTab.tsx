@@ -107,7 +107,7 @@ export default function TopvisorTab({ projectId }: { projectId: string }) {
   const sumData = summary?.summary || {}
 
   return (
-    <div className="p-6 max-w-4xl space-y-4">
+    <div className="p-6 space-y-4">
       <h2 className="text-lg font-semibold text-primary">Позиции и конкуренты (Topvisor)</h2>
 
       {/* ── Link project ── */}

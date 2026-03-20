@@ -1369,7 +1369,7 @@ export default function MarketingTab({ projectId }: { projectId: string }) {
   const pipelineStep = sp?.pipeline_step ?? 0
 
   return (
-    <div className="p-6 max-w-5xl space-y-6">
+    <div className="p-6 space-y-6">
       {/* ── Mode tabs ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div className="flex gap-1 bg-surface-raised rounded-xl p-1">

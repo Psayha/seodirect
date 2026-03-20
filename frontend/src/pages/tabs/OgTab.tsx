@@ -74,7 +74,7 @@ export default function OgTab({ projectId }: { projectId: string }) {
   const isDone = taskStatus?.status === 'success'
 
   return (
-    <div className="p-6 max-w-4xl">
+    <div className="p-6">
       <div className="flex items-center justify-between mb-5">
         <h3 className="font-semibold">OpenGraph теги</h3>
         <button onClick={() => genMut.mutate()} disabled={genMut.isPending || isRunning}

@@ -193,7 +193,7 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
   const hasError = !!dashError
 
   return (
-    <div className="p-6 max-w-4xl">
+    <div className="p-6">
       {/* Anomaly banner */}
       <AnomalyBanner projectId={projectId} />
 

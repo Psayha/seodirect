@@ -111,7 +111,7 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="p-6 max-w-7xl">
+    <div className="p-6">
       {/* Onboarding explanation */}
       <div className="bg-[var(--accent-subtle)] border border-accent/20 rounded-2xl p-4 mb-5 flex gap-3">
         <span className="text-xl shrink-0">📊</span>
