@@ -29,6 +29,7 @@ export interface Brief {
   excluded_geo: string | null
   monthly_budget: string | null
   restrictions: string | null
+  keyword_modifiers: string[]
 }
 
 export interface TrashProject {
