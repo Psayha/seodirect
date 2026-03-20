@@ -197,4 +197,22 @@ export const marketingApi = {
     api
       .delete(`/projects/${projectId}/marketing/semantic/${semId}/clusters/${clusterId}`)
       .then(() => undefined),
+
+  // ── Export ───────────────────────────────────────────────────────────────────
+
+  exportUrl: (projectId: string, semId: string, fmt: 'xlsx' | 'csv' | 'txt'): string =>
+    `/api/projects/${projectId}/marketing/semantic/${semId}/export?fmt=${fmt}`,
+
+  exportBlob: (projectId: string, semId: string, fmt: 'xlsx' | 'csv' | 'txt'): Promise<{ blob: Blob; filename: string }> =>
+    api
+      .get(`/projects/${projectId}/marketing/semantic/${semId}/export`, {
+        params: { fmt },
+        responseType: 'blob',
+      })
+      .then((r) => {
+        const disposition: string = r.headers['content-disposition'] ?? ''
+        const match = disposition.match(/filename="([^"]+)"/)
+        const filename = match ? match[1] : `semantic.${fmt}`
+        return { blob: r.data as Blob, filename }
+      }),
 }

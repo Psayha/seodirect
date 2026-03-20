@@ -1,12 +1,16 @@
 """Marketing module: semantic core collection for SEO and Yandex Direct."""
 from __future__ import annotations
 
+import csv
+import io
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -1095,4 +1099,212 @@ def delete_cluster(
         kw.cluster_name = None
     db.delete(cluster)
     db.commit()
+
+
+# ─── Export ───────────────────────────────────────────────────────────────────
+
+def _safe_filename(name: str) -> str:
+    safe = re.sub(r"[^\w\s\-]", "", name, flags=re.UNICODE).strip()
+    return re.sub(r"\s+", "_", safe)[:50] or "semantic"
+
+
+def _load_export_data(sem_id: uuid.UUID, db: Session) -> tuple[list, list]:
+    """Return (keywords, clusters) for export, keywords sorted by cluster then freq."""
+    keywords = db.scalars(
+        select(SemanticKeyword)
+        .where(
+            SemanticKeyword.semantic_project_id == sem_id,
+            SemanticKeyword.is_excluded.is_(False),
+            SemanticKeyword.is_mask.is_(False),
+        )
+        .order_by(
+            SemanticKeyword.cluster_name.nullslast(),
+            SemanticKeyword.frequency_exact.desc().nullslast(),
+        )
+    ).all()
+    clusters = db.scalars(
+        select(SemanticCluster)
+        .where(SemanticCluster.semantic_project_id == sem_id)
+        .order_by(SemanticCluster.name)
+    ).all()
+    return list(keywords), list(clusters)
+
+
+def _build_xlsx(sp: SemanticProject, keywords: list, clusters: list) -> bytes:
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+
+    # ── Sheet 1: Семантическое ядро ───────────────────────────────────────────
+    ws = wb.active
+    ws.title = "Семантическое ядро"
+
+    hdr_fill = PatternFill("solid", fgColor="1F4E79")
+    hdr_font = Font(color="FFFFFF", bold=True, size=10)
+    alt_fill = PatternFill("solid", fgColor="EBF3FB")
+
+    cols = ["Фраза", "Кластер", "Тип", "Интент", "WS", '«WS»', '"!WS"', "[WS]",
+            "Бренд", "Конкурент", "Сезонный", "Гео"]
+    for ci, col in enumerate(cols, 1):
+        cell = ws.cell(row=1, column=ci, value=col)
+        cell.fill = hdr_fill
+        cell.font = hdr_font
+        cell.alignment = Alignment(horizontal="center")
+
+    for ri, kw in enumerate(keywords, 2):
+        row_fill = alt_fill if ri % 2 == 0 else None
+        values = [
+            kw.phrase,
+            kw.cluster_name or "—",
+            kw.kw_type or "—",
+            kw.intent or "—",
+            kw.frequency_base,
+            kw.frequency_phrase,
+            kw.frequency_exact,
+            kw.frequency_order,
+            "Да" if kw.is_branded else "",
+            "Да" if kw.is_competitor else "",
+            "Да" if kw.is_seasonal else "",
+            "Да" if kw.geo_dependent else "",
+        ]
+        for ci, v in enumerate(values, 1):
+            cell = ws.cell(row=ri, column=ci, value=v)
+            if row_fill:
+                cell.fill = row_fill
+
+    # Column widths
+    widths = [45, 30, 6, 16, 10, 10, 10, 10, 7, 10, 9, 7]
+    for ci, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}1"
+
+    # ── Sheet 2: Кластеры ─────────────────────────────────────────────────────
+    ws2 = wb.create_sheet("Кластеры")
+    cluster_hdrs = ["Кластер", "Интент", "Приоритет", "Кол-во ключей"]
+    if sp.mode.value == "direct":
+        cluster_hdrs += ["Тип кампании", "Заголовок объявления"]
+    for ci, col in enumerate(cluster_hdrs, 1):
+        cell = ws2.cell(row=1, column=ci, value=col)
+        cell.fill = hdr_fill
+        cell.font = hdr_font
+
+    # Count per cluster
+    cluster_count: dict[str, int] = {}
+    for kw in keywords:
+        key = kw.cluster_name or "—"
+        cluster_count[key] = cluster_count.get(key, 0) + 1
+
+    for ri, c in enumerate(clusters, 2):
+        row = [c.name, c.intent or "", c.priority or "", cluster_count.get(c.name, 0)]
+        if sp.mode.value == "direct":
+            row += [c.campaign_type or "", c.suggested_title or ""]
+        for ci, v in enumerate(row, 1):
+            ws2.cell(row=ri, column=ci, value=v)
+
+    for ci, w in enumerate([35, 18, 12, 12, 14, 40], 1):
+        ws2.column_dimensions[get_column_letter(ci)].width = w
+
+    # ── Sheet 3 (Direct mode): Кампании ──────────────────────────────────────
+    if sp.mode.value == "direct":
+        ws3 = wb.create_sheet("Кампании")
+        dir_hdrs = ["Кластер", "Тип кампании", "Заголовок", "Ключевые слова (через запятую)"]
+        for ci, col in enumerate(dir_hdrs, 1):
+            cell = ws3.cell(row=1, column=ci, value=col)
+            cell.fill = hdr_fill
+            cell.font = hdr_font
+
+        # Group keywords by cluster
+        by_cluster: dict[str, list[str]] = {}
+        for kw in keywords:
+            key = kw.cluster_name or "—"
+            by_cluster.setdefault(key, []).append(kw.phrase)
+
+        cluster_meta: dict[str, SemanticCluster] = {c.name: c for c in clusters}
+        for ri, (cname, phrases) in enumerate(sorted(by_cluster.items()), 2):
+            meta = cluster_meta.get(cname)
+            row = [
+                cname,
+                meta.campaign_type if meta else "",
+                meta.suggested_title if meta else "",
+                ", ".join(phrases),
+            ]
+            for ci, v in enumerate(row, 1):
+                ws3.cell(row=ri, column=ci, value=v)
+
+        for ci, w in enumerate([30, 14, 38, 80], 1):
+            ws3.column_dimensions[get_column_letter(ci)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _build_csv(keywords: list) -> bytes:
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";")
+    writer.writerow(["Фраза", "Кластер", "Тип", "Интент", "WS", "WS_phrase", "WS_exact", "WS_order",
+                     "Бренд", "Конкурент", "Сезонный", "Гео"])
+    for kw in keywords:
+        writer.writerow([
+            kw.phrase, kw.cluster_name or "", kw.kw_type or "", kw.intent or "",
+            kw.frequency_base or 0, kw.frequency_phrase or 0,
+            kw.frequency_exact or 0, kw.frequency_order or 0,
+            int(kw.is_branded), int(kw.is_competitor),
+            int(kw.is_seasonal), int(kw.geo_dependent),
+        ])
+    return buf.getvalue().encode("utf-8-sig")  # BOM for Excel
+
+
+def _build_txt(keywords: list) -> bytes:
+    return "\n".join(kw.phrase for kw in keywords).encode("utf-8")
+
+
+@router.get("/projects/{project_id}/marketing/semantic/{sem_id}/export")
+def export_semantic_core(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    fmt: str = Query("xlsx", pattern="^(xlsx|csv|txt)$"),
+):
+    """Download semantic core as XLSX, CSV or TXT.
+
+    XLSX has 2–3 sheets: full keyword list, cluster summary, and (Direct mode) campaign sheet.
+    CSV is semicolon-delimited with BOM for direct Excel opening.
+    TXT is one phrase per line (ready to paste into Wordstat or Direct).
+    """
+    _check_project_access(project_id, current_user, db)
+    sp = _get_sem_project(sem_id, project_id, db)
+
+    keywords, clusters = _load_export_data(sem_id, db)
+    if not keywords:
+        raise HTTPException(status_code=422, detail="Нет ключевых слов для экспорта")
+
+    safe_name = _safe_filename(sp.name)
+
+    if fmt == "xlsx":
+        content = _build_xlsx(sp, keywords, clusters)
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.xlsx"'},
+        )
+    if fmt == "csv":
+        content = _build_csv(keywords)
+        return Response(
+            content=content,
+            media_type="text/csv; charset=utf-8-sig",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.csv"'},
+        )
+    # txt
+    content = _build_txt(keywords)
+    return Response(
+        content=content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.txt"'},
+    )
 

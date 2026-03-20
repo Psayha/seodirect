@@ -1169,6 +1169,158 @@ function ClusterStep({
   )
 }
 
+// ─── Step 6: Export ──────────────────────────────────────────────────────────
+
+function ExportStep({
+  projectId,
+  sp,
+}: {
+  projectId: string
+  sp: import('../../api/marketing').SemanticProject
+}) {
+  const [downloading, setDownloading] = useState<string | null>(null)
+  const [error, setError] = useState('')
+
+  const { data: clusters } = useQuery({
+    queryKey: ['clusters', projectId, sp.id],
+    queryFn: () => marketingApi.getClusters(projectId, sp.id),
+  })
+  const { data: kwData } = useQuery({
+    queryKey: ['sem-kw-export-stats', projectId, sp.id],
+    queryFn: () => marketingApi.getKeywords(projectId, sp.id, { per_page: 1 }),
+  })
+
+  const totalKw = kwData?.total ?? 0
+  const totalClusters = clusters?.length ?? 0
+
+  const byType = (clusters ?? []).reduce<Record<string, number>>((acc, c) => {
+    const key = c.intent ?? 'общий'
+    acc[key] = (acc[key] ?? 0) + c.keyword_count
+    return acc
+  }, {})
+
+  const download = async (fmt: 'xlsx' | 'csv' | 'txt') => {
+    setDownloading(fmt)
+    setError('')
+    try {
+      const { blob, filename } = await marketingApi.exportBlob(projectId, sp.id, fmt)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || 'Ошибка скачивания')
+    } finally {
+      setDownloading(null)
+    }
+  }
+
+  const FORMATS: { fmt: 'xlsx' | 'csv' | 'txt'; label: string; desc: string; icon: string }[] = [
+    {
+      fmt: 'xlsx',
+      label: 'XLSX',
+      desc: sp.mode === 'direct'
+        ? '3 листа: ядро · кластеры · кампании Директ'
+        : '2 листа: ядро · кластеры',
+      icon: '📊',
+    },
+    {
+      fmt: 'csv',
+      label: 'CSV',
+      desc: 'Разделитель «;», кодировка UTF-8 с BOM (открывается в Excel)',
+      icon: '📋',
+    },
+    {
+      fmt: 'txt',
+      label: 'TXT',
+      desc: 'Только фразы, по одной на строку (для Wordstat или Директа)',
+      icon: '📄',
+    },
+  ]
+
+  return (
+    <div className="space-y-6">
+      {/* ── Stats summary ─────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Ключей', value: totalKw.toLocaleString('ru') },
+          { label: 'Кластеров', value: totalClusters.toLocaleString('ru') },
+          { label: 'Режим', value: sp.mode === 'seo' ? 'SEO' : 'Директ' },
+          { label: 'Регион', value: sp.region || 'Все' },
+        ].map((s) => (
+          <div key={s.label} className="bg-surface-raised rounded-xl p-3 text-center">
+            <p className="text-xl font-bold text-accent">{s.value}</p>
+            <p className="text-xs text-muted mt-0.5">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Breakdown by intent ──────────────────────────────────────────── */}
+      {Object.keys(byType).length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([intent, count]) => (
+            <span
+              key={intent}
+              className={cx(
+                'text-xs px-2 py-1 rounded-full',
+                INTENT_COLOR[intent] ?? 'bg-gray-100 text-gray-600'
+              )}
+            >
+              {intent}: {count}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* ── Download buttons ─────────────────────────────────────────────── */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-primary">Скачать семантическое ядро</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {FORMATS.map(({ fmt, label, desc, icon }) => (
+            <button
+              key={fmt}
+              onClick={() => download(fmt)}
+              disabled={!!downloading || totalKw === 0}
+              className={cx(
+                'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                'border-[var(--border)] hover:border-accent/50 hover:bg-[var(--accent-subtle)]',
+                'disabled:opacity-50 disabled:cursor-not-allowed'
+              )}
+            >
+              <div className="flex items-center gap-2 w-full">
+                <span className="text-lg">{icon}</span>
+                <span className="font-semibold text-sm text-primary">{label}</span>
+                {downloading === fmt && (
+                  <span className="ml-auto w-4 h-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+                )}
+              </div>
+              <p className="text-[11px] text-muted leading-snug">{desc}</p>
+            </button>
+          ))}
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        {totalKw === 0 && (
+          <p className="text-xs text-muted">Нет активных ключей для экспорта</p>
+        )}
+      </div>
+
+      {/* ── Completion ───────────────────────────────────────────────────── */}
+      <div className="border border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-800 rounded-xl p-4 space-y-1">
+        <p className="text-sm font-medium text-green-700 dark:text-green-400">
+          Семантическое ядро готово
+        </p>
+        <p className="text-xs text-green-600 dark:text-green-500">
+          {sp.mode === 'seo'
+            ? 'Используйте кластеры как основу для структуры сайта и контент-плана.'
+            : 'Кластеры готовы к загрузке в Яндекс Директ Командер через XLSX.'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ─── Locked step placeholder ──────────────────────────────────────────────────
 
 function LockedStep({ label, requiredStep }: { label: string; requiredStep: number }) {
@@ -1387,7 +1539,10 @@ export default function MarketingTab({ projectId }: { projectId: string }) {
             )}
 
             {activeStep === 6 && (
-              <LockedStep label="Шаг 6 — Экспорт" requiredStep={5} />
+              <>
+                <h3 className="font-semibold text-base mb-4">Шаг 6 — Экспорт</h3>
+                <ExportStep projectId={projectId} sp={sp} />
+              </>
             )}
           </div>
         </>
