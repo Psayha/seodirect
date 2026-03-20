@@ -15,8 +15,9 @@ from app.db.session import get_db
 from app.models.brief import Brief
 from app.models.crawl import CrawlSession, Page
 from app.models.geo import AiReadinessAudit, GeoKeyword, GeoScanResult
-from app.models.project import Project, UserRole
+from app.models.project import Project
 from app.models.task import Task, TaskStatus, TaskType
+from app.models.user import UserRole
 from app.services import ai_checker
 
 router = APIRouter()
