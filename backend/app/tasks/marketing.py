@@ -35,12 +35,15 @@ def _build_expand_prompt(
     region: str | None,
     brief_context: str | None,
     modifiers: list[str] | None,
+    site_context: str | None = None,
 ) -> str:
     mode_hint = "SEO-продвижения (включай информационные и коммерческие запросы)" if mode == "seo" else "Яндекс Директ (только коммерческие, транзакционные запросы)"
     region_hint = f" в регионе {region}" if region else ""
     lines = [f'Расширь маску «{mask}» для {mode_hint}{region_hint}.']
     if brief_context:
         lines.append(f"\nКонтекст бизнеса:\n{brief_context}")
+    if site_context:
+        lines.append(f"\nДанные анализа сайта (структура, УТП, ключевые темы):\n{site_context}")
     if modifiers:
         lines.append(f"\nОбязательно используй модификаторы: {', '.join(modifiers)}")
     lines.append("\nСгенерируй 60–100 поисковых запросов. Включи:")
@@ -49,6 +52,7 @@ def _build_expand_prompt(
     lines.append("- Целевые (для [аудитория], в [город/место])")
     if mode == "seo":
         lines.append("- Информационные (как выбрать, обзор, отзывы)")
+    lines.append("\nУчитывай реальные услуги/товары и УТП с сайта клиента при генерации.")
     lines.append("\nВерни ТОЛЬКО JSON-массив. Пример: [\"купить диван\", \"диван в гостиную\"]")
     return "\n".join(lines)
 
@@ -148,6 +152,41 @@ def task_semantic_expand(
             if brief_check and brief_check.keyword_modifiers:
                 modifiers = brief_check.keyword_modifiers
 
+        # ── Build site context from crawl data ───────────────────────────────
+        site_context: str | None = None
+        try:
+            from app.models.crawl import CrawlSession, CrawlStatus, Page
+
+            crawl = db.scalar(
+                select(CrawlSession).where(
+                    CrawlSession.project_id == uuid.UUID(project_id),
+                    CrawlSession.status == CrawlStatus.DONE,
+                ).order_by(CrawlSession.finished_at.desc())
+            )
+            if crawl:
+                top_pages = db.scalars(
+                    select(Page).where(
+                        Page.crawl_session_id == crawl.id,
+                        Page.status_code == 200,
+                    ).order_by(Page.word_count.desc()).limit(10)
+                ).all()
+                if top_pages:
+                    parts = []
+                    for p in top_pages:
+                        page_info = f"— {p.url}: {p.title or 'без title'}"
+                        if p.h1:
+                            page_info += f" | H1: {p.h1}"
+                        if p.h2_list:
+                            page_info += f" | H2: {', '.join(p.h2_list[:5])}"
+                        if p.content_text:
+                            # First 500 chars of content for UVP/product analysis
+                            page_info += f"\n  Контент: {p.content_text[:500]}"
+                        parts.append(page_info)
+                    site_context = "\n".join(parts)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning("Failed to load crawl data for semantic expand", exc_info=True)
+
         # ── Claude: generate keywords per mask ───────────────────────────────
         claude = get_claude_client(db)
         all_phrases: list[str] = []
@@ -160,6 +199,7 @@ def task_semantic_expand(
                 region=sp.region,
                 brief_context=brief_context,
                 modifiers=modifiers,
+                site_context=site_context,
             )
             try:
                 raw = _run_async(claude.generate(_EXPAND_SYSTEM, prompt))
