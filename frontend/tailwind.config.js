@@ -57,10 +57,10 @@ export default {
         '3xl': '24px',
         '4xl': '32px',
       },
-      /* DM Sans display + DM Mono for data/code */
+      /* System font stack — zero network cost, renders instantly */
       fontFamily: {
-        sans: ['DM Sans', 'system-ui', 'sans-serif'],
-        mono: ['DM Mono', 'monospace'],
+        sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'system-ui', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Cascadia Code', 'Fira Mono', 'monospace'],
       },
       opacity: {
         '6': '0.06',
