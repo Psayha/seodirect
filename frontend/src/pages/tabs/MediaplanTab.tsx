@@ -48,15 +48,6 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
     onError: (err: any) => { alert(err?.response?.data?.detail || 'Ошибка операции') },
   })
 
-  if (isLoading) return <div className="p-6 text-muted">Загрузка...</div>
-
-  // All 12 rows from state or server
-  const allRows = rows ?? (data?.rows || [])
-
-  // Build a 12-row base indexed by month (1–12), filling gaps
-  const rowByMonth: Record<number, MediaPlanRow> = {}
-  for (const r of allRows) rowByMonth[r.month] = r
-
   // Compute the months to show based on period & startMonth
   const activeMonthIndices = useMemo(() => {
     const months: number[] = []
@@ -65,6 +56,15 @@ export default function MediaplanTab({ projectId }: { projectId: string }) {
     }
     return months
   }, [period, startMonth])
+
+  if (isLoading) return <div className="p-6 text-muted">Загрузка...</div>
+
+  // All 12 rows from state or server
+  const allRows = rows ?? (data?.rows || [])
+
+  // Build a 12-row base indexed by month (1–12), filling gaps
+  const rowByMonth: Record<number, MediaPlanRow> = {}
+  for (const r of allRows) rowByMonth[r.month] = r
 
   // Visible rows in order
   const display = activeMonthIndices.map((m) => rowByMonth[m] ?? {

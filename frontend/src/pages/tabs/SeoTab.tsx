@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { seoApi, type SeoPage, type ChecklistItem } from '../../api/seo'
 import { api } from '../../api/client'
@@ -365,6 +365,9 @@ const SCHEMA_REQUIRED_FIELDS: Record<string, string[]> = {
   Event: ['name', 'startDate'],
   Recipe: ['name', 'recipeIngredient'],
   Review: ['itemReviewed', 'reviewRating'],
+  VideoObject: ['name', 'description', 'thumbnailUrl'],
+  JobPosting: ['title', 'datePosted', 'hiringOrganization'],
+  HowTo: ['name', 'step'],
 }
 
 function validateSchemaOrg(json: string): { valid: boolean; errors: string[]; warnings: string[] } {
@@ -372,69 +375,126 @@ function validateSchemaOrg(json: string): { valid: boolean; errors: string[]; wa
     const data = JSON.parse(json)
     const errors: string[] = []
     const warnings: string[] = []
+
+    // Support @graph
+    const items: any[] = data['@graph'] ? data['@graph'] : [data]
+
     if (!data['@context']) {
       errors.push('@context отсутствует')
     } else if (!String(data['@context']).includes('schema.org')) {
       errors.push('@context должен содержать "schema.org"')
     }
-    if (!data['@type']) {
-      errors.push('@type отсутствует')
-    } else {
-      const type = Array.isArray(data['@type']) ? data['@type'][0] : data['@type']
-      const required = SCHEMA_REQUIRED_FIELDS[type] || []
-      for (const field of required) {
-        if (data[field] === undefined || data[field] === null || data[field] === '') {
-          warnings.push(`Рекомендуемое поле "${field}" отсутствует для типа ${type}`)
+
+    for (const item of items) {
+      if (!item['@type']) {
+        errors.push('@type отсутствует' + (data['@graph'] ? ' (в одном из элементов @graph)' : ''))
+      } else {
+        const type = Array.isArray(item['@type']) ? item['@type'][0] : item['@type']
+        const required = SCHEMA_REQUIRED_FIELDS[type] || []
+        for (const field of required) {
+          if (item[field] === undefined || item[field] === null || item[field] === '') {
+            warnings.push(`[${type}] рекомендуемое поле "${field}" отсутствует`)
+          }
+        }
+        if (!SCHEMA_REQUIRED_FIELDS[type]) {
+          warnings.push(`Тип "${type}" — нет в справочнике, проверьте schema.org`)
         }
       }
-      if (!SCHEMA_REQUIRED_FIELDS[type]) {
-        warnings.push(`Тип "${type}" не входит в список часто проверяемых — проверьте документацию schema.org`)
-      }
     }
+
     return { valid: errors.length === 0, errors, warnings }
   } catch {
     return { valid: false, errors: ['Невалидный JSON — ошибка разбора'], warnings: [] }
   }
 }
 
-const ALL_SCHEMA_TYPES = [
-  'Organization', 'LocalBusiness', 'Product', 'Article', 'FAQPage',
-  'WebSite', 'BreadcrumbList', 'Person', 'WebPage', 'Service',
-  'Event', 'Recipe', 'Review', 'HowTo', 'VideoObject', 'JobPosting',
+const SCHEMA_GROUPS: { label: string; types: string[] }[] = [
+  { label: 'Бизнес', types: ['Organization', 'LocalBusiness', 'Service'] },
+  { label: 'Контент', types: ['Article', 'WebPage', 'WebSite', 'FAQPage', 'HowTo', 'Recipe', 'VideoObject'] },
+  { label: 'Товары и отзывы', types: ['Product', 'Review'] },
+  { label: 'Люди и события', types: ['Person', 'Event', 'JobPosting'] },
+  { label: 'Навигация', types: ['BreadcrumbList'] },
 ]
 
+const ALL_SCHEMA_TYPES = SCHEMA_GROUPS.flatMap(g => g.types)
+
+function SchemaTypeSelector({
+  selected,
+  onChange,
+}: {
+  selected: Set<string>
+  onChange: (s: Set<string>) => void
+}) {
+  const toggle = (t: string) => {
+    const next = new Set(selected)
+    next.has(t) ? next.delete(t) : next.add(t)
+    onChange(next)
+  }
+  const toggleGroup = (types: string[]) => {
+    const allSelected = types.every(t => selected.has(t))
+    const next = new Set(selected)
+    if (allSelected) types.forEach(t => next.delete(t))
+    else types.forEach(t => next.add(t))
+    onChange(next)
+  }
+
+  return (
+    <div className="space-y-3">
+      {SCHEMA_GROUPS.map(group => {
+        const allOn = group.types.every(t => selected.has(t))
+        const someOn = group.types.some(t => selected.has(t))
+        return (
+          <div key={group.label}>
+            <button
+              onClick={() => toggleGroup(group.types)}
+              className="flex items-center gap-2 text-xs font-semibold text-muted uppercase tracking-wide mb-1.5 hover:text-primary">
+              <span className={cx('w-3 h-3 rounded border flex items-center justify-center shrink-0 transition',
+                allOn ? 'bg-accent border-accent' : someOn ? 'bg-accent-subtle border-accent' : 'border-[var(--border)]')}>
+                {(allOn || someOn) && <span className="text-white text-[8px] leading-none">{'✓'}</span>}
+              </span>
+              {group.label}
+            </button>
+            <div className="flex flex-wrap gap-2 pl-5">
+              {group.types.map(t => (
+                <label key={t}
+                  className={cx('flex items-center gap-1.5 text-sm px-3 py-1 rounded-full border cursor-pointer transition select-none',
+                    selected.has(t)
+                      ? 'bg-accent text-white border-accent'
+                      : 'bg-surface text-muted border-[var(--border)] hover:border-accent hover:text-accent')}>
+                  <input type="checkbox" className="sr-only" checked={selected.has(t)} onChange={() => toggle(t)} />
+                  {t}
+                </label>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function SchemaOrgView({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
   const [pageUrl, setPageUrl] = useState('')
-  const [schemaType, setSchemaType] = useState('Organization')
+  const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set(['Organization']))
+  const [generatedJson, setGeneratedJson] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [genError, setGenError] = useState('')
   const [copied, setCopied] = useState(false)
   const [validatorInput, setValidatorInput] = useState('')
   const [validationResult, setValidationResult] = useState<{ valid: boolean; errors: string[]; warnings: string[] } | null>(null)
-  const [bulkSchemaTypes, setBulkSchemaTypes] = useState<string[]>(['Organization', 'LocalBusiness', 'Product', 'Article', 'WebSite', 'WebPage', 'Service'])
+  const [bulkSchemaTypes, setBulkSchemaTypes] = useState<Set<string>>(new Set(['Organization', 'LocalBusiness', 'Product', 'Article', 'WebSite', 'WebPage', 'Service']))
   const [bulkOnlyMissing, setBulkOnlyMissing] = useState(true)
   const [bulkTaskId, setBulkTaskId] = useState<string | null>(null)
-  const qc = useQueryClient()
 
   const { data: pagesData } = useQuery({
     queryKey: ['seo-pages-all', projectId],
     queryFn: () => seoApi.getPages(projectId, { limit: 200 }),
   })
-  const pages = pagesData?.pages || []
-
-  const { data: existing } = useQuery({
-    queryKey: ['schema', projectId, pageUrl],
-    queryFn: () => seoApi.getSchema(projectId, pageUrl),
-    enabled: !!pageUrl,
-    retry: false,
-  })
-
-  const genMut = useMutation({
-    mutationFn: () => seoApi.generateSchema(projectId, pageUrl, schemaType),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['schema', projectId, pageUrl] }),
-    onError: (err: any) => alert(err?.response?.data?.detail || 'Ошибка генерации'),
-  })
+  const pages: SeoPage[] = pagesData?.pages || []
 
   const bulkMut = useMutation({
-    mutationFn: () => seoApi.generateSchemaBulk(projectId, { schema_types: bulkSchemaTypes, only_missing: bulkOnlyMissing }),
+    mutationFn: () => seoApi.generateSchemaBulk(projectId, { schema_types: Array.from(bulkSchemaTypes), only_missing: bulkOnlyMissing }),
     onSuccess: (data: any) => setBulkTaskId(data.task_id),
     onError: (err: any) => alert(err?.response?.data?.detail || 'Ошибка запуска задачи'),
   })
@@ -452,32 +512,72 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
   const isBulkRunning = bulkTaskStatus?.status === 'running' || bulkTaskStatus?.status === 'pending'
   const isBulkDone = bulkTaskStatus?.status === 'success'
 
-  const resultJson = genMut.data?.schema_json || existing?.schema_json || ''
-  const copy = () => { navigator.clipboard.writeText(resultJson); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+  // Auto-refresh when bulk task completes
+  useEffect(() => {
+    if (isBulkDone) {
+      qc.invalidateQueries({ queryKey: ['seo-pages-all', projectId] })
+      qc.invalidateQueries({ queryKey: ['schema', projectId] })
+    }
+  }, [isBulkDone, projectId, qc])
 
-  const copyToValidator = () => { setValidatorInput(resultJson) }
+  const handleGenerate = async () => {
+    if (!pageUrl || selectedTypes.size === 0) return
+    setGenerating(true)
+    setGenError('')
+    setGeneratedJson('')
+    try {
+      const types = Array.from(selectedTypes)
+      const results = await Promise.all(
+        types.map(t => seoApi.generateSchema(projectId, pageUrl, t))
+      )
+      const schemas = results.map(r => r.schema_json).filter(Boolean)
+      if (schemas.length === 0) {
+        setGenError('Не удалось сгенерировать разметку')
+        return
+      }
+      if (schemas.length === 1) {
+        setGeneratedJson(schemas[0])
+      } else {
+        const parsed = schemas.map(s => {
+          try { return JSON.parse(s) } catch { return null }
+        }).filter(Boolean)
+        const combined = JSON.stringify({
+          '@context': 'https://schema.org',
+          '@graph': parsed.map(p => {
+            const { '@context': _, ...rest } = p
+            return rest
+          }),
+        }, null, 2)
+        setGeneratedJson(combined)
+      }
+      qc.invalidateQueries({ queryKey: ['schema', projectId, pageUrl] })
+    } catch (e: any) {
+      setGenError(e?.response?.data?.detail || 'Ошибка генерации')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const copy = () => { navigator.clipboard.writeText(generatedJson); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+  const copyToValidator = () => { setValidatorInput(generatedJson); setValidationResult(null) }
 
   return (
     <div className="space-y-6">
       {/* Bulk Generator */}
-      <div className="bg-surface border rounded-xl p-4">
-        <h3 className="font-semibold mb-1">Массовая генерация Schema.org</h3>
+      <div className="bg-surface border rounded-xl p-5">
+        <h3 className="font-semibold text-lg mb-1">Массовая генерация Schema.org</h3>
         <p className="text-xs text-muted mb-3">Генерирует Schema.org JSON-LD для всех страниц проекта в фоне. Claude автоматически выбирает наиболее подходящий тип из отмеченных для каждой страницы.</p>
         <div className="mb-3">
-          <label className="block text-xs text-muted mb-2">Разрешённые типы Schema (Claude выберет лучший для каждой страницы)</label>
-          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-            {ALL_SCHEMA_TYPES.map(t => (
-              <label key={t} className="flex items-center gap-1.5 text-sm text-primary cursor-pointer">
-                <input type="checkbox" className="rounded"
-                  checked={bulkSchemaTypes.includes(t)}
-                  onChange={e => setBulkSchemaTypes(prev => e.target.checked ? [...prev, t] : prev.filter(x => x !== t))} />
-                {t}
-              </label>
-            ))}
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-xs text-muted">Разрешённые типы ({bulkSchemaTypes.size} выбрано)</label>
+            <div className="flex gap-2">
+              <button onClick={() => setBulkSchemaTypes(new Set(ALL_SCHEMA_TYPES))} className="text-xs text-accent hover:underline">Все</button>
+              <span className="text-muted">|</span>
+              <button onClick={() => setBulkSchemaTypes(new Set())} className="text-xs text-muted hover:underline">Сбросить</button>
+            </div>
           </div>
-          <div className="flex gap-3 mt-2">
-            <button onClick={() => setBulkSchemaTypes(ALL_SCHEMA_TYPES)} className="text-xs text-accent hover:underline">Выбрать все</button>
-            <button onClick={() => setBulkSchemaTypes([])} className="text-xs text-muted hover:underline">Снять все</button>
+          <div className="border rounded-xl p-3 bg-surface-raised">
+            <SchemaTypeSelector selected={bulkSchemaTypes} onChange={setBulkSchemaTypes} />
           </div>
         </div>
         <div className="flex flex-wrap gap-3 items-center">
@@ -487,14 +587,14 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
           </label>
           <button
             onClick={() => bulkMut.mutate()}
-            disabled={bulkMut.isPending || isBulkRunning || bulkSchemaTypes.length === 0}
+            disabled={bulkMut.isPending || isBulkRunning || bulkSchemaTypes.size === 0}
             className="btn-accent px-4 py-2 rounded-xl text-sm hover:bg-accent disabled:opacity-50 ml-auto"
           >
-            {bulkMut.isPending || isBulkRunning ? '⏳ Запускается...' : '🚀 Запустить массовую генерацию'}
+            {bulkMut.isPending || isBulkRunning ? '⏳ Генерация...' : '🚀 Запустить массовую генерацию'}
           </button>
         </div>
         {bulkTaskId && (
-          <div className={cx('rounded-xl px-4 py-3 text-sm flex items-center gap-3',
+          <div className={cx('rounded-xl px-4 py-3 mt-3 text-sm flex items-center gap-3',
             isBulkDone ? 'bg-green-50 border border-green-200 text-green-700'
             : isBulkRunning ? 'bg-blue-50 border border-blue-200 text-blue-700'
             : bulkTaskStatus?.status === 'failed' ? 'bg-red-50 border border-red-200 text-red-700'
@@ -507,56 +607,87 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
       </div>
 
       {/* Single page Generator */}
-      <div className="bg-surface border rounded-xl p-4">
-        <h3 className="font-semibold mb-4">Генератор Schema.org (одна страница)</h3>
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <label className="block text-xs text-muted mb-1">Страница</label>
-            <select value={pageUrl} onChange={e => setPageUrl(e.target.value)}
-              className="field">
-              <option value="">— выберите страницу —</option>
-              {pages.map((p: SeoPage) => (
-                <option key={p.page_url} value={p.page_url}>{p.page_url}</option>
-              ))}
-            </select>
+      <div className="bg-surface border rounded-xl p-5">
+        <h3 className="font-semibold text-lg mb-1">Генератор Schema.org (одна страница)</h3>
+        <p className="text-xs text-muted mb-4">
+          Выберите страницу и один или несколько типов схемы — ИИ сгенерирует JSON-LD на основе данных страницы и брифа.
+          При нескольких типах результат объединяется через <code className="bg-surface-raised px-1 rounded">@graph</code>.
+        </p>
+
+        <div className="mb-4">
+          <label className="block text-xs text-muted mb-1">Страница</label>
+          <select value={pageUrl} onChange={e => setPageUrl(e.target.value)}
+            className="field">
+            <option value="">— выберите страницу —</option>
+            {pages.map(p => (
+              <option key={p.page_url} value={p.page_url}>{p.page_url}</option>
+            ))}
+          </select>
+          {pages.length === 0 && (
+            <p className="text-xs text-amber-600 mt-1">Нет страниц — сначала запустите парсинг</p>
+          )}
+        </div>
+
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-xs text-muted">Типы Schema ({selectedTypes.size} выбрано)</label>
+            <div className="flex gap-2">
+              <button onClick={() => setSelectedTypes(new Set(ALL_SCHEMA_TYPES))}
+                className="text-xs text-accent hover:underline">Все</button>
+              <span className="text-muted">|</span>
+              <button onClick={() => setSelectedTypes(new Set())}
+                className="text-xs text-muted hover:underline">Сбросить</button>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs text-muted mb-1">Тип Schema</label>
-            <select value={schemaType} onChange={e => setSchemaType(e.target.value)}
-              className="field">
-              {ALL_SCHEMA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+          <div className="border rounded-xl p-3 bg-surface-raised">
+            <SchemaTypeSelector selected={selectedTypes} onChange={setSelectedTypes} />
           </div>
         </div>
-        <button onClick={() => genMut.mutate()} disabled={genMut.isPending || !pageUrl}
+
+        {genError && (
+          <p className="text-sm text-red-600 mb-3">❌ {genError}</p>
+        )}
+
+        <button onClick={handleGenerate} disabled={generating || !pageUrl || selectedTypes.size === 0}
           className="btn-accent px-4 py-2 rounded-xl text-sm hover:bg-accent disabled:opacity-50">
-          {genMut.isPending ? '⏳ Генерация...' : '✨ Сгенерировать JSON-LD'}
+          {generating
+            ? `⏳ Генерация ${selectedTypes.size > 1 ? `(${selectedTypes.size} типов)` : ''}...`
+            : `✨ Сгенерировать JSON-LD${selectedTypes.size > 1 ? ` (${selectedTypes.size} типа)` : ''}`}
         </button>
-        {resultJson && (
+
+        {generatedJson && (
           <div className="mt-4">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs font-medium text-muted">Результат:</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-muted">
+                Результат{selectedTypes.size > 1 ? ` — @graph с ${selectedTypes.size} схемами` : ''}:
+              </p>
               <div className="flex gap-2">
                 <button onClick={copyToValidator}
-                  className="text-xs text-accent hover:text-accent border border-primary-200 rounded px-2 py-0.5">
-                  → Проверить
+                  className="text-xs text-accent hover:text-accent border border-primary-200 rounded px-2 py-1">
+                  → Проверить в валидаторе
                 </button>
                 <button onClick={copy}
-                  className={cx('text-xs px-2 py-0.5 rounded transition border',
+                  className={cx('text-xs px-2 py-1 rounded transition border',
                     copied ? 'bg-green-600 text-white border-green-600' : 'text-muted border-[var(--border)] hover:bg-surface-raised')}>
                   {copied ? '✅ Скопировано' : '📋 Копировать'}
                 </button>
               </div>
             </div>
-            <pre className="bg-gray-900 text-green-300 text-xs rounded-xl p-3 overflow-auto max-h-64 font-mono">{resultJson}</pre>
+            <pre className="bg-gray-900 text-green-300 text-xs rounded-xl p-4 overflow-auto max-h-80 font-mono">{generatedJson}</pre>
+            <p className="text-xs text-muted mt-2">
+              Вставьте в <code className="bg-surface-raised px-1 rounded">&lt;head&gt;</code> внутри тега{' '}
+              <code className="bg-surface-raised px-1 rounded">&lt;script type="application/ld+json"&gt;</code>
+            </p>
           </div>
         )}
       </div>
 
       {/* Validator */}
-      <div className="bg-surface border rounded-xl p-4">
-        <h3 className="font-semibold mb-1">Валидатор Schema.org</h3>
-        <p className="text-xs text-muted mb-4">Вставьте JSON-LD разметку для проверки на соответствие schema.org</p>
+      <div className="bg-surface border rounded-xl p-5">
+        <h3 className="font-semibold text-lg mb-1">Валидатор Schema.org</h3>
+        <p className="text-xs text-muted mb-4">
+          Вставьте JSON-LD (включая <code className="bg-surface-raised px-1 rounded">@graph</code>) для проверки
+        </p>
         <textarea
           rows={10}
           className="field font-mono"
@@ -611,13 +742,13 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
       </div>
 
       {/* Reference */}
-      <div className="bg-surface-raised border rounded-xl p-4">
-        <h4 className="text-sm font-semibold text-primary mb-3">Поддерживаемые типы и обязательные поля</h4>
+      <div className="bg-surface-raised border rounded-xl p-5">
+        <h4 className="text-sm font-semibold text-primary mb-3">Справочник типов и обязательных полей</h4>
         <div className="grid grid-cols-2 gap-2 text-xs">
           {Object.entries(SCHEMA_REQUIRED_FIELDS).map(([type, fields]) => (
-            <div key={type} className="bg-surface border rounded px-3 py-2">
-              <span className="font-medium text-primary">{type}</span>
-              <span className="text-muted ml-2">{fields.join(', ')}</span>
+            <div key={type} className="bg-surface border rounded px-3 py-2 flex items-center gap-2">
+              <span className="font-medium text-primary shrink-0">{type}</span>
+              <span className="text-muted truncate">{fields.join(', ')}</span>
             </div>
           ))}
         </div>
@@ -780,6 +911,16 @@ export default function SeoTab({ projectId }: { projectId: string }) {
 
   const isRunning = taskStatus?.status === 'running' || taskStatus?.status === 'pending'
   const isDone = taskStatus?.status === 'success'
+
+  // Auto-refresh pages when generation task completes
+  useEffect(() => {
+    if (isDone) {
+      qc.invalidateQueries({ queryKey: ['seo-pages', projectId] })
+      qc.invalidateQueries({ queryKey: ['seo-checklist', projectId] })
+      qc.invalidateQueries({ queryKey: ['seo-pages-all', projectId] })
+      qc.invalidateQueries({ queryKey: ['og-audit', projectId] })
+    }
+  }, [isDone, projectId, qc])
 
   return (
     <div className="p-6">

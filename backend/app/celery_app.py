@@ -12,8 +12,10 @@ def make_celery() -> Celery:
         include=[
             "app.tasks.crawl",
             "app.tasks.direct",
-            "app.tasks.seo",
+            "app.tasks.geo",
+            "app.tasks.marketing",
             "app.tasks.reports",
+            "app.tasks.seo",
         ],
     )
     celery.conf.update(

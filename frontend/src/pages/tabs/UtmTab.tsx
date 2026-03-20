@@ -35,7 +35,7 @@ export default function UtmTab({ projectId }: { projectId: string }) {
     onSuccess: (d: any) => setBuiltUrl(d.url || d.built_url || ''),
   })
 
-  const templates: any[] = data?.templates || []
+  const templates: any[] = Array.isArray(data) ? data : data?.templates || []
 
   const copy = () => {
     if (builtUrl) { navigator.clipboard.writeText(builtUrl); setCopied(true); setTimeout(() => setCopied(false), 2000) }

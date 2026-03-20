@@ -99,7 +99,13 @@ def task_generate_seo_meta(
         pages = db.scalars(page_query.order_by(Page.url)).all()
 
         if not pages:
-            raise RuntimeError("No pages in crawl")
+            if task:
+                task.status = TaskStatus.SUCCESS
+                task.progress = 100
+                task.result = {"pages_generated": 0, "pages_total": 0, "message": "Нет страниц, подходящих под фильтры"}
+                task.finished_at = datetime.now(timezone.utc)
+                db.commit()
+            return
 
         # Get Claude client (supports both Anthropic and OpenRouter)
         from app.services.claude import get_claude_client
