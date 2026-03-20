@@ -35,6 +35,20 @@ echo "[deploy] Saving current image digests for rollback..."
 PREV_BACKEND=$(docker compose -f "${COMPOSE_FILE}" images backend --format json 2>/dev/null | head -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('ID',''))" 2>/dev/null || echo "")
 PREV_FRONTEND=$(docker compose -f "${COMPOSE_FILE}" images frontend --format json 2>/dev/null | head -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('ID',''))" 2>/dev/null || echo "")
 
+# Free disk space before pulling new images to avoid "no space left on device"
+echo "[deploy] Freeing disk space..."
+docker image prune -af --filter "until=168h"  # remove images older than 7 days
+docker builder prune -af --filter "until=168h" 2>/dev/null || true
+docker volume prune -f --filter "label!=keep" 2>/dev/null || true
+
+AVAILABLE_KB=$(df /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || echo "0")
+AVAILABLE_MB=$((AVAILABLE_KB / 1024))
+echo "[deploy] Available disk space: ${AVAILABLE_MB}MB"
+if [ "${AVAILABLE_MB}" -lt 500 ]; then
+    echo "[deploy] ⚠ Less than 500MB free — running aggressive cleanup..."
+    docker system prune -af --volumes 2>/dev/null || true
+fi
+
 echo "[deploy] Pulling latest images..."
 docker compose -f "${COMPOSE_FILE}" pull
 
@@ -83,7 +97,7 @@ if [ "$HEALTHY" = false ]; then
     exit 1
 fi
 
-echo "[deploy] Cleaning up old images..."
-docker image prune -f
+echo "[deploy] Post-deploy cleanup..."
+docker image prune -f 2>/dev/null || true
 
 echo "[deploy] Done!"
