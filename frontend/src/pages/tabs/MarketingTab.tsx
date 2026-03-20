@@ -173,11 +173,20 @@ function MasksStep({
   const qc = useQueryClient()
   const [masksText, setMasksText] = useState('')
   const [error, setError] = useState('')
+  const [initialized, setInitialized] = useState(false)
 
   const { data: masks, isLoading: masksLoading } = useQuery({
     queryKey: ['sem-keywords', projectId, sp.id, 'masks'],
     queryFn: () => marketingApi.getKeywords(projectId, sp.id, { only_masks: true, per_page: 200 }),
   })
+
+  // Pre-fill textarea with existing masks so user can add more
+  useEffect(() => {
+    if (!initialized && masks?.items?.length) {
+      setMasksText(masks.items.map((m) => m.phrase).join('\n'))
+      setInitialized(true)
+    }
+  }, [masks, initialized])
 
   const collectMut = useMutation({
     mutationFn: () => {
@@ -1361,8 +1370,20 @@ export default function MarketingTab({ projectId }: { projectId: string }) {
   }
 
   const handleDeleteSp = useMutation({
-    mutationFn: () => marketingApi.delete(projectId, sp!.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sem-projects', projectId] }),
+    mutationFn: () => {
+      if (!window.confirm('Удалить семантический проект и все ключевые слова? Это действие нельзя отменить.')) {
+        return Promise.reject(new Error('cancelled'))
+      }
+      return marketingApi.delete(projectId, sp!.id)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sem-projects', projectId] })
+      setActiveStep(1)
+    },
+    onError: (e: any) => {
+      if (e?.message === 'cancelled') return
+      alert(e?.response?.data?.detail || 'Ошибка удаления')
+    },
   })
 
   // Sync activeStep with pipeline_step when sp changes

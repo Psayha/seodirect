@@ -226,6 +226,12 @@ def delete_semantic_project(
 ):
     _check_project_access(project_id, current_user, db)
     sp = _get_sem_project(sem_id, project_id, db)
+    # Delete child records first (no CASCADE on FK)
+    from sqlalchemy import delete as sa_delete
+    db.execute(sa_delete(MarketingMinusWord).where(MarketingMinusWord.semantic_project_id == sem_id))
+    db.execute(sa_delete(SemanticCluster).where(SemanticCluster.semantic_project_id == sem_id))
+    db.execute(sa_delete(CleaningSnapshot).where(CleaningSnapshot.semantic_project_id == sem_id))
+    db.execute(sa_delete(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id))
     db.delete(sp)
     db.commit()
 
