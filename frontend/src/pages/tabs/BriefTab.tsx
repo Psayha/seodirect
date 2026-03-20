@@ -148,7 +148,12 @@ export default function BriefTab({ projectId }: { projectId: string }) {
     const newHistory = [...chatMessages, { role: 'user' as const, content: userMsg }]
     setChatMessages(newHistory)
     setChatLoading(true)
-    api.post(`/projects/${projectId}/brief/chat`, { message: userMsg, history: chatMessages })
+    // Pass current (possibly unsaved) form state so AI sees latest edits
+    api.post(`/projects/${projectId}/brief/chat`, {
+      message: userMsg,
+      history: chatMessages,
+      brief_snapshot: { ...brief, ...form },
+    })
       .then((r) => setChatMessages([...newHistory, { role: 'assistant', content: r.data.response }]))
       .finally(() => setChatLoading(false))
   }
@@ -187,6 +192,19 @@ export default function BriefTab({ projectId }: { projectId: string }) {
   const current = { ...brief, ...form }
   const completeness = calcCompleteness(current)
   const templates: { id: string; name: string; icon: string }[] = templatesData?.templates || []
+
+  // Context-aware quick-action chips based on what's missing in the brief
+  const quickChips = (() => {
+    const chips: { label: string; prompt: string }[] = []
+    if (!current.niche) chips.push({ label: '🏷 Определить нишу', prompt: 'Помоги определить нишу и основные направления бизнеса для этого сайта.' })
+    if (!current.usp) chips.push({ label: '💡 Сформулировать УТП', prompt: 'Предложи варианты УТП (уникального торгового предложения) на основе заполненного брифа.' })
+    if (!current.target_audience) chips.push({ label: '👥 Описать ЦА', prompt: 'Опиши портрет целевой аудитории для этого бизнеса.' })
+    if (!current.pains) chips.push({ label: '😟 Выявить боли', prompt: 'Какие основные боли и потребности у целевой аудитории этого бизнеса?' })
+    if (!current.campaign_goal) chips.push({ label: '🎯 Цель кампании', prompt: 'Что должна достичь рекламная кампания? Предложи формулировку цели.' })
+    chips.push({ label: '🔍 Проанализировать бриф', prompt: 'Проанализируй бриф и скажи, чего не хватает для полноценной стратегии Яндекс Директ.' })
+    chips.push({ label: '🔑 Идеи для ключевых слов', prompt: 'Предложи список базовых масок ключевых слов для Яндекс Директ на основе брифа.' })
+    return chips.slice(0, 5)
+  })()
 
   const field = (key: keyof Brief, label: string, multiline = false) => (
     <div key={key}>
@@ -437,18 +455,25 @@ export default function BriefTab({ projectId }: { projectId: string }) {
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {chatMessages.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-full text-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-surface-raised flex items-center justify-center text-2xl">🤖</div>
-                  <p className="text-sm text-muted">
-                    ИИ проанализирует бриф и задаст уточняющие вопросы для создания более точной стратегии.
-                  </p>
-                  <button
-                    onClick={() => sendChat('Проанализируй мой бриф и задай уточняющие вопросы.')}
-                    disabled={chatLoading}
-                    className="btn-accent text-sm"
-                  >
-                    Начать анализ
-                  </button>
+                <div className="flex flex-col items-center justify-center h-full gap-4 px-2">
+                  <div className="text-center">
+                    <div className="w-12 h-12 rounded-2xl bg-surface-raised flex items-center justify-center text-2xl mx-auto mb-2">🤖</div>
+                    <p className="text-sm text-muted">
+                      ИИ видит текущее состояние брифа и поможет его улучшить.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 justify-center w-full">
+                    {quickChips.map((chip) => (
+                      <button
+                        key={chip.prompt}
+                        onClick={() => sendChat(chip.prompt)}
+                        disabled={chatLoading}
+                        className="text-xs px-3 py-1.5 border border-[var(--border)] rounded-full text-primary hover:bg-surface-raised hover:border-accent/50 transition disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
               {chatMessages.map((msg, i) => (
@@ -485,8 +510,19 @@ export default function BriefTab({ projectId }: { projectId: string }) {
 
             {/* Input — always visible */}
             <div className="p-3 border-t border-[var(--border)] shrink-0">
-              {chatMessages.length === 0 && (
-                <p className="text-xs text-muted mb-2 text-center">Или задайте свой вопрос напрямую</p>
+              {chatMessages.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {quickChips.slice(0, 3).map((chip) => (
+                    <button
+                      key={chip.prompt}
+                      onClick={() => sendChat(chip.prompt)}
+                      disabled={chatLoading}
+                      className="text-xs px-2.5 py-1 border border-[var(--border)] rounded-full text-muted hover:text-primary hover:border-accent/50 transition disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
               )}
               <div className="flex items-end gap-2">
                 <textarea

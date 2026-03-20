@@ -314,6 +314,41 @@ def update_brief(
 class BriefChatBody(BaseModel):
     message: str
     history: list[dict] | None = None
+    brief_snapshot: dict | None = None  # current (possibly unsaved) form state from frontend
+
+
+_BRIEF_FIELD_LABELS = {
+    "niche": "Ниша",
+    "products": "Продукты/услуги",
+    "price_segment": "Ценовой сегмент",
+    "geo": "Гео",
+    "target_audience": "Целевая аудитория",
+    "pains": "Боли клиентов",
+    "usp": "УТП",
+    "campaign_goal": "Цель кампании",
+    "monthly_budget": "Месячный бюджет (₽)",
+    "restrictions": "Ограничения",
+    "excluded_geo": "Исключить гео",
+    "keyword_modifiers": "Коммерческие модификаторы",
+    "ad_geo": "Гео таргетинг",
+    "competitors_urls": "Конкуренты",
+}
+
+
+def _build_brief_context(brief_data: dict) -> str:
+    parts = []
+    for key, label in _BRIEF_FIELD_LABELS.items():
+        val = brief_data.get(key)
+        if val is None or val == "" or val == [] or val == {}:
+            continue
+        if isinstance(val, list):
+            display = ", ".join(str(v) for v in val if v)
+            if not display:
+                continue
+        else:
+            display = str(val)
+        parts.append(f"**{label}:** {display}")
+    return "\n".join(parts) if parts else "Бриф не заполнен"
 
 
 @router.post("/{project_id}/brief/chat")
@@ -326,7 +361,6 @@ async def brief_chat(
 ):
     """AI assistant answers clarifying questions about the brief."""
     project = _get_project_or_404(project_id, current_user, db)
-    brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
 
     from app.services.claude import get_claude_client
     try:
@@ -334,38 +368,48 @@ async def brief_chat(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
-    brief_parts = []
-    if brief:
-        if brief.niche:
-            brief_parts.append(f"Ниша: {brief.niche}")
-        if brief.products:
-            brief_parts.append(f"Продукты/услуги: {brief.products}")
-        if brief.usp:
-            brief_parts.append(f"УТП: {brief.usp}")
-        if brief.target_audience:
-            brief_parts.append(f"Целевая аудитория: {brief.target_audience}")
-        if brief.pains:
-            brief_parts.append(f"Боли клиентов: {brief.pains}")
-        if brief.campaign_goal:
-            brief_parts.append(f"Цель кампании: {brief.campaign_goal}")
-        if brief.monthly_budget:
-            brief_parts.append(f"Месячный бюджет: {brief.monthly_budget} ₽")
-        if brief.geo:
-            brief_parts.append(f"Гео: {brief.geo}")
-        if brief.keyword_modifiers:
-            brief_parts.append(f"Коммерческие модификаторы: {', '.join(brief.keyword_modifiers)}")
+    # Use snapshot from frontend (includes unsaved form changes) or fall back to DB
+    if body.brief_snapshot:
+        brief_data = body.brief_snapshot
+    else:
+        brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
+        brief_data = _brief_to_dict(brief) if brief else {}
 
-    brief_context = "\n".join(brief_parts) if brief_parts else "Бриф не заполнен"
+    brief_context = _build_brief_context(brief_data)
 
-    system_prompt = f"""Ты — опытный специалист по поисковому маркетингу. Помогаешь заполнить бриф для проекта "{project.name}" (сайт: {project.url}).
+    # Determine which important fields are still empty for targeted prompts
+    important_empty = [
+        label for key, label in _BRIEF_FIELD_LABELS.items()
+        if key in ("niche", "products", "usp", "target_audience", "pains", "campaign_goal")
+        and not brief_data.get(key)
+    ]
+    empty_hint = (
+        f"\n\nОсобое внимание: следующие важные поля ещё не заполнены: {', '.join(important_empty)}."
+        if important_empty else ""
+    )
 
-Текущий бриф:
-{brief_context}
-
-Задавай уточняющие вопросы, если информации не хватает для разработки стратегии Яндекс Директ и SEO.
-Если бриф достаточно полный — скажи об этом и предложи следующий шаг.
-Отвечай кратко и по-деловому. Используй только русский язык.
-Не используй символы форматирования Markdown (звёздочки, решётки, подчёркивания). Только обычный текст и переносы строк."""
+    intro = (
+        f"Ты — опытный специалист по поисковому маркетингу."
+        f" Помогаешь заполнить и улучшить бриф для проекта"
+        f" «{project.name}» (сайт: {project.url})."
+    )
+    instructions = (
+        "## Инструкции\n"
+        "- Задавай уточняющие вопросы, если информации не хватает"
+        " для разработки стратегии Яндекс Директ и SEO.\n"
+        "- Если пользователь просит предложить формулировку поля —"
+        " дай конкретный пример текста, который можно скопировать в бриф.\n"
+        "- Если бриф уже достаточно полный — скажи об этом и предложи"
+        " перейти к следующему шагу.\n"
+        "- Отвечай кратко и по-деловому. Используй только русский язык.\n"
+        "- Форматируй ответы с помощью Markdown:"
+        " **жирный** для выделения, списки для перечислений."
+    )
+    system_prompt = (
+        f"{intro}\n\n"
+        f"## Текущий бриф\n{brief_context}{empty_hint}\n\n"
+        f"{instructions}"
+    )
 
     messages = []
     for h in (body.history or []):
