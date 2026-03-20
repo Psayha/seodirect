@@ -85,6 +85,7 @@ def create_app() -> FastAPI:
     from app.routers.reports import router as reports_router
     from app.routers.seo import router as seo_router
     from app.routers.seo_enrichments import router as seo_enrichments_router
+    from app.routers.server import router as server_router
     from app.routers.settings import router as settings_router
     from app.routers.tasks import router as tasks_router
     from app.routers.topvisor import router as topvisor_router
@@ -116,6 +117,7 @@ def create_app() -> FastAPI:
     app.include_router(direct_analysis_router, prefix="/api", tags=["direct"])
     app.include_router(marketing_router, prefix="/api", tags=["marketing"])
     app.include_router(images_router, prefix="/api", tags=["images"])
+    app.include_router(server_router, prefix="/api", tags=["server"])
 
     # Serve uploaded images as static files at /uploads/...
     uploads_dir = Path(__file__).parent.parent / "static" / "uploads"

@@ -8,6 +8,7 @@ import SettingsPage from './pages/SettingsPage'
 import AdminUsersPage from './pages/AdminUsersPage'
 import PortalPage from './pages/PortalPage'
 import TrashPage from './pages/TrashPage'
+import ServerPage from './pages/ServerPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.accessToken)
@@ -53,6 +54,14 @@ export default function App() {
             element={
               <AdminRoute>
                 <AdminUsersPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="admin/server"
+            element={
+              <AdminRoute>
+                <ServerPage />
               </AdminRoute>
             }
           />
