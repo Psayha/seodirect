@@ -41,6 +41,7 @@ class PageData:
     og_type: str | None = None
     robots_meta: str | None = None
     word_count: int = 0
+    content_text: str | None = None
     internal_links: list[str] = field(default_factory=list)
     external_links: list[str] = field(default_factory=list)
     images_without_alt: int = 0
@@ -214,9 +215,23 @@ class SiteCrawler:
             else:
                 external_links.append(full)
 
-        # Word count
+        # Word count + content text extraction (main content without nav/footer/scripts)
         body = soup.find("body")
         words = len(body.get_text(separator=" ").split()) if body else 0
+
+        content_text: str | None = None
+        if body:
+            # Remove noise elements to extract meaningful content
+            content_body = BeautifulSoup(str(body), "html.parser")
+            for tag in content_body.find_all(["nav", "footer", "header", "script", "style", "aside", "noscript", "iframe"]):
+                tag.decompose()
+            raw_text = content_body.get_text(separator=" ", strip=True)
+            # Collapse whitespace
+            import re as _re
+            raw_text = _re.sub(r"\s+", " ", raw_text).strip()
+            # Keep first 5000 chars to avoid huge DB entries
+            if raw_text and len(raw_text) > 50:
+                content_text = raw_text[:5000]
 
         # Images without alt
         images_no_alt = sum(1 for img in soup.find_all("img") if not img.get("alt"))
@@ -240,6 +255,7 @@ class SiteCrawler:
             og_type=og.get("og:type"),
             robots_meta=robots_meta_tag.get("content") if robots_meta_tag else None,
             word_count=words,
+            content_text=content_text,
             internal_links=list(set(internal_links))[:200],
             external_links=list(set(external_links))[:50],
             images_without_alt=images_no_alt,

@@ -64,6 +64,7 @@ def run_crawl(self, task_id: str, session_id: str, project_id: str, url: str, se
                 og_type=page_data.og_type,
                 robots_meta=page_data.robots_meta,
                 word_count=page_data.word_count,
+                content_text=page_data.content_text,
                 internal_links=page_data.internal_links,
                 external_links=page_data.external_links,
                 images_without_alt=page_data.images_without_alt,

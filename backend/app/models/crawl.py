@@ -56,6 +56,9 @@ class Page(Base):
     last_modified: Mapped[str | None] = mapped_column(String(100), nullable=True)
     priority: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Extracted main content text (for UVP/semantic analysis)
+    content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Redirect chain (list of URLs if page was redirected through multiple hops)
     redirect_chain: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # Core Web Vitals
