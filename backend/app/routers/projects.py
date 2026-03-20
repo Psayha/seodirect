@@ -1,8 +1,10 @@
+import json as _json
 import logging
 import uuid
 from typing import Annotated
 from urllib.parse import urlparse
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_, select
@@ -326,8 +328,6 @@ async def brief_chat(
     project = _get_project_or_404(project_id, current_user, db)
     brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
 
-    import httpx
-
     from app.services.claude import get_claude_client
     try:
         client = get_claude_client(db)
@@ -439,7 +439,6 @@ async def brief_improve(
     project = _get_project_or_404(project_id, current_user, db)
     brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
 
-    import httpx
     from app.services.claude import get_claude_client
 
     try:
@@ -515,7 +514,6 @@ async def brief_improve(
         if not raw:
             raise HTTPException(status_code=502, detail="Empty response from AI")
 
-        import json as _json
         # Strip possible markdown code fences
         raw = raw.strip()
         if raw.startswith("```"):
@@ -527,7 +525,7 @@ async def brief_improve(
     except httpx.HTTPStatusError as exc:
         body = exc.response.text[:500] if exc.response is not None else ""
         raise HTTPException(status_code=502, detail=f"AI service error: {body}")
-    except httpx.RequestError as exc:
+    except httpx.RequestError:
         raise HTTPException(status_code=502, detail="AI service temporarily unavailable")
     except Exception as exc:
         logger.exception("Error in brief improve for project %s: %s", project_id, exc)
