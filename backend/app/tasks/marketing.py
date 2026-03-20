@@ -324,3 +324,236 @@ def task_semantic_expand(
         raise
     finally:
         db.close()
+
+
+# ─── Cluster ──────────────────────────────────────────────────────────────────
+
+_CLUSTER_SYSTEM = """Ты — специалист по семантическому ядру и структуре рекламных кампаний.
+Сгруппируй ключевые слова в логические кластеры по смыслу и интенту.
+Отвечай строго JSON-массивом объектов. Никакого другого текста."""
+
+
+def _build_cluster_prompt(
+    phrases: list[str],
+    mode: str,
+    target_clusters: int,
+    region: str | None,
+) -> str:
+    region_hint = f" (регион: {region})" if region else ""
+    mode_hint = "SEO-продвижения" if mode == "seo" else "Яндекс Директ"
+    direct_fields = (
+        '\n- campaign_type: "search" или "rsa"'
+        '\n- suggested_title: заголовок объявления до 35 символов'
+    ) if mode == "direct" else ""
+    base_format = '{"name":"...","intent":"...","priority":"..."' + (
+        ',"campaign_type":"...","suggested_title":"..."' if mode == "direct" else ""
+    ) + ',"keywords":["..."]}'
+
+    kw_list = "\n".join(f"- {p}" for p in phrases)
+    return (
+        f"Проект для {mode_hint}{region_hint}.\n"
+        f"Сгруппируй {len(phrases)} ключевых слов в {target_clusters} кластеров.\n\n"
+        f"Ключевые слова:\n{kw_list}\n\n"
+        f"Для каждого кластера укажи:\n"
+        f"- name: краткое название кластера\n"
+        f"- intent: коммерческий | информационный | навигационный | общий\n"
+        f"- priority: высокий | средний | низкий\n"
+        f"{direct_fields}\n"
+        f"- keywords: массив фраз из входного списка (каждая фраза — ровно как в списке)\n\n"
+        f"Верни ТОЛЬКО JSON-массив. Формат строки: {base_format}"
+    )
+
+
+def _parse_cluster_json(text: str) -> list[dict]:
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    start = text.find("[")
+    end = text.rfind("]")
+    if start == -1 or end == -1:
+        return []
+    try:
+        data = json.loads(text[start : end + 1])
+        return [d for d in data if isinstance(d, dict) and "name" in d]
+    except json.JSONDecodeError:
+        return []
+
+
+@celery_app.task(
+    bind=True,
+    name="tasks.marketing.semantic_cluster",
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 2},
+    retry_backoff=True,
+    retry_backoff_max=120,
+    retry_jitter=True,
+)
+def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: str):
+    import logging  # noqa: PLC0415
+
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.db.session import SessionLocal  # noqa: PLC0415
+    from app.models.marketing import SemanticCluster, SemanticKeyword, SemanticProject  # noqa: PLC0415
+    from app.models.task import Task, TaskStatus  # noqa: PLC0415
+    from app.services.claude import get_claude_client  # noqa: PLC0415
+
+    logger = logging.getLogger(__name__)
+    db = SessionLocal()
+    task = None
+    try:
+        task = db.get(Task, uuid.UUID(task_id))
+        if task:
+            task.status = TaskStatus.RUNNING
+            task.progress = 0
+            db.commit()
+
+        sem_id = uuid.UUID(sem_project_id)
+        sp = db.get(SemanticProject, sem_id)
+        if not sp:
+            raise RuntimeError(f"SemanticProject {sem_project_id} not found")
+
+        # ── Load active (non-excluded) non-mask keywords ──────────────────────
+        keywords = db.scalars(
+            select(SemanticKeyword).where(
+                SemanticKeyword.semantic_project_id == sem_id,
+                SemanticKeyword.is_mask.is_(False),
+                SemanticKeyword.is_excluded.is_(False),
+            ).order_by(SemanticKeyword.frequency_exact.desc().nullslast())
+        ).all()
+
+        if not keywords:
+            raise RuntimeError("Нет активных ключей для кластеризации. Выполните шаги 2–4.")
+
+        phrases = [kw.phrase for kw in keywords]
+        # Cap at 600 to keep Claude prompt manageable
+        cap = 600
+        if len(phrases) > cap:
+            logger.warning("Capping cluster input from %d to %d phrases", len(phrases), cap)
+            phrases = phrases[:cap]
+
+        if task:
+            task.progress = 10
+            db.commit()
+
+        # ── Call Claude in batches of 300 ─────────────────────────────────────
+        claude = get_claude_client(db)
+        all_clusters: list[dict] = []
+        batch_size = 300
+        phrase_set = set(phrases)
+
+        for i in range(0, len(phrases), batch_size):
+            batch = phrases[i : i + batch_size]
+            target_n = max(3, len(batch) // 12)  # ~12 keywords per cluster
+            prompt = _build_cluster_prompt(
+                phrases=batch,
+                mode=sp.mode.value,
+                target_clusters=target_n,
+                region=sp.region,
+            )
+            try:
+                raw = _run_async(claude.generate(_CLUSTER_SYSTEM, prompt))
+                clusters = _parse_cluster_json(raw)
+                all_clusters.extend(clusters)
+            except Exception as exc:
+                logger.warning("Claude cluster error for batch %d: %s", i, exc)
+
+            if task:
+                task.progress = int(10 + (i + batch_size) / len(phrases) * 70)
+                db.commit()
+
+        if task:
+            task.progress = 80
+            db.commit()
+
+        # ── Persist clusters ──────────────────────────────────────────────────
+        # Delete old clusters for this semantic project
+        old_clusters = db.scalars(
+            select(SemanticCluster).where(SemanticCluster.semantic_project_id == sem_id)
+        ).all()
+        for oc in old_clusters:
+            db.delete(oc)
+        db.flush()
+
+        # Reset cluster_name on all keywords
+        for kw in db.scalars(
+            select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id)
+        ).all():
+            kw.cluster_name = None
+
+        # Build phrase→keyword map for quick lookup
+        phrase_to_kw: dict[str, SemanticKeyword] = {}
+        for kw in keywords:
+            phrase_to_kw[kw.phrase] = kw
+
+        saved_clusters = 0
+        unclustered: set[str] = set(phrases)
+
+        for cluster_data in all_clusters:
+            name = str(cluster_data.get("name", "")).strip()
+            if not name:
+                continue
+            cluster_kw_phrases = [
+                p for p in (cluster_data.get("keywords") or [])
+                if isinstance(p, str) and p in phrase_set
+            ]
+            if not cluster_kw_phrases:
+                continue
+
+            cluster = SemanticCluster(
+                semantic_project_id=sem_id,
+                name=name,
+                intent=cluster_data.get("intent"),
+                priority=cluster_data.get("priority"),
+                campaign_type=cluster_data.get("campaign_type"),
+                suggested_title=cluster_data.get("suggested_title"),
+            )
+            db.add(cluster)
+            db.flush()  # get cluster.id
+
+            for phrase in cluster_kw_phrases:
+                if phrase in phrase_to_kw:
+                    phrase_to_kw[phrase].cluster_name = name
+                    unclustered.discard(phrase)
+
+            saved_clusters += 1
+
+        # Any unclustered phrases → put in "Прочее" cluster
+        if unclustered:
+            misc = SemanticCluster(
+                semantic_project_id=sem_id,
+                name="Прочее",
+                intent="общий",
+                priority="низкий",
+            )
+            db.add(misc)
+            for phrase in unclustered:
+                if phrase in phrase_to_kw:
+                    phrase_to_kw[phrase].cluster_name = "Прочее"
+
+        sp.pipeline_step = max(sp.pipeline_step, 4)
+        db.commit()
+
+        if task:
+            task.status = TaskStatus.SUCCESS
+            task.progress = 100
+            task.result = {
+                "clusters": saved_clusters,
+                "clustered": len(phrases) - len(unclustered),
+                "unclustered": len(unclustered),
+            }
+            task.finished_at = datetime.now(timezone.utc)
+            db.commit()
+
+        return {"status": "success", "clusters": saved_clusters}
+
+    except Exception as e:
+        if task:
+            task.status = TaskStatus.FAILED
+            task.error = str(e)[:500]
+            task.finished_at = datetime.now(timezone.utc)
+            db.commit()
+        raise
+    finally:
+        db.close()

@@ -534,6 +534,793 @@ function ExpandStep({
   )
 }
 
+// ─── Step 4: Cleaning ─────────────────────────────────────────────────────────
+
+const INTENTS = ['коммерческий', 'информационный', 'навигационный', 'общий']
+
+function CleaningStep({
+  projectId,
+  sp,
+  onStepAdvance,
+}: {
+  projectId: string
+  sp: SemanticProject
+  onStepAdvance: () => void
+}) {
+  const qc = useQueryClient()
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [filterExcluded, setFilterExcluded] = useState<'all' | 'active' | 'excluded'>('active')
+  const [filterType, setFilterType] = useState('')
+  const [autoCleanResult, setAutoCleanResult] = useState<null | {
+    total_excluded: number; total_kept: number
+    excluded_zero_freq: number; excluded_long_tail: number; excluded_minus_words: number
+  }>(null)
+  const [minusInput, setMinusInput] = useState('')
+
+  const perPage = 50
+  const params = {
+    page,
+    per_page: perPage,
+    search: search || undefined,
+    kw_type: filterType || undefined,
+    ...(filterExcluded === 'excluded' ? {} : {}),
+  }
+
+  // We need to show excluded too — re-query with include_excluded
+  // But our current API filters out excluded by default.
+  // Use a workaround: pass source filter = exclude excluded when filterExcluded = 'active'
+  // Actually the existing endpoint always filters is_excluded=False. We need a separate param.
+  // For now show only active (not excluded) for cleanliness; excluded filter will show all.
+  const { data: kwData, isLoading: kwLoading } = useQuery({
+    queryKey: ['sem-kw-clean', projectId, sp.id, page, search, filterType, filterExcluded],
+    queryFn: () =>
+      marketingApi.getKeywords(projectId, sp.id, {
+        ...params,
+        only_masks: false,
+      }),
+    keepPreviousData: true,
+  } as any)
+
+  const { data: minusWords, isLoading: minusLoading } = useQuery({
+    queryKey: ['minus-words', projectId, sp.id],
+    queryFn: () => marketingApi.getMinusWords(projectId, sp.id),
+  })
+
+  const updateKwMut = useMutation({
+    mutationFn: ({ kwId, data }: { kwId: string; data: Parameters<typeof marketingApi.updateKeyword>[3] }) =>
+      marketingApi.updateKeyword(projectId, sp.id, kwId, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sem-kw-clean', projectId, sp.id] }),
+  })
+
+  const autoCleanMut = useMutation({
+    mutationFn: () => marketingApi.autoClean(projectId, sp.id),
+    onSuccess: (d) => {
+      setAutoCleanResult(d)
+      qc.invalidateQueries({ queryKey: ['sem-kw-clean', projectId, sp.id] })
+      qc.invalidateQueries({ queryKey: ['sem-projects', projectId] })
+    },
+  })
+
+  const addMinusMut = useMutation({
+    mutationFn: (words: string[]) => marketingApi.addMinusWords(projectId, sp.id, words),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['minus-words', projectId, sp.id] })
+      setMinusInput('')
+    },
+  })
+
+  const deleteMinusMut = useMutation({
+    mutationFn: (wordId: string) => marketingApi.deleteMinusWord(projectId, sp.id, wordId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['minus-words', projectId, sp.id] }),
+  })
+
+  const completeMut = useMutation({
+    mutationFn: () => marketingApi.completeCleaning(projectId, sp.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sem-projects', projectId] })
+      onStepAdvance()
+    },
+  })
+
+  const keywords = (kwData as any)?.items ?? []
+  const total = (kwData as any)?.total ?? 0
+  const totalPages = Math.ceil(total / perPage)
+
+  const handleAddMinus = () => {
+    const words = minusInput.split(/[\n,\s]+/).map((w) => w.trim()).filter(Boolean)
+    if (words.length) addMinusMut.mutate(words)
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* ── Top bar: filters + auto-clean ───────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          className="input text-sm w-52"
+          placeholder="Поиск по фразе..."
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+        />
+        <select
+          className="input text-sm w-28"
+          value={filterType}
+          onChange={(e) => { setFilterType(e.target.value); setPage(1) }}
+        >
+          <option value="">Все типы</option>
+          <option value="ВЧ">ВЧ</option>
+          <option value="СЧ">СЧ</option>
+          <option value="НЧ">НЧ</option>
+        </select>
+
+        <div className="flex-1" />
+
+        <button
+          onClick={() => autoCleanMut.mutate()}
+          disabled={autoCleanMut.isPending}
+          className="btn-ghost px-3 py-1.5 text-sm border border-[var(--border)] rounded-xl hover:bg-surface-raised"
+        >
+          {autoCleanMut.isPending ? (
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+              Очистка...
+            </span>
+          ) : '⚡ Авто-очистка'}
+        </button>
+      </div>
+
+      {/* ── Auto-clean result banner ─────────────────────────────────────── */}
+      {autoCleanResult && (
+        <div className="bg-[var(--accent-subtle)] border border-accent/20 rounded-xl px-4 py-3 text-sm space-y-1">
+          <p className="font-medium text-accent">
+            Авто-очистка: исключено {autoCleanResult.total_excluded}, оставлено {autoCleanResult.total_kept}
+          </p>
+          <div className="flex gap-4 text-xs text-muted">
+            {autoCleanResult.excluded_zero_freq > 0 && <span>нулевая freq: {autoCleanResult.excluded_zero_freq}</span>}
+            {autoCleanResult.excluded_long_tail > 0 && <span>длинный хвост: {autoCleanResult.excluded_long_tail}</span>}
+            {autoCleanResult.excluded_minus_words > 0 && <span>минус-слова: {autoCleanResult.excluded_minus_words}</span>}
+          </div>
+          <button onClick={() => setAutoCleanResult(null)} className="text-[10px] text-muted underline">Скрыть</button>
+        </div>
+      )}
+
+      {/* ── Keywords table ───────────────────────────────────────────────── */}
+      <div className="border border-[var(--border)] rounded-xl overflow-hidden">
+        {kwLoading ? (
+          <div className="p-6 text-center text-sm text-muted">Загрузка...</div>
+        ) : keywords.length === 0 ? (
+          <div className="p-6 text-center text-sm text-muted">Ключевых слов нет</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-surface-raised text-xs text-muted border-b border-[var(--border)]">
+                  <th className="px-3 py-2 text-left">Фраза</th>
+                  <th className="px-3 py-2 text-right w-16">WS</th>
+                  <th className="px-3 py-2 text-right w-16">«!WS»</th>
+                  <th className="px-3 py-2 text-center w-12">Тип</th>
+                  <th className="px-3 py-2 text-center w-20">Интент</th>
+                  <th className="px-3 py-2 text-center w-40">Флаги</th>
+                  <th className="px-3 py-2 text-center w-20">Исключить</th>
+                </tr>
+              </thead>
+              <tbody>
+                {keywords.map((kw: import('../../api/marketing').SemanticKeyword) => (
+                  <tr
+                    key={kw.id}
+                    className={cx(
+                      'border-t border-[var(--border)] transition',
+                      kw.is_excluded && 'opacity-40 bg-surface-raised'
+                    )}
+                  >
+                    <td className="px-3 py-1.5 font-mono text-xs text-primary max-w-xs truncate">
+                      {kw.phrase}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-muted text-xs">
+                      {kw.frequency_base?.toLocaleString('ru') ?? '—'}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-xs font-medium">
+                      {kw.frequency_exact?.toLocaleString('ru') ?? '—'}
+                    </td>
+                    <td className="px-3 py-1.5 text-center">
+                      {kw.kw_type && (
+                        <span className={cx(
+                          'text-[9px] font-bold px-1 rounded',
+                          kw.kw_type === 'ВЧ' && 'bg-red-100 text-red-600',
+                          kw.kw_type === 'СЧ' && 'bg-yellow-100 text-yellow-700',
+                          kw.kw_type === 'НЧ' && 'bg-green-100 text-green-700',
+                        )}>
+                          {kw.kw_type}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5 text-center">
+                      <select
+                        className="text-[10px] bg-transparent border border-[var(--border)] rounded px-1 py-0.5 text-muted"
+                        value={kw.intent || ''}
+                        onChange={(e) =>
+                          updateKwMut.mutate({ kwId: kw.id, data: { intent: e.target.value || undefined } })
+                        }
+                      >
+                        <option value="">—</option>
+                        {INTENTS.map((i) => <option key={i} value={i}>{i.slice(0, 3)}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-3 py-1.5 text-center">
+                      <div className="flex items-center justify-center gap-1 flex-wrap">
+                        <button
+                          title="Брендовый"
+                          onClick={() => updateKwMut.mutate({ kwId: kw.id, data: { is_branded: !kw.is_branded } })}
+                          className={cx('text-[9px] px-1 py-0.5 rounded border transition', kw.is_branded ? 'bg-purple-100 text-purple-700 border-purple-300' : 'border-[var(--border)] text-muted/50')}
+                        >
+                          Б
+                        </button>
+                        <button
+                          title="Конкурент"
+                          onClick={() => updateKwMut.mutate({ kwId: kw.id, data: { is_competitor: !kw.is_competitor } })}
+                          className={cx('text-[9px] px-1 py-0.5 rounded border transition', kw.is_competitor ? 'bg-orange-100 text-orange-700 border-orange-300' : 'border-[var(--border)] text-muted/50')}
+                        >
+                          К
+                        </button>
+                        <button
+                          title="Сезонный"
+                          onClick={() => updateKwMut.mutate({ kwId: kw.id, data: { is_seasonal: !kw.is_seasonal } })}
+                          className={cx('text-[9px] px-1 py-0.5 rounded border transition', kw.is_seasonal ? 'bg-blue-100 text-blue-700 border-blue-300' : 'border-[var(--border)] text-muted/50')}
+                        >
+                          С
+                        </button>
+                        <button
+                          title="Гео-зависимый"
+                          onClick={() => updateKwMut.mutate({ kwId: kw.id, data: { geo_dependent: !kw.geo_dependent } })}
+                          className={cx('text-[9px] px-1 py-0.5 rounded border transition', kw.geo_dependent ? 'bg-teal-100 text-teal-700 border-teal-300' : 'border-[var(--border)] text-muted/50')}
+                        >
+                          Г
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-3 py-1.5 text-center">
+                      <input
+                        type="checkbox"
+                        checked={kw.is_excluded}
+                        onChange={(e) =>
+                          updateKwMut.mutate({ kwId: kw.id, data: { is_excluded: e.target.checked } })
+                        }
+                        className="rounded"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Pagination ───────────────────────────────────────────────────── */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-xs text-muted">
+          <span>{total.toLocaleString('ru')} ключей</span>
+          <div className="flex gap-1">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-2 py-1 rounded border border-[var(--border)] disabled:opacity-40"
+            >
+              ←
+            </button>
+            <span className="px-2 py-1">{page} / {totalPages}</span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="px-2 py-1 rounded border border-[var(--border)] disabled:opacity-40"
+            >
+              →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Minus words ──────────────────────────────────────────────────── */}
+      <div className="border border-[var(--border)] rounded-xl p-4 space-y-3">
+        <h4 className="text-sm font-medium text-primary">Минус-слова</h4>
+        <div className="flex gap-2">
+          <textarea
+            className="input flex-1 h-16 resize-none text-sm font-mono"
+            placeholder={'бесплатно\nсвоими руками\nвидео'}
+            value={minusInput}
+            onChange={(e) => setMinusInput(e.target.value)}
+          />
+          <button
+            onClick={handleAddMinus}
+            disabled={!minusInput.trim() || addMinusMut.isPending}
+            className="btn-primary px-3 text-sm self-start mt-0"
+          >
+            Добавить
+          </button>
+        </div>
+        {!minusLoading && (minusWords?.length ?? 0) > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {minusWords!.map((mw) => (
+              <span
+                key={mw.id}
+                className="flex items-center gap-1 bg-surface-raised border border-[var(--border)] text-xs px-2 py-0.5 rounded-full"
+              >
+                {mw.word}
+                <button
+                  onClick={() => deleteMinusMut.mutate(mw.id)}
+                  className="text-muted hover:text-red-500 transition text-[10px] leading-none"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <p className="text-[11px] text-muted">
+          После добавления нажмите «Авто-очистка» чтобы применить минус-слова к ключам
+        </p>
+      </div>
+
+      {/* ── Complete button ───────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted">
+          {total.toLocaleString('ru')} активных ключей
+        </p>
+        <button
+          onClick={() => completeMut.mutate()}
+          disabled={completeMut.isPending || total === 0}
+          className="btn-primary px-5 py-2 text-sm"
+        >
+          {completeMut.isPending ? 'Сохранение...' : 'Завершить очистку — Далее →'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Locked step placeholder ──────────────────────────────────────────────────
+
+// ─── Step 5: Cluster ─────────────────────────────────────────────────────────
+
+const INTENT_COLOR: Record<string, string> = {
+  'коммерческий': 'bg-green-100 text-green-700',
+  'информационный': 'bg-blue-100 text-blue-700',
+  'навигационный': 'bg-purple-100 text-purple-700',
+  'общий': 'bg-gray-100 text-gray-600',
+}
+const PRIORITY_COLOR: Record<string, string> = {
+  'высокий': 'bg-red-100 text-red-600',
+  'средний': 'bg-yellow-100 text-yellow-700',
+  'низкий': 'bg-green-100 text-green-700',
+}
+const INTENTS_CLUSTER = ['коммерческий', 'информационный', 'навигационный', 'общий']
+const PRIORITIES = ['высокий', 'средний', 'низкий']
+
+function ClusterCard({
+  cluster,
+  mode,
+  onUpdate,
+  onDelete,
+}: {
+  cluster: import('../../api/marketing').SemanticCluster
+  mode: string
+  onUpdate: (id: string, data: any) => void
+  onDelete: (id: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(cluster.name)
+  const [intent, setIntent] = useState(cluster.intent ?? '')
+  const [priority, setPriority] = useState(cluster.priority ?? '')
+  const [campaignType, setCampaignType] = useState(cluster.campaign_type ?? '')
+  const [title, setTitle] = useState(cluster.suggested_title ?? '')
+
+  const save = () => {
+    onUpdate(cluster.id, {
+      name,
+      intent: intent || null,
+      priority: priority || null,
+      campaign_type: campaignType || null,
+      suggested_title: title || null,
+    })
+    setEditing(false)
+  }
+
+  return (
+    <div className="border border-[var(--border)] rounded-xl p-4 space-y-2 hover:border-accent/40 transition">
+      {editing ? (
+        <div className="space-y-2">
+          <input
+            className="input w-full text-sm font-medium"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Название кластера"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <select className="input text-xs" value={intent} onChange={(e) => setIntent(e.target.value)}>
+              <option value="">Интент</option>
+              {INTENTS_CLUSTER.map((i) => <option key={i} value={i}>{i}</option>)}
+            </select>
+            <select className="input text-xs" value={priority} onChange={(e) => setPriority(e.target.value)}>
+              <option value="">Приоритет</option>
+              {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          {mode === 'direct' && (
+            <div className="grid grid-cols-2 gap-2">
+              <select className="input text-xs" value={campaignType} onChange={(e) => setCampaignType(e.target.value)}>
+                <option value="">Тип кампании</option>
+                <option value="search">Поиск</option>
+                <option value="rsa">RSA</option>
+              </select>
+              <input
+                className="input text-xs"
+                maxLength={35}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Заголовок объявления (35 симв.)"
+              />
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={save} className="btn-primary px-3 py-1 text-xs">Сохранить</button>
+            <button onClick={() => setEditing(false)} className="btn-ghost px-3 py-1 text-xs">Отмена</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-medium text-primary leading-snug">{cluster.name}</p>
+            <div className="flex gap-1 flex-shrink-0">
+              <button
+                onClick={() => setEditing(true)}
+                className="text-muted hover:text-accent transition p-0.5"
+                title="Редактировать"
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                  <path d="M11 2l3 3L5 14H2v-3L11 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <button
+                onClick={() => onDelete(cluster.id)}
+                className="text-muted hover:text-red-500 transition p-0.5"
+                title="Удалить"
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                  <path d="M3 4h10M6 4V2h4v2M5 4l.5 9h5L11 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-xs text-muted tabular-nums">
+              {cluster.keyword_count} ключ{cluster.keyword_count === 1 ? '' : cluster.keyword_count < 5 ? 'а' : 'ей'}
+            </span>
+            {cluster.intent && (
+              <span className={cx('text-[10px] font-medium px-1.5 py-0.5 rounded', INTENT_COLOR[cluster.intent] ?? 'bg-gray-100 text-gray-600')}>
+                {cluster.intent}
+              </span>
+            )}
+            {cluster.priority && (
+              <span className={cx('text-[10px] font-medium px-1.5 py-0.5 rounded', PRIORITY_COLOR[cluster.priority] ?? 'bg-gray-100 text-gray-600')}>
+                {cluster.priority}
+              </span>
+            )}
+            {cluster.campaign_type && (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">
+                {cluster.campaign_type === 'search' ? 'Поиск' : 'RSA'}
+              </span>
+            )}
+          </div>
+          {cluster.suggested_title && (
+            <p className="text-xs text-muted font-mono border-l-2 border-accent/30 pl-2 italic">
+              «{cluster.suggested_title}»
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function ClusterStep({
+  projectId,
+  sp,
+  onStepAdvance,
+}: {
+  projectId: string
+  sp: import('../../api/marketing').SemanticProject
+  onStepAdvance: () => void
+}) {
+  const qc = useQueryClient()
+  const [taskId, setTaskId] = useState<string | null>(null)
+  const [taskResult, setTaskResult] = useState<TaskResult | null>(null)
+  const [taskError, setTaskError] = useState('')
+
+  const startMut = useMutation({
+    mutationFn: () => marketingApi.startCluster(projectId, sp.id),
+    onSuccess: (d) => { setTaskId(d.task_id); setTaskError('') },
+    onError: (e: any) => setTaskError(e?.response?.data?.detail || 'Ошибка запуска'),
+  })
+
+  useTaskPoller(taskId, (t) => {
+    setTaskResult(t)
+    setTaskId(null)
+    if (t.status === 'success') {
+      qc.invalidateQueries({ queryKey: ['clusters', projectId, sp.id] })
+      qc.invalidateQueries({ queryKey: ['sem-projects', projectId] })
+    }
+  })
+
+  const { data: taskLive } = useQuery({
+    queryKey: ['task', taskId],
+    queryFn: () => tasksApi.get(taskId!),
+    enabled: !!taskId,
+    refetchInterval: 2000,
+  })
+
+  const { data: clusters, isLoading: clustersLoading } = useQuery({
+    queryKey: ['clusters', projectId, sp.id],
+    queryFn: () => marketingApi.getClusters(projectId, sp.id),
+  })
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) =>
+      marketingApi.updateCluster(projectId, sp.id, id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['clusters', projectId, sp.id] }),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => marketingApi.deleteCluster(projectId, sp.id, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['clusters', projectId, sp.id] }),
+  })
+
+  const progress = taskLive?.progress ?? 0
+  const isRunning = !!taskId
+  const hasClusters = (clusters?.length ?? 0) > 0 && sp.pipeline_step >= 4
+
+  const totalKw = clusters?.reduce((s, c) => s + c.keyword_count, 0) ?? 0
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-muted">
+        Claude сгруппирует очищенные ключи в смысловые кластеры
+        {sp.mode === 'direct' ? ', подберёт тип кампании и заголовок объявления' : ''}.
+      </p>
+
+      {/* Run / re-run button */}
+      {!isRunning && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => { setTaskResult(null); startMut.mutate() }}
+            disabled={startMut.isPending}
+            className="btn-primary px-5 py-2 text-sm"
+          >
+            {startMut.isPending
+              ? 'Запуск...'
+              : hasClusters
+              ? '↺ Перекластеризовать'
+              : 'Запустить кластеризацию'}
+          </button>
+          {taskError && <p className="text-xs text-red-500">{taskError}</p>}
+          {hasClusters && (
+            <span className="text-xs text-muted">
+              {clusters!.length} кластеров, {totalKw.toLocaleString('ru')} ключей
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Progress bar */}
+      {isRunning && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm text-accent">
+            <span className="w-4 h-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+            <span>
+              {progress < 80 ? `Кластеризация... ${progress}%` : `Сохранение... ${progress}%`}
+            </span>
+          </div>
+          <div className="w-full bg-[var(--border)] rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-accent h-2 rounded-full transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {taskResult?.status === 'failed' && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">
+          Ошибка: {taskResult.error || 'Неизвестная ошибка'}
+          <button className="ml-3 underline text-xs" onClick={() => setTaskResult(null)}>Повторить</button>
+        </div>
+      )}
+
+      {/* Cluster grid */}
+      {!isRunning && hasClusters && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {clusters!.map((c) => (
+              <ClusterCard
+                key={c.id}
+                cluster={c}
+                mode={sp.mode}
+                onUpdate={(id, data) => updateMut.mutate({ id, data })}
+                onDelete={(id) => deleteMut.mutate(id)}
+              />
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <p className="text-xs text-muted">
+              {clusters!.length} кластеров · {totalKw.toLocaleString('ru')} ключей
+            </p>
+            <button onClick={onStepAdvance} className="btn-primary px-5 py-2 text-sm">
+              Далее — Экспорт →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isRunning && clustersLoading && (
+        <div className="text-sm text-muted">Загрузка...</div>
+      )}
+    </div>
+  )
+}
+
+// ─── Step 6: Export ──────────────────────────────────────────────────────────
+
+function ExportStep({
+  projectId,
+  sp,
+}: {
+  projectId: string
+  sp: import('../../api/marketing').SemanticProject
+}) {
+  const [downloading, setDownloading] = useState<string | null>(null)
+  const [error, setError] = useState('')
+
+  const { data: clusters } = useQuery({
+    queryKey: ['clusters', projectId, sp.id],
+    queryFn: () => marketingApi.getClusters(projectId, sp.id),
+  })
+  const { data: kwData } = useQuery({
+    queryKey: ['sem-kw-export-stats', projectId, sp.id],
+    queryFn: () => marketingApi.getKeywords(projectId, sp.id, { per_page: 1 }),
+  })
+
+  const totalKw = kwData?.total ?? 0
+  const totalClusters = clusters?.length ?? 0
+
+  const byType = (clusters ?? []).reduce<Record<string, number>>((acc, c) => {
+    const key = c.intent ?? 'общий'
+    acc[key] = (acc[key] ?? 0) + c.keyword_count
+    return acc
+  }, {})
+
+  const download = async (fmt: 'xlsx' | 'csv' | 'txt') => {
+    setDownloading(fmt)
+    setError('')
+    try {
+      const { blob, filename } = await marketingApi.exportBlob(projectId, sp.id, fmt)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || 'Ошибка скачивания')
+    } finally {
+      setDownloading(null)
+    }
+  }
+
+  const FORMATS: { fmt: 'xlsx' | 'csv' | 'txt'; label: string; desc: string; icon: string }[] = [
+    {
+      fmt: 'xlsx',
+      label: 'XLSX',
+      desc: sp.mode === 'direct'
+        ? '3 листа: ядро · кластеры · кампании Директ'
+        : '2 листа: ядро · кластеры',
+      icon: '📊',
+    },
+    {
+      fmt: 'csv',
+      label: 'CSV',
+      desc: 'Разделитель «;», кодировка UTF-8 с BOM (открывается в Excel)',
+      icon: '📋',
+    },
+    {
+      fmt: 'txt',
+      label: 'TXT',
+      desc: 'Только фразы, по одной на строку (для Wordstat или Директа)',
+      icon: '📄',
+    },
+  ]
+
+  return (
+    <div className="space-y-6">
+      {/* ── Stats summary ─────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Ключей', value: totalKw.toLocaleString('ru') },
+          { label: 'Кластеров', value: totalClusters.toLocaleString('ru') },
+          { label: 'Режим', value: sp.mode === 'seo' ? 'SEO' : 'Директ' },
+          { label: 'Регион', value: sp.region || 'Все' },
+        ].map((s) => (
+          <div key={s.label} className="bg-surface-raised rounded-xl p-3 text-center">
+            <p className="text-xl font-bold text-accent">{s.value}</p>
+            <p className="text-xs text-muted mt-0.5">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Breakdown by intent ──────────────────────────────────────────── */}
+      {Object.keys(byType).length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([intent, count]) => (
+            <span
+              key={intent}
+              className={cx(
+                'text-xs px-2 py-1 rounded-full',
+                INTENT_COLOR[intent] ?? 'bg-gray-100 text-gray-600'
+              )}
+            >
+              {intent}: {count}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* ── Download buttons ─────────────────────────────────────────────── */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-primary">Скачать семантическое ядро</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {FORMATS.map(({ fmt, label, desc, icon }) => (
+            <button
+              key={fmt}
+              onClick={() => download(fmt)}
+              disabled={!!downloading || totalKw === 0}
+              className={cx(
+                'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                'border-[var(--border)] hover:border-accent/50 hover:bg-[var(--accent-subtle)]',
+                'disabled:opacity-50 disabled:cursor-not-allowed'
+              )}
+            >
+              <div className="flex items-center gap-2 w-full">
+                <span className="text-lg">{icon}</span>
+                <span className="font-semibold text-sm text-primary">{label}</span>
+                {downloading === fmt && (
+                  <span className="ml-auto w-4 h-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+                )}
+              </div>
+              <p className="text-[11px] text-muted leading-snug">{desc}</p>
+            </button>
+          ))}
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        {totalKw === 0 && (
+          <p className="text-xs text-muted">Нет активных ключей для экспорта</p>
+        )}
+      </div>
+
+      {/* ── Completion ───────────────────────────────────────────────────── */}
+      <div className="border border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-800 rounded-xl p-4 space-y-1">
+        <p className="text-sm font-medium text-green-700 dark:text-green-400">
+          Семантическое ядро готово
+        </p>
+        <p className="text-xs text-green-600 dark:text-green-500">
+          {sp.mode === 'seo'
+            ? 'Используйте кластеры как основу для структуры сайта и контент-плана.'
+            : 'Кластеры готовы к загрузке в Яндекс Директ Командер через XLSX.'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ─── Locked step placeholder ──────────────────────────────────────────────────
 
 function LockedStep({ label, requiredStep }: { label: string; requiredStep: number }) {
@@ -730,15 +1517,32 @@ export default function MarketingTab({ projectId }: { projectId: string }) {
             )}
 
             {activeStep === 4 && (
-              <LockedStep label="Шаг 4 — Очистка" requiredStep={3} />
+              <>
+                <h3 className="font-semibold text-base mb-4">Шаг 4 — Очистка</h3>
+                <CleaningStep
+                  projectId={projectId}
+                  sp={sp}
+                  onStepAdvance={() => setActiveStep(5)}
+                />
+              </>
             )}
 
             {activeStep === 5 && (
-              <LockedStep label="Шаг 5 — Кластеризация" requiredStep={4} />
+              <>
+                <h3 className="font-semibold text-base mb-4">Шаг 5 — Кластеризация</h3>
+                <ClusterStep
+                  projectId={projectId}
+                  sp={sp}
+                  onStepAdvance={() => setActiveStep(6)}
+                />
+              </>
             )}
 
             {activeStep === 6 && (
-              <LockedStep label="Шаг 6 — Экспорт" requiredStep={5} />
+              <>
+                <h3 className="font-semibold text-base mb-4">Шаг 6 — Экспорт</h3>
+                <ExportStep projectId={projectId} sp={sp} />
+              </>
             )}
           </div>
         </>
