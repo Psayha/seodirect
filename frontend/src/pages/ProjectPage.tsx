@@ -49,6 +49,52 @@ const STATUS_LABEL: Record<string, string> = {
   archived:  'Архив',
 }
 
+interface TabItem { key: Tab; label: string }
+interface TabGroup { label: string; tabs: TabItem[] }
+
+const TAB_GROUPS: TabGroup[] = [
+  {
+    label: 'Проект',
+    tabs: [
+      { key: 'overview', label: 'Обзор' },
+      { key: 'brief',    label: 'Бриф' },
+    ],
+  },
+  {
+    label: 'Аудит',
+    tabs: [
+      { key: 'crawl',     label: 'Технический аудит' },
+      { key: 'analytics', label: 'Аналитика' },
+      { key: 'topvisor',  label: 'Позиции' },
+    ],
+  },
+  {
+    label: 'Реклама',
+    tabs: [
+      { key: 'direct',    label: 'Директ' },
+      { key: 'mediaplan', label: 'Медиаплан' },
+    ],
+  },
+  {
+    label: 'SEO',
+    tabs: [
+      { key: 'seo',          label: 'Мета-теги' },
+      { key: 'og',           label: 'OpenGraph' },
+      { key: 'schema',       label: 'Schema.org' },
+      { key: 'content-plan', label: 'Контент-план' },
+    ],
+  },
+  {
+    label: 'Управление',
+    tabs: [
+      { key: 'reports', label: 'Отчёты' },
+      { key: 'utm',     label: 'UTM' },
+      { key: 'export',  label: 'Экспорт' },
+      { key: 'history', label: 'История' },
+    ],
+  },
+]
+
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -67,24 +113,6 @@ export default function ProjectPage() {
     </div>
   )
   if (!project) return <div className="p-8 text-red-500 text-sm">Проект не найден</div>
-
-  const tabs: { key: Tab; label: string; icon?: string }[] = [
-    { key: 'overview',      label: 'Обзор' },
-    { key: 'brief',         label: 'Бриф' },
-    { key: 'crawl',         label: 'Аудит' },
-    { key: 'direct',        label: 'Директ' },
-    { key: 'seo',           label: 'SEO' },
-    { key: 'og',            label: 'OpenGraph' },
-    { key: 'schema',        label: 'Schema.org' },
-    { key: 'mediaplan',     label: 'Медиаплан' },
-    { key: 'analytics',     label: 'Аналитика' },
-    { key: 'topvisor',      label: 'Позиции' },
-    { key: 'content-plan',  label: 'Контент' },
-    { key: 'reports',       label: 'Отчёты' },
-    { key: 'history',       label: 'История' },
-    { key: 'export',        label: 'Экспорт' },
-    { key: 'utm',           label: 'UTM' },
-  ]
 
   return (
     <div className="min-h-full flex flex-col">
@@ -127,21 +155,36 @@ export default function ProjectPage() {
           </div>
         </div>
 
-        {/* ── Tab nav ── */}
-        <div className="flex gap-0.5 overflow-x-auto pb-px scrollbar-none">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={cx(
-                'flex-shrink-0 px-3.5 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition whitespace-nowrap',
-                tab === t.key
-                  ? 'border-accent text-accent bg-[var(--accent-subtle)]'
-                  : 'border-transparent text-muted hover:text-primary hover:bg-surface-raised'
+        {/* ── Grouped tab nav ── */}
+        <div className="flex gap-0 overflow-x-auto pb-px scrollbar-none">
+          {TAB_GROUPS.map((group, gi) => (
+            <div key={group.label} className={cx('flex items-end', gi > 0 && 'ml-1')}>
+              {/* Group separator + label */}
+              {gi > 0 && (
+                <div className="self-center mx-1 h-4 border-l border-[var(--border)] opacity-50" />
               )}
-            >
-              {t.label}
-            </button>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-semibold text-muted uppercase tracking-wider px-2 pb-0.5 select-none">
+                  {group.label}
+                </span>
+                <div className="flex gap-0.5">
+                  {group.tabs.map((t) => (
+                    <button
+                      key={t.key}
+                      onClick={() => setTab(t.key)}
+                      className={cx(
+                        'flex-shrink-0 px-3 py-2 text-sm font-medium rounded-t-lg border-b-2 transition whitespace-nowrap',
+                        tab === t.key
+                          ? 'border-accent text-accent bg-[var(--accent-subtle)]'
+                          : 'border-transparent text-muted hover:text-primary hover:bg-surface-raised'
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           ))}
         </div>
       </div>

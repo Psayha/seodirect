@@ -25,4 +25,5 @@ class Brief(Base, TimestampMixin):
     excluded_geo: Mapped[str | None] = mapped_column(Text, nullable=True)
     monthly_budget: Mapped[float | None] = mapped_column(String(50), nullable=True)
     restrictions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    keyword_modifiers: Mapped[list | None] = mapped_column(JSON, nullable=True)
     raw_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)

@@ -95,6 +95,7 @@ class BriefUpdate(BaseModel):
     excluded_geo: str | None = None
     monthly_budget: str | None = None
     restrictions: str | None = None
+    keyword_modifiers: list[str] | None = None
     raw_data: dict | None = None
 
 
@@ -351,6 +352,8 @@ async def brief_chat(
             brief_parts.append(f"Месячный бюджет: {brief.monthly_budget} ₽")
         if brief.geo:
             brief_parts.append(f"Гео: {brief.geo}")
+        if brief.keyword_modifiers:
+            brief_parts.append(f"Коммерческие модификаторы: {', '.join(brief.keyword_modifiers)}")
 
     brief_context = "\n".join(brief_parts) if brief_parts else "Бриф не заполнен"
 
@@ -361,7 +364,8 @@ async def brief_chat(
 
 Задавай уточняющие вопросы, если информации не хватает для разработки стратегии Яндекс Директ и SEO.
 Если бриф достаточно полный — скажи об этом и предложи следующий шаг.
-Отвечай кратко и по-деловому. Используй только русский язык."""
+Отвечай кратко и по-деловому. Используй только русский язык.
+Не используй символы форматирования Markdown (звёздочки, решётки, подчёркивания). Только обычный текст и переносы строк."""
 
     messages = []
     for h in (body.history or []):
@@ -420,6 +424,114 @@ async def brief_chat(
         logger.exception("Unexpected Claude API response format for project %s", project_id)
         raise HTTPException(status_code=502, detail="Unexpected AI response format")
     return {"response": reply}
+
+
+# ─── Brief Improve ────────────────────────────────────────────────────────────
+
+@router.post("/{project_id}/brief/improve")
+async def brief_improve(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Ask Claude to analyze the brief and return improved field values as JSON."""
+    project = _get_project_or_404(project_id, current_user, db)
+    brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
+
+    import httpx
+    from app.services.claude import get_claude_client
+
+    try:
+        client = get_claude_client(db)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    current = _brief_to_dict(brief) if brief else {}
+
+    system_prompt = """Ты — эксперт по поисковому маркетингу. Твоя задача — проанализировать бриф и вернуть улучшенные значения полей.
+
+Верни ТОЛЬКО JSON-объект без каких-либо пояснений, вводных слов и форматирования. Формат:
+{
+  "niche": "...",
+  "products": "...",
+  "price_segment": "...",
+  "geo": "...",
+  "target_audience": "...",
+  "pains": "...",
+  "usp": "...",
+  "campaign_goal": "...",
+  "restrictions": "...",
+  "keyword_modifiers": ["купить", "заказать", "цена", ...]
+}
+
+Правила:
+- Если поле уже заполнено хорошо — верни его без изменений
+- Если поле пустое или слабое — дополни, опираясь на нишу и другие поля
+- keyword_modifiers: предложи 8-15 коммерческих модификаторов для сбора семантики (купить, цена, заказать, оптом, доставка, официальный сайт, недорого и т.п.)
+- Отвечай только на русском языке
+- Верни строго валидный JSON, никакого текста вне JSON"""
+
+    user_msg = f"""Текущий бриф:
+Ниша: {current.get('niche') or 'не заполнено'}
+Продукты/услуги: {current.get('products') or 'не заполнено'}
+Ценовой сегмент: {current.get('price_segment') or 'не заполнено'}
+Гео: {current.get('geo') or 'не заполнено'}
+Целевая аудитория: {current.get('target_audience') or 'не заполнено'}
+Боли клиентов: {current.get('pains') or 'не заполнено'}
+УТП: {current.get('usp') or 'не заполнено'}
+Цель кампании: {current.get('campaign_goal') or 'не заполнено'}
+Ограничения: {current.get('restrictions') or 'не заполнено'}
+Коммерческие модификаторы: {', '.join(current.get('keyword_modifiers') or []) or 'не заполнено'}
+Сайт проекта: {project.url}
+
+Улучши бриф и верни JSON."""
+
+    if client.use_openrouter:
+        payload = {
+            "model": client.model,
+            "max_tokens": 1500,
+            "temperature": 0.4,
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_msg}],
+        }
+    else:
+        payload = {
+            "model": client.model,
+            "max_tokens": 1500,
+            "temperature": 0.4,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_msg}],
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as http_client:
+            resp = await http_client.post(client.base_url, headers=client._headers(), json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        if client.use_openrouter:
+            raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        else:
+            raw = data.get("content", [{}])[0].get("text", "")
+        if not raw:
+            raise HTTPException(status_code=502, detail="Empty response from AI")
+
+        import json as _json
+        # Strip possible markdown code fences
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        improved = _json.loads(raw.strip())
+        return {"improved": improved, "current": current}
+    except httpx.HTTPStatusError as exc:
+        body = exc.response.text[:500] if exc.response is not None else ""
+        raise HTTPException(status_code=502, detail=f"AI service error: {body}")
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail="AI service temporarily unavailable")
+    except Exception as exc:
+        logger.exception("Error in brief improve for project %s: %s", project_id, exc)
+        raise HTTPException(status_code=502, detail="Failed to parse AI response")
 
 
 # ─── Project Duplication ──────────────────────────────────────────────────────
@@ -533,6 +645,7 @@ def _brief_to_dict(brief: Brief) -> dict:
         "excluded_geo": brief.excluded_geo,
         "monthly_budget": brief.monthly_budget,
         "restrictions": brief.restrictions,
+        "keyword_modifiers": brief.keyword_modifiers or [],
         "raw_data": brief.raw_data,
         "updated_at": brief.updated_at.isoformat() if brief.updated_at else None,
     }
