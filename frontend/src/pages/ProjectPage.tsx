@@ -75,6 +75,7 @@ const TAB_GROUPS: TabGroup[] = [
       { key: 'marketing', label: 'Семантика' },
       { key: 'direct',    label: 'Директ' },
       { key: 'mediaplan', label: 'Медиаплан' },
+      { key: 'utm',       label: 'UTM' },
     ],
   },
   {
@@ -90,7 +91,6 @@ const TAB_GROUPS: TabGroup[] = [
     label: 'Управление',
     tabs: [
       { key: 'reports', label: 'Отчёты' },
-      { key: 'utm',     label: 'UTM' },
       { key: 'export',  label: 'Экспорт' },
       { key: 'history', label: 'История' },
     ],
@@ -157,38 +157,51 @@ export default function ProjectPage() {
           </div>
         </div>
 
-        {/* ── Grouped tab nav ── */}
-        <div className="flex gap-0 overflow-x-auto pb-px scrollbar-none">
-          {TAB_GROUPS.map((group, gi) => (
-            <div key={group.label} className={cx('flex items-end', gi > 0 && 'ml-1')}>
-              {/* Group separator + label */}
-              {gi > 0 && (
-                <div className="self-center mx-1 h-4 border-l border-[var(--border)] opacity-50" />
-              )}
-              <div className="flex flex-col">
-                <span className="text-[10px] font-semibold text-muted uppercase tracking-wider px-2 pb-0.5 select-none">
-                  {group.label}
-                </span>
-                <div className="flex gap-0.5">
-                  {group.tabs.map((t) => (
+        {/* ── Two-level nav ── */}
+        {(() => {
+          const activeGroup = TAB_GROUPS.find(g => g.tabs.some(t => t.key === tab))
+          return (
+            <div>
+              {/* Row 1: group pills */}
+              <div className="flex gap-1 pb-2">
+                {TAB_GROUPS.map((group) => {
+                  const isActive = group.tabs.some(t => t.key === tab)
+                  return (
                     <button
-                      key={t.key}
-                      onClick={() => setTab(t.key)}
+                      key={group.label}
+                      onClick={() => setTab(group.tabs[0].key)}
                       className={cx(
-                        'flex-shrink-0 px-3 py-2 text-sm font-medium rounded-t-lg border-b-2 transition whitespace-nowrap',
-                        tab === t.key
-                          ? 'border-accent text-accent bg-[var(--accent-subtle)]'
-                          : 'border-transparent text-muted hover:text-primary hover:bg-surface-raised'
+                        'px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-lg transition select-none',
+                        isActive
+                          ? 'bg-[var(--accent-subtle)] text-accent'
+                          : 'text-muted hover:text-primary hover:bg-surface-raised'
                       )}
                     >
-                      {t.label}
+                      {group.label}
                     </button>
-                  ))}
-                </div>
+                  )
+                })}
+              </div>
+              {/* Row 2: sub-tabs of active group */}
+              <div className="flex gap-0.5 overflow-x-auto scrollbar-none">
+                {activeGroup?.tabs.map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => setTab(t.key)}
+                    className={cx(
+                      'flex-shrink-0 px-3 py-2 text-sm font-medium rounded-t-lg border-b-2 transition whitespace-nowrap',
+                      tab === t.key
+                        ? 'border-accent text-accent bg-[var(--accent-subtle)]'
+                        : 'border-transparent text-muted hover:text-primary hover:bg-surface-raised'
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
               </div>
             </div>
-          ))}
-        </div>
+          )
+        })()}
       </div>
 
       {/* ── Content ── */}
