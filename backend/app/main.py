@@ -71,6 +71,7 @@ def create_app() -> FastAPI:
     from app.routers.direct import router as direct_router
     from app.routers.direct_analysis import router as direct_analysis_router
     from app.routers.export import router as export_router
+    from app.routers.geo import router as geo_router
     from app.routers.history import router as history_router
     from app.routers.marketing import router as marketing_router
     from app.routers.mediaplan import router as mediaplan_router
@@ -93,6 +94,7 @@ def create_app() -> FastAPI:
     app.include_router(direct_router, prefix="/api", tags=["direct"])
     app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
     app.include_router(export_router, prefix="/api", tags=["export"])
+    app.include_router(geo_router, prefix="/api", tags=["geo"])
     app.include_router(users_router, prefix="/api/users", tags=["users"])
     app.include_router(tasks_router, prefix="/api/tasks", tags=["tasks"])
     app.include_router(seo_router, prefix="/api", tags=["seo"])
