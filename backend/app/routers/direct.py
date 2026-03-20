@@ -752,3 +752,135 @@ def direct_readiness_check(
         "ads_count":       total_ads,
         "categories":      categories,
     }
+
+
+# ─── AI offer quality check ───────────────────────────────────────────────────
+
+@router.post("/projects/{project_id}/direct/analyze-offers")
+@limiter.limit("10/minute")
+async def analyze_offers(
+    request: Request,
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """
+    LLM-оценка качества офферов в объявлениях.
+    Анализирует заголовки и тексты всех объявлений проекта
+    и возвращает оценку + конкретные рекомендации по улучшению.
+    """
+    import json as _json
+    _check_project_access(project_id, current_user, db)
+
+    # Собираем все объявления проекта
+    campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
+    ads_data: list[dict] = []
+    for camp in campaigns:
+        groups = db.scalars(select(AdGroup).where(AdGroup.campaign_id == camp.id)).all()
+        for group in groups:
+            ads = db.scalars(select(Ad).where(Ad.ad_group_id == group.id)).all()
+            for ad in ads:
+                if not (ad.headline1 or ad.headline2 or ad.text):
+                    continue
+                ads_data.append({
+                    "id": str(ad.id),
+                    "group": group.name,
+                    "campaign": camp.name,
+                    "h1": ad.headline1 or "",
+                    "h2": ad.headline2 or "",
+                    "h3": ad.headline3 or "",
+                    "text": ad.text or "",
+                    "display_url": ad.display_url or "",
+                })
+
+    if not ads_data:
+        raise HTTPException(status_code=422, detail="Нет объявлений для анализа")
+    if len(ads_data) > 50:
+        ads_data = ads_data[:50]  # ограничиваем чтобы не превышать контекст
+
+    from app.services.claude import get_claude_client
+    client = get_claude_client(db)
+
+    SYSTEM_PROMPT = """\
+Ты — старший специалист по Яндекс Директу с 10+ годами опыта. \
+Твоя задача — честная, строгая оценка качества рекламных объявлений. \
+Ты знаешь, что хорошее объявление в Яндекс Директ — это не набор ключевых слов, \
+а живой разговор с человеком, у которого есть боль и желание её решить.
+
+КРИТЕРИИ ОЦЕНКИ (каждый 1–10):
+
+1. headline1 (макс. 56 символов):
+   — Написан по-человечески, не роботизировано
+   — Включает ключевое слово органично (не «Купить диван купить недорого»)
+   — Говорит о выгоде или результате, а не о процессе
+   — Использованы почти все символы (≥45)
+   9–10: «Диваны от 12 900 ₽ — доставка за 1 день»
+   4–5: «Купить диван в Москве»
+   1–3: «Диван диван купить»
+
+2. headline2 (макс. 30 символов):
+   — Конкретный оффер или призыв к действию
+   — Дополняет, не повторяет h1
+   — Цифры, сроки, гарантии работают хорошо
+   9–10: «Гарантия 5 лет + беспл. сборка»
+   4–5: «Лучшие цены»
+   1–3: пустой или «Наш сайт»
+
+3. text (макс. 81 символов):
+   — Не «купи-купи-купи», а реальная польза
+   — Снимает возражение или усиливает желание
+   — Конкретика: цифры, факты, сроки
+   — Использованы почти все символы (≥70)
+   9–10: «Более 200 моделей. Рассрочка 0%. Замер бесплатно — звоните сейчас!»
+   4–5: «Большой выбор мебели по доступным ценам»
+   1–3: «Диваны. Купить»
+
+ВАЖНО:
+— Оценка 9–10 — исключение, только для действительно выдающихся текстов
+— Будь конкретен в recommendations: не «улучшите текст», а «замените на: "Скидка 30% до пятницы — 847 ₽/мес в рассрочку"»
+— Если объявление на нишевую тему (строительство, медицина, B2B) — учитывай специфику
+
+ФОРМАТ ОТВЕТА — строго JSON, без markdown:
+{
+  "ads": [
+    {
+      "id": "...",
+      "overall_score": 7,
+      "headline1_score": 8,
+      "headline2_score": 6,
+      "text_score": 7,
+      "verdict": "Одна короткая фраза-вердикт на русском",
+      "issues": ["конкретная проблема 1", "конкретная проблема 2"],
+      "best_rewrite": {
+        "h1": "Переписанный заголовок 1 (макс 56 символов)",
+        "h2": "Переписанный заголовок 2 (макс 30 символов)",
+        "text": "Переписанный текст (макс 81 символ)"
+      }
+    }
+  ],
+  "summary": {
+    "avg_score": 6.5,
+    "top_issue": "Самая частая проблема одним предложением",
+    "quick_win": "Самое быстрое улучшение которое даст результат"
+  }
+}"""
+
+    user_message = "Оцени качество этих объявлений Яндекс Директ:\n\n" + _json.dumps(
+        ads_data, ensure_ascii=False, indent=2
+    )
+
+    try:
+        raw = await client.generate(SYSTEM_PROMPT, user_message)
+        # Вырезаем JSON из ответа (на случай если модель добавила markdown)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = _json.loads(raw.strip())
+    except _json.JSONDecodeError as e:
+        raise HTTPException(status_code=502, detail=f"Ошибка парсинга ответа ИИ: {e}")
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return result
