@@ -87,6 +87,77 @@ class WordstatClient:
                     continue
         return results
 
+    async def get_all_frequencies(
+        self, phrases: list[str], regions: list[int] | None = None
+    ) -> dict[str, dict]:
+        """Get all 4 Wordstat frequency types for each phrase.
+
+        Sends 4 variants per phrase using standard Wordstat operators:
+          - base:   «купить диван»      (any word forms, any additional words)
+          - phrase: «"купить диван"»    (any word forms, no additional words)
+          - exact:  «"!купить !диван"»  (exact word forms, no additional words)
+          - order:  «[купить диван]»    (exact word order)
+
+        Returns {phrase: {base, phrase_freq, exact, order}}
+        """
+        if not phrases:
+            return {}
+
+        # Build variant→original mapping
+        variants: dict[str, tuple[str, str]] = {}  # variant_phrase → (original, type)
+        all_variant_phrases: list[str] = []
+        for phrase in phrases:
+            words = phrase.strip()
+            exact_words = " ".join(f"!{w}" for w in words.split())
+            base_v = words
+            phrase_v = f'"{words}"'
+            exact_v = f'"{exact_words}"'
+            order_v = f"[{words}]"
+            for v, t in [(base_v, "base"), (phrase_v, "phrase"), (exact_v, "exact"), (order_v, "order")]:
+                variants[v] = (phrase, t)
+                all_variant_phrases.append(v)
+
+        # Collect raw frequencies (batch size 128)
+        raw: dict[str, int] = {}
+        batch_size = 128
+        import asyncio
+        async with httpx.AsyncClient(timeout=30) as client:
+            for i in range(0, len(all_variant_phrases), batch_size):
+                batch = all_variant_phrases[i : i + batch_size]
+                body: dict = {"phrases": batch}
+                if regions:
+                    body["regions"] = regions
+                try:
+                    resp = await client.post(
+                        f"{self.BASE_URL}/v1/topRequests",
+                        headers=self._headers(),
+                        json=body,
+                    )
+                    if resp.status_code != 200:
+                        continue
+                    data = resp.json()
+                    for item in data if isinstance(data, list) else []:
+                        vphrase = item.get("requestPhrase", "")
+                        if vphrase and "error" not in item:
+                            raw[vphrase] = item.get("totalCount", 0)
+                except Exception:
+                    continue
+                if i + batch_size < len(all_variant_phrases):
+                    await asyncio.sleep(0.3)
+
+        # Map back to original phrases
+        results: dict[str, dict] = {}
+        for phrase in phrases:
+            words = phrase.strip()
+            exact_words = " ".join(f"!{w}" for w in words.split())
+            results[phrase] = {
+                "base": raw.get(words, 0),
+                "phrase_freq": raw.get(f'"{words}"', 0),
+                "exact": raw.get(f'"{exact_words}"', 0),
+                "order": raw.get(f"[{words}]", 0),
+            }
+        return results
+
     async def get_user_info(self) -> dict:
         """Returns quota info: rps limit, daily limit, remaining daily quota."""
         async with httpx.AsyncClient(timeout=10) as client:

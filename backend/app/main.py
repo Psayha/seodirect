@@ -72,6 +72,7 @@ def create_app() -> FastAPI:
     from app.routers.direct_analysis import router as direct_analysis_router
     from app.routers.export import router as export_router
     from app.routers.history import router as history_router
+    from app.routers.marketing import router as marketing_router
     from app.routers.mediaplan import router as mediaplan_router
     from app.routers.og import router as og_router
     from app.routers.portal import router as portal_router
@@ -108,6 +109,7 @@ def create_app() -> FastAPI:
     app.include_router(portal_router, prefix="/api", tags=["portal"])
     app.include_router(seo_enrichments_router, prefix="/api", tags=["seo"])
     app.include_router(direct_analysis_router, prefix="/api", tags=["direct"])
+    app.include_router(marketing_router, prefix="/api", tags=["marketing"])
 
     @app.get("/api/health", tags=["system"])
     def health():

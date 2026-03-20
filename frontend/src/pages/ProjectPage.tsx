@@ -19,8 +19,9 @@ const ReportsTab     = lazy(() => import('./tabs/ReportsTab'))
 const HistoryTab     = lazy(() => import('./tabs/HistoryTab'))
 const ExportTab      = lazy(() => import('./tabs/ExportTab'))
 const UtmTab         = lazy(() => import('./tabs/UtmTab'))
+const MarketingTab   = lazy(() => import('./tabs/MarketingTab'))
 
-type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og' | 'schema' | 'mediaplan' | 'analytics' | 'topvisor' | 'content-plan' | 'reports' | 'history' | 'export' | 'utm'
+type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og' | 'schema' | 'mediaplan' | 'analytics' | 'topvisor' | 'content-plan' | 'reports' | 'history' | 'export' | 'utm' | 'marketing'
 
 function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
@@ -69,8 +70,9 @@ const TAB_GROUPS: TabGroup[] = [
     ],
   },
   {
-    label: 'Реклама',
+    label: 'Маркетинг',
     tabs: [
+      { key: 'marketing', label: 'Семантика' },
       { key: 'direct',    label: 'Директ' },
       { key: 'mediaplan', label: 'Медиаплан' },
     ],
@@ -208,6 +210,7 @@ export default function ProjectPage() {
             {tab === 'history'      && <HistoryTab      projectId={id!} />}
             {tab === 'export'       && <ExportTab       projectId={id!} />}
             {tab === 'utm'          && <UtmTab          projectId={id!} />}
+            {tab === 'marketing'   && <MarketingTab    projectId={id!} />}
           </Suspense>
         </ErrorBoundary>
       </div>
