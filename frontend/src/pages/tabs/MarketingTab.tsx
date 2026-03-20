@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { marketingApi, SemanticMode, SemanticProject, SemanticKeyword } from '../../api/marketing'
+import { tasksApi, TaskResult } from '../../api/tasks'
 
 function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
@@ -346,6 +347,193 @@ function MasksStep({
   )
 }
 
+// ─── TaskPoller ────────────────────────────────────────────────────────────────
+
+function useTaskPoller(taskId: string | null, onDone: (t: TaskResult) => void) {
+  const interval = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (!taskId) return
+    const poll = async () => {
+      try {
+        const t = await tasksApi.get(taskId)
+        if (t.status === 'success' || t.status === 'failed') {
+          if (interval.current) clearInterval(interval.current)
+          onDone(t)
+        }
+      } catch { /* ignore */ }
+    }
+    poll()
+    interval.current = setInterval(poll, 2000)
+    return () => { if (interval.current) clearInterval(interval.current) }
+  }, [taskId])
+}
+
+// ─── Step 3: Expand ────────────────────────────────────────────────────────────
+
+function ExpandStep({
+  projectId,
+  sp,
+  onStepAdvance,
+}: {
+  projectId: string
+  sp: SemanticProject
+  onStepAdvance: () => void
+}) {
+  const qc = useQueryClient()
+  const [minFreq, setMinFreq] = useState(0)
+  const [useBrief, setUseBrief] = useState(true)
+  const [taskId, setTaskId] = useState<string | null>(null)
+  const [taskResult, setTaskResult] = useState<TaskResult | null>(null)
+  const [taskError, setTaskError] = useState('')
+
+  const expandMut = useMutation({
+    mutationFn: () =>
+      marketingApi.expand(projectId, sp.id, { min_freq_exact: minFreq, use_brief: useBrief }),
+    onSuccess: (d) => { setTaskId(d.task_id); setTaskError('') },
+    onError: (e: any) => setTaskError(e?.response?.data?.detail || 'Ошибка запуска'),
+  })
+
+  useTaskPoller(taskId, (t) => {
+    setTaskResult(t)
+    setTaskId(null)
+    if (t.status === 'success') {
+      qc.invalidateQueries({ queryKey: ['sem-keywords', projectId, sp.id] })
+      qc.invalidateQueries({ queryKey: ['sem-project', projectId, sp.id] })
+      qc.invalidateQueries({ queryKey: ['sem-projects', projectId] })
+    }
+  })
+
+  const { data: taskLive } = useQuery({
+    queryKey: ['task', taskId],
+    queryFn: () => tasksApi.get(taskId!),
+    enabled: !!taskId,
+    refetchInterval: 2000,
+  })
+
+  const progress = taskLive?.progress ?? 0
+  const isRunning = !!taskId || taskLive?.status === 'running'
+
+  const { data: kwData } = useQuery({
+    queryKey: ['sem-keywords', projectId, sp.id],
+    queryFn: () => marketingApi.getKeywords(projectId, sp.id, { per_page: 1 }),
+  })
+  const totalKw = kwData?.total ?? 0
+  const hasResults = sp.pipeline_step >= 2 && totalKw > 0
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-muted">
+        Claude сгенерирует {sp.mode === 'seo' ? 'информационные и коммерческие' : 'коммерческие'} запросы
+        для каждой выбранной маски, затем Wordstat соберёт частотность.
+      </p>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs text-muted mb-1">Мин. точная частотность</label>
+          <input
+            type="number"
+            min={0}
+            className="input w-full"
+            value={minFreq}
+            onChange={(e) => setMinFreq(Number(e.target.value))}
+            placeholder="0 — не фильтровать"
+          />
+          <p className="text-[11px] text-muted mt-1">Ключи с точной freq ниже будут отброшены</p>
+        </div>
+        <div className="flex flex-col justify-center">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={useBrief}
+              onChange={(e) => setUseBrief(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm text-primary">Использовать бриф</span>
+          </label>
+          <p className="text-[11px] text-muted mt-1 ml-6">Claude учтёт нишу, продукты и УТП из бриф</p>
+        </div>
+      </div>
+
+      {/* Run button or progress bar */}
+      {!isRunning && !taskResult && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => expandMut.mutate()}
+            disabled={expandMut.isPending}
+            className="btn-primary px-5 py-2 text-sm"
+          >
+            {expandMut.isPending ? 'Запуск...' : 'Запустить расширение'}
+          </button>
+          {taskError && <p className="text-xs text-red-500">{taskError}</p>}
+        </div>
+      )}
+
+      {isRunning && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm text-accent">
+            <span className="w-4 h-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+            <span>
+              {progress < 50
+                ? `Генерация ключей... ${progress}%`
+                : progress < 85
+                ? `Сбор частотности... ${progress}%`
+                : `Сохранение... ${progress}%`}
+            </span>
+          </div>
+          <div className="w-full bg-[var(--border)] rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-accent h-2 rounded-full transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {taskResult?.status === 'failed' && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">
+          Ошибка: {taskResult.error || 'Неизвестная ошибка'}
+          <button
+            className="ml-3 underline text-red-600 text-xs"
+            onClick={() => { setTaskResult(null); setTaskError('') }}
+          >
+            Повторить
+          </button>
+        </div>
+      )}
+
+      {/* Results or re-run */}
+      {hasResults && !isRunning && (
+        <div className="bg-[var(--accent-subtle)] border border-accent/20 rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-accent">
+              <path d="M3 8l3.5 3.5L13 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <p className="text-sm font-medium text-accent">
+              Расширение выполнено — {totalKw.toLocaleString('ru')} ключей
+              {taskResult?.result && ` (сохранено: ${(taskResult.result as any).saved})`}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => { setTaskResult(null) }}
+              className="text-xs text-muted hover:text-primary underline"
+            >
+              Переработать
+            </button>
+            <button
+              onClick={onStepAdvance}
+              className="btn-primary px-4 py-1.5 text-sm"
+            >
+              Далее — Очистка →
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Locked step placeholder ──────────────────────────────────────────────────
 
 function LockedStep({ label, requiredStep }: { label: string; requiredStep: number }) {
@@ -531,7 +719,14 @@ export default function MarketingTab({ projectId }: { projectId: string }) {
             )}
 
             {activeStep === 3 && (
-              <LockedStep label="Шаг 3 — Расширение семантики" requiredStep={2} />
+              <>
+                <h3 className="font-semibold text-base mb-4">Шаг 3 — Расширение семантики</h3>
+                <ExpandStep
+                  projectId={projectId}
+                  sp={sp}
+                  onStepAdvance={() => setActiveStep(4)}
+                />
+              </>
             )}
 
             {activeStep === 4 && (

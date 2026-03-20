@@ -74,6 +74,13 @@ export const marketingApi = {
 
   // ── Masks ───────────────────────────────────────────────────────────────────
 
+  expand: (
+    projectId: string,
+    semId: string,
+    data: { min_freq_exact: number; use_brief: boolean }
+  ): Promise<{ task_id: string; status: string }> =>
+    api.post(`/projects/${projectId}/marketing/semantic/${semId}/expand`, data).then((r) => r.data),
+
   collectMasks: (projectId: string, semId: string, masks: string[]): Promise<SemanticKeyword[]> =>
     api
       .post(`/projects/${projectId}/marketing/semantic/${semId}/collect-masks`, { masks })
