@@ -19,6 +19,7 @@ from app.models.project import Project
 from app.models.seo import SeoPageMeta
 from app.models.user import UserRole
 from app.routers.seo import _get_latest_crawl
+from app.services.settings_service import get_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ async def generate_schema_org(
             parts.append(f"Ниша: {brief.niche}")
         brief_context = "\n".join(parts)
 
-    system_prompt = "Ты — SEO-специалист. Генерируй корректный Schema.org JSON-LD. Отвечай только валидным JSON-LD объектом."
+    system_prompt = get_prompt("seo_schema", db) or "Ты — SEO-специалист. Генерируй корректный Schema.org JSON-LD. Отвечай только валидным JSON-LD объектом."
     user_msg = f"""Сгенерируй Schema.org JSON-LD типа {body.schema_type} для страницы.
 
 URL: {body.page_url}
@@ -256,7 +257,7 @@ async def generate_faq(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     products = brief.products if brief else ""
-    system_prompt = "Ты — контент-маркетолог. Генерируй полезные FAQ для веб-страниц. Отвечай только JSON."
+    system_prompt = get_prompt("seo_faq", db) or "Ты — контент-маркетолог. Генерируй полезные FAQ для веб-страниц. Отвечай только JSON."
     user_msg = f"""Сгенерируй {body.count} вопросов и ответов (FAQ) для страницы.
 
 URL: {body.page_url}
@@ -461,7 +462,7 @@ async def content_gap_analysis(
         for p in competitor_pages[:50]
     )
 
-    system_prompt = "Ты — SEO-аналитик. Находи контентные пробелы между сайтами. Отвечай только JSON."
+    system_prompt = get_prompt("seo_content_gap", db) or "Ты — SEO-аналитик. Находи контентные пробелы между сайтами. Отвечай только JSON."
     user_msg = f"""Вот страницы сайта клиента:
 {client_list or 'Нет данных'}
 

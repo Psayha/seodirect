@@ -274,7 +274,9 @@ async def analyze_search_queries(
     queries_text = "\n".join(f"- {q}" for q in body.queries[:200])
     keywords_text = "\n".join(f"- {k}" for k in existing_phrases)
 
-    system_prompt = "Ты — специалист по Яндекс Директ. Анализируй поисковые запросы и предлагай минус-слова."
+    from app.services.settings_service import get_prompt
+
+    system_prompt = get_prompt("direct_search_queries", db) or "Ты — специалист по Яндекс Директ. Анализируй поисковые запросы и предлагай минус-слова."
     user_msg = f"""Вот список поисковых запросов из статистики:
 {queries_text}
 

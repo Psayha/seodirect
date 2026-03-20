@@ -28,6 +28,18 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     logger.info("SEODirect starting up")
+
+    # Seed default system prompts if not present
+    try:
+        from app.db.session import SessionLocal
+        from app.services.settings_service import ensure_default_prompts
+
+        with SessionLocal() as db:
+            ensure_default_prompts(db)
+            logger.info("Default system prompts seeded")
+    except Exception:
+        logger.exception("Failed to seed default prompts (will retry on next start)")
+
     yield
     logger.info("SEODirect shutting down")
 

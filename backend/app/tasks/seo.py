@@ -110,9 +110,13 @@ def task_generate_seo_meta(
         from app.services.claude import get_claude_client
         claude = get_claude_client(db, task_type="seo_meta")
 
-        system_prompt = """Ты — SEO-специалист. Генерируй краткие title и description для веб-страниц на русском языке.
-title: 50-65 символов, включает ключевое слово, конкретный и информативный.
-description: 120-155 символов, призыв к действию, ключевые слова, уникально для страницы."""
+        from app.services.settings_service import get_prompt
+
+        system_prompt = get_prompt("seo_meta", db) or (
+            "Ты — SEO-специалист. Генерируй краткие title и description для веб-страниц на русском языке.\n"
+            "title: 50-65 символов, включает ключевое слово, конкретный и информативный.\n"
+            "description: 120-155 символов, призыв к действию, ключевые слова, уникально для страницы."
+        )
 
         if generate_og:
             system_prompt += """
@@ -325,7 +329,9 @@ def task_generate_schema_bulk(
         types_list = ", ".join(allowed_types)
 
         claude = get_claude_client(db, task_type="seo_schema_bulk")
-        system_prompt = "Ты — SEO-специалист. Генерируй корректный Schema.org JSON-LD. Отвечай только валидным JSON-LD объектом без markdown и пояснений."
+        from app.services.settings_service import get_prompt as _get_prompt
+
+        system_prompt = _get_prompt("seo_schema_bulk", db) or "Ты — SEO-специалист. Генерируй корректный Schema.org JSON-LD. Отвечай только валидным JSON-LD объектом без markdown и пояснений."
 
         generated = 0
         consecutive_failures = 0
