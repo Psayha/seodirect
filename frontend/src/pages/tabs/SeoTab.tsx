@@ -27,7 +27,7 @@ function ChecklistSection({ items }: { items: ChecklistItem[] }) {
       {Object.entries(byCategory).map(([cat, catItems]) => (
         <div key={cat}>
           <h4 className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">{cat}</h4>
-          <div className="space-y-1">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-1.5">
             {catItems.map((item) => (
               <div key={item.name} className="flex items-center gap-3 py-2 px-3 bg-surface rounded-xl border text-sm">
                 <span>{item.status === 'ok' ? '✅' : item.status === 'warn' ? '⚠️' : '❌'}</span>
@@ -959,7 +959,7 @@ export default function SeoTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* Generate meta controls */}
-      {view !== 'schema' && view !== 'content-gap' && (<><div className="bg-surface-raised border rounded-xl p-3 mb-5 flex flex-wrap items-center gap-3">
+      {view === 'pages' && (<><div className="bg-surface-raised border rounded-xl p-3 mb-5 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-1.5 text-sm text-muted cursor-pointer">
           <input type="checkbox" className="rounded" checked={generateOg} onChange={(e) => setGenerateOg(e.target.checked)} />
           + OG теги

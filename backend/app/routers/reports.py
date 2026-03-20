@@ -144,8 +144,8 @@ def _build_report_data(project, project_id, db):
         from sqlalchemy import func
         group_ids = db.scalars(select(AdGroup.id).where(AdGroup.campaign_id.in_(campaign_ids))).all()
         if group_ids:
-            keywords_total = db.scalar(select(func.count(Keyword.id)).where(Keyword.group_id.in_(group_ids))) or 0
-            ads_total = db.scalar(select(func.count(Ad.id)).where(Ad.group_id.in_(group_ids))) or 0
+            keywords_total = db.scalar(select(func.count(Keyword.id)).where(Keyword.ad_group_id.in_(group_ids))) or 0
+            ads_total = db.scalar(select(func.count(Ad.id)).where(Ad.ad_group_id.in_(group_ids))) or 0
 
     report_date = date.today().strftime("%d.%m.%Y")
     return _build_html(project, brief, crawl_report, keywords_total, ads_total, report_date)
