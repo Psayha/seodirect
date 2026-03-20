@@ -75,6 +75,7 @@ def create_app() -> FastAPI:
     from app.routers.export import router as export_router
     from app.routers.geo import router as geo_router
     from app.routers.history import router as history_router
+    from app.routers.images import router as images_router
     from app.routers.marketing import router as marketing_router
     from app.routers.mediaplan import router as mediaplan_router
     from app.routers.og import router as og_router
@@ -89,7 +90,6 @@ def create_app() -> FastAPI:
     from app.routers.topvisor import router as topvisor_router
     from app.routers.users import router as users_router
     from app.routers.utm import router as utm_router
-    from app.routers.images import router as images_router
 
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
