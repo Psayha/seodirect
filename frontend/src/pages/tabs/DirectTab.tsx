@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { directApi, type Campaign, type AdGroup, type Keyword, type Ad, type NegativeKeyword } from '../../api/direct'
+import { directApi, type Campaign, type AdGroup, type Keyword, type Ad, type NegativeKeyword, type ReadinessCheckCategory, type ReadinessCheckItem } from '../../api/direct'
 
 function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
@@ -477,6 +477,277 @@ function CampaignBlock({ campaign, projectId }: { campaign: Campaign; projectId:
   )
 }
 
+
+// ─── Чеклист запуска ────────────────────────────────────────────────────────
+function ReadinessCheckSection({ projectId }: { projectId: string }) {
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["readiness-check", projectId],
+    queryFn: () => directApi.readinessCheck(projectId),
+    staleTime: 30_000,
+  })
+
+  if (isLoading) return (
+    <div className="p-6 text-sm text-muted animate-pulse">Проверяем...</div>
+  )
+
+  const score = data?.score ?? 0
+  const scoreColor = score >= 80 ? "#34d399" : score >= 50 ? "#fbbf24" : "#f87171"
+
+  return (
+    <div className="p-6 space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-base" style={{ color: "var(--text)", letterSpacing: "-0.01em" }}>
+            Чеклист запуска
+          </h3>
+          <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
+            Автоматическая проверка готовности кампаний по стандартам специалиста
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* Score badge */}
+          <div className="text-center px-4 py-2 rounded-2xl" style={{ background: "var(--surface-raised)", border: "1px solid var(--border)" }}>
+            <div className="text-2xl font-bold font-data" style={{ color: scoreColor, lineHeight: 1 }}>{score}%</div>
+            <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{data?.passed}/{data?.total} проверок</div>
+          </div>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="btn-ghost text-sm px-4 py-2"
+          >
+            {isFetching ? "Проверка..." : "↻ Обновить"}
+          </button>
+        </div>
+      </div>
+
+      {/* Stats row */}
+      {data && (
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: "Кампаний", value: data.campaigns_count },
+            { label: "Групп", value: data.groups_count },
+            { label: "Объявлений", value: data.ads_count },
+          ].map((s) => (
+            <div key={s.label} className="card px-4 py-3 text-center">
+              <div className="text-xl font-bold font-data" style={{ color: "var(--text)" }}>{s.value}</div>
+              <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Categories */}
+      {data?.categories.map((cat: ReadinessCheckCategory) => {
+        const catPassed = cat.items.filter((i: ReadinessCheckItem) => i.pass).length
+        const catTotal  = cat.items.length
+        return (
+          <div key={cat.name} className="card p-0 overflow-hidden">
+            {/* Category header */}
+            <div
+              className="flex items-center justify-between px-5 py-3"
+              style={{ borderBottom: "1px solid var(--border)", background: "var(--surface-raised)" }}
+            >
+              <h4 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{cat.name}</h4>
+              <span className="text-xs font-data font-medium" style={{ color: catPassed === catTotal ? "#34d399" : "var(--muted)" }}>
+                {catPassed}/{catTotal}
+              </span>
+            </div>
+            {/* Items */}
+            <div className="divide-y" style={{ borderColor: "var(--border)" }}>
+              {cat.items.map((item: ReadinessCheckItem, idx: number) => (
+                <div key={idx} className="px-5 py-3">
+                  <div className="flex items-start gap-3">
+                    {/* Icon */}
+                    <div
+                      className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold"
+                      style={{
+                        background: item.pass ? "rgba(52,211,153,0.15)" : "rgba(248,113,113,0.12)",
+                        color: item.pass ? "#34d399" : "#f87171",
+                      }}
+                    >
+                      {item.pass ? "✓" : "✕"}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm" style={{ color: "var(--text)" }}>{item.label}</p>
+                      <p className="text-xs mt-0.5" style={{ color: item.pass ? "var(--muted)" : "#f87171" }}>
+                        {item.detail}
+                      </p>
+                      {/* Sub-issues list */}
+                      {!item.pass && item.issues && item.issues.length > 0 && (
+                        <ul className="mt-1.5 space-y-0.5">
+                          {item.issues.map((issue: string, i: number) => (
+                            <li key={i} className="text-xs truncate" style={{ color: "var(--muted)" }}>• {issue}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── AI анализ офферов ───────────────────────────────────────────────────────
+function OfferAnalysisSection({ projectId }: { projectId: string }) {
+  const [triggered, setTriggered] = useState(false)
+  const { data, isFetching, refetch } = useQuery({
+    queryKey: ["offer-analysis", projectId],
+    queryFn: () => directApi.analyzeOffers(projectId),
+    enabled: triggered,
+    staleTime: 5 * 60_000,
+  })
+
+  type OfferAd = {
+    id: string; overall_score: number
+    headline1_score: number; headline2_score: number; text_score: number
+    verdict: string; issues: string[]
+    best_rewrite: { h1: string; h2: string; text: string }
+  }
+
+  const scoreColor = (n: number) =>
+    n >= 8 ? "#34d399" : n >= 6 ? "#fbbf24" : "#f87171"
+
+  return (
+    <div className="p-6 space-y-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="font-semibold text-base" style={{ color: "var(--text)", letterSpacing: "-0.01em" }}>AI-анализ офферов</h3>
+          <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
+            Claude оценит каждый заголовок и текст по 10-балльной шкале и перепишет слабые места
+          </p>
+        </div>
+        <button
+          onClick={() => { setTriggered(true); refetch() }}
+          disabled={isFetching}
+          className="btn-accent text-sm px-5 py-2.5 shrink-0"
+        >
+          {isFetching ? "⏳ Анализируем..." : triggered && data ? "↻ Повторить" : "✨ Запустить анализ"}
+        </button>
+      </div>
+
+      {!triggered && !data && (
+        <div className="card p-8 flex flex-col items-center text-center" style={{ border: "1px dashed var(--border)" }}>
+          <div className="text-3xl mb-3">🎯</div>
+          <p className="text-sm font-semibold mb-1" style={{ color: "var(--text)" }}>Анализ не запущен</p>
+          <p className="text-xs" style={{ color: "var(--muted)" }}>Claude проверит каждое объявление по критериям специалиста по Директу</p>
+        </div>
+      )}
+
+      {isFetching && (
+        <div className="card p-8 flex flex-col items-center text-center">
+          <div className="text-3xl mb-3 animate-spin">⚙️</div>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>Claude анализирует объявления...</p>
+        </div>
+      )}
+
+      {data && !isFetching && (
+        <>
+          {/* Summary card */}
+          {data.summary && (
+            <div className="card p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Общая оценка</h4>
+                <span className="text-2xl font-bold font-data" style={{ color: scoreColor(data.summary.avg_score) }}>
+                  {data.summary.avg_score?.toFixed(1)}/10
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-xl p-3" style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.15)" }}>
+                  <p className="text-xs font-semibold mb-1" style={{ color: "#f87171" }}>Главная проблема</p>
+                  <p className="text-xs" style={{ color: "var(--text)" }}>{data.summary.top_issue}</p>
+                </div>
+                <div className="rounded-xl p-3" style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.15)" }}>
+                  <p className="text-xs font-semibold mb-1" style={{ color: "#34d399" }}>Быстрый выигрыш</p>
+                  <p className="text-xs" style={{ color: "var(--text)" }}>{data.summary.quick_win}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Per-ad results */}
+          {(data.ads as OfferAd[])?.map((ad: OfferAd) => (
+            <div key={ad.id} className="card p-0 overflow-hidden">
+              {/* Ad header */}
+              <div className="flex items-center justify-between px-5 py-3"
+                   style={{ borderBottom: "1px solid var(--border)", background: "var(--surface-raised)" }}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>Объявление</span>
+                  <span className="text-xs truncate" style={{ color: "var(--text)" }}>{ad.id.slice(0, 8)}…</span>
+                </div>
+                <span className="text-lg font-bold font-data shrink-0" style={{ color: scoreColor(ad.overall_score) }}>
+                  {ad.overall_score}/10
+                </span>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {/* Score breakdown */}
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    ["Заголовок 1", ad.headline1_score],
+                    ["Заголовок 2", ad.headline2_score],
+                    ["Текст", ad.text_score],
+                  ] as [string, number][]).map(([label, score]) => (
+                    <div key={label} className="rounded-xl px-3 py-2 text-center"
+                         style={{ background: "var(--surface-raised)", border: "1px solid var(--border)" }}>
+                      <div className="text-base font-bold font-data" style={{ color: scoreColor(score) }}>{score}</div>
+                      <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Verdict */}
+                <p className="text-sm italic" style={{ color: "var(--muted)" }}>"{ad.verdict}"</p>
+
+                {/* Issues */}
+                {ad.issues?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: "#f87171" }}>Проблемы</p>
+                    <ul className="space-y-1">
+                      {ad.issues.map((issue: string, i: number) => (
+                        <li key={i} className="text-xs flex gap-2" style={{ color: "var(--text)" }}>
+                          <span style={{ color: "#f87171" }}>✕</span>{issue}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Best rewrite */}
+                {ad.best_rewrite && (
+                  <div className="rounded-xl p-4 space-y-2"
+                       style={{ background: "rgba(124,106,245,0.08)", border: "1px solid rgba(124,106,245,0.2)" }}>
+                    <p className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: "var(--accent-text)" }}>Рекомендуемый вариант</p>
+                    {([
+                      ["Заголовок 1", ad.best_rewrite.h1, 56],
+                      ["Заголовок 2", ad.best_rewrite.h2, 30],
+                      ["Текст",       ad.best_rewrite.text, 81],
+                    ] as [string, string, number][]).map(([label, val, max]) => (
+                      <div key={label}>
+                        <span className="text-xs" style={{ color: "var(--muted)" }}>{label}: </span>
+                        <span className="text-xs font-medium" style={{ color: "var(--text)" }}>{val}</span>
+                        <span className="text-xs ml-1 font-data" style={{ color: val?.length > max * 0.85 ? "#34d399" : "var(--muted)" }}>
+                          ({val?.length}/{max})
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
+
 function NgramsSection({ projectId }: { projectId: string }) {
   const [n, setN] = useState(2)
   const [selected, setSelected] = useState<string | null>(null)
@@ -889,7 +1160,7 @@ export default function DirectTab({ projectId }: { projectId: string }) {
   const [newCampaignName, setNewCampaignName] = useState('')
   const [negInput, setNegInput] = useState('')
   const [showSearchQueriesModal, setShowSearchQueriesModal] = useState(false)
-  const [directSubSection, setDirectSubSection] = useState<'campaigns' | 'ngrams' | 'heatmap' | 'ab' | 'cluster'>('campaigns')
+  const [directSubSection, setDirectSubSection] = useState<'campaigns' | 'ngrams' | 'heatmap' | 'ab' | 'cluster' | 'checklist' | 'offers'>('campaigns')
 
   const { data: strategyData, refetch: refetchStrategy } = useQuery({
     queryKey: ['direct-strategy', projectId],
@@ -1013,6 +1284,8 @@ export default function DirectTab({ projectId }: { projectId: string }) {
           ['heatmap', 'Тепловая карта'],
           ['ab', 'A/B сравнение'],
           ['cluster', 'Автокластеризация'],
+          ['checklist', '✅ Чеклист запуска'],
+          ['offers', '🎯 Оценка офферов'],
         ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setDirectSubSection(key)}
             className={cx('px-3 py-1.5 text-sm rounded-xl transition',
@@ -1094,6 +1367,8 @@ export default function DirectTab({ projectId }: { projectId: string }) {
       {directSubSection === 'heatmap' && <HeatmapSection projectId={projectId} />}
       {directSubSection === 'ab' && <AbSection projectId={projectId} />}
       {directSubSection === 'cluster' && <LocalClusterSection projectId={projectId} />}
+      {directSubSection === 'checklist' && <ReadinessCheckSection projectId={projectId} />}
+      {directSubSection === 'offers' && <OfferAnalysisSection projectId={projectId} />}
 
       {showSearchQueriesModal && (
         <SearchQueriesModal projectId={projectId} onClose={() => setShowSearchQueriesModal(false)} />

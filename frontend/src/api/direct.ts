@@ -57,6 +57,28 @@ export interface NegativeKeyword {
   campaign_id: string | null
 }
 
+export interface ReadinessCheckItem {
+  label: string
+  pass: boolean
+  detail: string
+  issues: string[]
+}
+
+export interface ReadinessCheckCategory {
+  name: string
+  items: ReadinessCheckItem[]
+}
+
+export interface ReadinessCheckResult {
+  score: number
+  passed: number
+  total: number
+  campaigns_count: number
+  groups_count: number
+  ads_count: number
+  categories: ReadinessCheckCategory[]
+}
+
 export const directApi = {
   // Strategy
   getStrategy: (projectId: string) =>
@@ -133,6 +155,14 @@ export const directApi = {
   // Local clustering
   clusterLocal: (projectId: string, adGroupId?: string) =>
     api.post(`/projects/${projectId}/direct/cluster-local`, { ad_group_id: adGroupId }).then((r) => r.data),
+
+  // Readiness check
+  readinessCheck: (projectId: string) =>
+    api.get<ReadinessCheckResult>(`/projects/${projectId}/direct/readiness-check`).then((r) => r.data),
+
+  // Offer quality analysis
+  analyzeOffers: (projectId: string) =>
+    api.post(`/projects/${projectId}/direct/analyze-offers`).then((r) => r.data),
 
   // Keyword dynamics (Wordstat sparkline)
   getKeywordDynamics: (phrase: string) =>

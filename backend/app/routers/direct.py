@@ -566,3 +566,321 @@ def _ad_dict(a: Ad) -> dict:
         "variant": a.variant,
         "valid": len(h1) <= 56 and len(h2) <= 30 and len(h3) <= 30 and len(txt) <= 81,
     }
+
+
+# ─── Readiness check ─────────────────────────────────────────────────────────
+
+@router.get("/projects/{project_id}/direct/readiness-check")
+def direct_readiness_check(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """
+    Автоматический чеклист запуска рекламных кампаний.
+    Проверяет соответствие объявлений, групп и кампаний
+    стандартам специалиста по Яндекс Директу.
+    """
+    import re
+    _check_project_access(project_id, current_user, db)
+
+    # Тег A–F в начале названия группы (пример: "A - Горячие", "B – Тёплые")
+    TAG_RE = re.compile(r'^[A-Fa-f]\s*[-–—]', re.UNICODE)
+
+    campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
+    neg_kws   = db.scalars(select(NegativeKeyword).where(NegativeKeyword.project_id == project_id)).all()
+
+    # Метрика подключена?
+    try:
+        from app.services.settings_service import get_setting
+        counter_val = get_setting(f"project_{project_id}_metrika_counter", db)
+        has_counter = bool(counter_val)
+    except Exception:
+        has_counter = False
+        counter_val = None
+
+    # ── Проход по всем группам и объявлениям ─────────────────────────────
+    total_groups = 0
+    total_ads    = 0
+    groups_without_tags     : list[str] = []
+    groups_without_keywords : list[str] = []
+    groups_without_ads      : list[str] = []
+    all_ads : list[Ad] = []
+
+    for camp in campaigns:
+        groups = db.scalars(select(AdGroup).where(AdGroup.campaign_id == camp.id)).all()
+        total_groups += len(groups)
+        for group in groups:
+            if not TAG_RE.match(group.name):
+                groups_without_tags.append(group.name)
+            kw_count = db.scalar(
+                select(func.count(Keyword.id)).where(Keyword.ad_group_id == group.id)
+            ) or 0
+            if kw_count == 0:
+                groups_without_keywords.append(group.name)
+            ads = db.scalars(select(Ad).where(Ad.ad_group_id == group.id)).all()
+            total_ads += len(ads)
+            if not ads:
+                groups_without_ads.append(group.name)
+            all_ads.extend(ads)
+
+    # ── Статистика по объявлениям ─────────────────────────────────────────
+    n = len(all_ads)
+    h1_short      = sum(1 for a in all_ads if len(a.headline1 or "") < 45)
+    h2_empty      = sum(1 for a in all_ads if len(a.headline2 or "") < 10)
+    txt_short     = sum(1 for a in all_ads if len(a.text or "")      < 70)
+    no_disp_url   = sum(1 for a in all_ads if not a.display_url)
+    no_utm        = sum(1 for a in all_ads if not a.utm)
+
+    # ── Быстрые ссылки на кампаниях ─────────────────────────────────────
+    without_geo      = [c.name for c in campaigns if not c.geo]
+    without_budget   = [c.name for c in campaigns if not c.budget_monthly]
+    without_sitelinks = [
+        c.name for c in campaigns
+        if not c.sitelinks or len(c.sitelinks) < 4
+    ]
+
+    def _ok(label: str, passed: bool, ok_msg: str, fail_msg: str,
+            issues: list[str] | None = None) -> dict:
+        return {
+            "label":  label,
+            "pass":   passed,
+            "detail": ok_msg if passed else fail_msg,
+            "issues": (issues or [])[:5],   # показываем первые 5 проблем
+        }
+
+    categories = [
+        {
+            "name": "Структура",
+            "items": [
+                _ok("Созданы кампании",
+                    len(campaigns) > 0,
+                    f"{len(campaigns)} кампаний",
+                    "Кампании не созданы"),
+                _ok("Созданы группы объявлений",
+                    total_groups > 0,
+                    f"{total_groups} групп",
+                    "Нет групп объявлений"),
+                _ok("Теги A–F в названиях групп",
+                    len(groups_without_tags) == 0,
+                    "Все группы помечены",
+                    f"Без тега: {len(groups_without_tags)} групп",
+                    groups_without_tags),
+                _ok("Ключевые слова во всех группах",
+                    len(groups_without_keywords) == 0,
+                    "Ключи есть везде",
+                    f"Пустые группы: {len(groups_without_keywords)}",
+                    groups_without_keywords),
+                _ok("Объявления во всех группах",
+                    len(groups_without_ads) == 0,
+                    f"Объявления есть везде ({total_ads} шт.)",
+                    f"Без объявлений: {len(groups_without_ads)} групп",
+                    groups_without_ads),
+            ],
+        },
+        {
+            "name": "Кампании",
+            "items": [
+                _ok("Регион показа выбран",
+                    len(without_geo) == 0,
+                    "Регион указан во всех кампаниях",
+                    f"Нет региона: {len(without_geo)} кампаний",
+                    without_geo),
+                _ok("Бюджет указан",
+                    len(without_budget) == 0,
+                    "Бюджет указан везде",
+                    f"Нет бюджета: {len(without_budget)} кампаний",
+                    without_budget),
+                _ok("Быстрые ссылки — минимум 4",
+                    len(without_sitelinks) == 0,
+                    "Быстрые ссылки заполнены",
+                    f"Мало быстрых ссылок: {len(without_sitelinks)} кампаний",
+                    without_sitelinks),
+                _ok("Минус-слова добавлены",
+                    len(neg_kws) > 0,
+                    f"{len(neg_kws)} минус-слов",
+                    "Минус-слова не добавлены"),
+            ],
+        },
+        {
+            "name": "Объявления",
+            "items": [
+                _ok("Заголовок 1 — использованы все символы (≥ 45/56)",
+                    n > 0 and h1_short == 0,
+                    f"Все {n} объявлений — OK",
+                    f"Короткий заголовок 1: {h1_short}/{n} объявлений" if n else "Нет объявлений"),
+                _ok("Заголовок 2 — оффер написан",
+                    n > 0 and h2_empty == 0,
+                    "Заголовок 2 заполнен везде",
+                    f"Пустой заголовок 2: {h2_empty}/{n}" if n else "Нет объявлений"),
+                _ok("Текст объявления — использованы все символы (≥ 70/81)",
+                    n > 0 and txt_short == 0,
+                    "Текст заполнен везде",
+                    f"Короткий текст: {txt_short}/{n}" if n else "Нет объявлений"),
+                _ok("Отображаемая ссылка заполнена",
+                    n > 0 and no_disp_url == 0,
+                    "Ссылки заполнены везде",
+                    f"Без ссылки: {no_disp_url}/{n}" if n else "Нет объявлений"),
+                _ok("UTM метки заполнены",
+                    n > 0 and no_utm == 0,
+                    "UTM есть везде",
+                    f"Нет UTM: {no_utm}/{n}" if n else "Нет объявлений"),
+            ],
+        },
+        {
+            "name": "Аналитика",
+            "items": [
+                _ok("Яндекс Метрика подключена",
+                    has_counter,
+                    f"Счётчик #{counter_val}",
+                    "Метрика не подключена — добавьте счётчик на вкладке Аналитика"),
+            ],
+        },
+    ]
+
+    all_items = [item for cat in categories for item in cat["items"]]
+    passed    = sum(1 for i in all_items if i["pass"])
+    total     = len(all_items)
+    score     = round(passed / total * 100) if total > 0 else 0
+
+    return {
+        "score":           score,
+        "passed":          passed,
+        "total":           total,
+        "campaigns_count": len(campaigns),
+        "groups_count":    total_groups,
+        "ads_count":       total_ads,
+        "categories":      categories,
+    }
+
+
+# ─── AI offer quality check ───────────────────────────────────────────────────
+
+@router.post("/projects/{project_id}/direct/analyze-offers")
+@limiter.limit("10/minute")
+async def analyze_offers(
+    request: Request,
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """
+    LLM-оценка качества офферов в объявлениях.
+    Анализирует заголовки и тексты всех объявлений проекта
+    и возвращает оценку + конкретные рекомендации по улучшению.
+    """
+    import json as _json
+    _check_project_access(project_id, current_user, db)
+
+    # Собираем все объявления проекта
+    campaigns = db.scalars(select(Campaign).where(Campaign.project_id == project_id)).all()
+    ads_data: list[dict] = []
+    for camp in campaigns:
+        groups = db.scalars(select(AdGroup).where(AdGroup.campaign_id == camp.id)).all()
+        for group in groups:
+            ads = db.scalars(select(Ad).where(Ad.ad_group_id == group.id)).all()
+            for ad in ads:
+                if not (ad.headline1 or ad.headline2 or ad.text):
+                    continue
+                ads_data.append({
+                    "id": str(ad.id),
+                    "group": group.name,
+                    "campaign": camp.name,
+                    "h1": ad.headline1 or "",
+                    "h2": ad.headline2 or "",
+                    "h3": ad.headline3 or "",
+                    "text": ad.text or "",
+                    "display_url": ad.display_url or "",
+                })
+
+    if not ads_data:
+        raise HTTPException(status_code=422, detail="Нет объявлений для анализа")
+    if len(ads_data) > 50:
+        ads_data = ads_data[:50]  # ограничиваем чтобы не превышать контекст
+
+    from app.services.claude import get_claude_client
+    client = get_claude_client(db)
+
+    SYSTEM_PROMPT = """\
+Ты — старший специалист по Яндекс Директу с 10+ годами опыта. \
+Твоя задача — честная, строгая оценка качества рекламных объявлений. \
+Ты знаешь, что хорошее объявление в Яндекс Директ — это не набор ключевых слов, \
+а живой разговор с человеком, у которого есть боль и желание её решить.
+
+КРИТЕРИИ ОЦЕНКИ (каждый 1–10):
+
+1. headline1 (макс. 56 символов):
+   — Написан по-человечески, не роботизировано
+   — Включает ключевое слово органично (не «Купить диван купить недорого»)
+   — Говорит о выгоде или результате, а не о процессе
+   — Использованы почти все символы (≥45)
+   9–10: «Диваны от 12 900 ₽ — доставка за 1 день»
+   4–5: «Купить диван в Москве»
+   1–3: «Диван диван купить»
+
+2. headline2 (макс. 30 символов):
+   — Конкретный оффер или призыв к действию
+   — Дополняет, не повторяет h1
+   — Цифры, сроки, гарантии работают хорошо
+   9–10: «Гарантия 5 лет + беспл. сборка»
+   4–5: «Лучшие цены»
+   1–3: пустой или «Наш сайт»
+
+3. text (макс. 81 символов):
+   — Не «купи-купи-купи», а реальная польза
+   — Снимает возражение или усиливает желание
+   — Конкретика: цифры, факты, сроки
+   — Использованы почти все символы (≥70)
+   9–10: «Более 200 моделей. Рассрочка 0%. Замер бесплатно — звоните сейчас!»
+   4–5: «Большой выбор мебели по доступным ценам»
+   1–3: «Диваны. Купить»
+
+ВАЖНО:
+— Оценка 9–10 — исключение, только для действительно выдающихся текстов
+— Будь конкретен в recommendations: не «улучшите текст», а «замените на: "Скидка 30% до пятницы — 847 ₽/мес в рассрочку"»
+— Если объявление на нишевую тему (строительство, медицина, B2B) — учитывай специфику
+
+ФОРМАТ ОТВЕТА — строго JSON, без markdown:
+{
+  "ads": [
+    {
+      "id": "...",
+      "overall_score": 7,
+      "headline1_score": 8,
+      "headline2_score": 6,
+      "text_score": 7,
+      "verdict": "Одна короткая фраза-вердикт на русском",
+      "issues": ["конкретная проблема 1", "конкретная проблема 2"],
+      "best_rewrite": {
+        "h1": "Переписанный заголовок 1 (макс 56 символов)",
+        "h2": "Переписанный заголовок 2 (макс 30 символов)",
+        "text": "Переписанный текст (макс 81 символ)"
+      }
+    }
+  ],
+  "summary": {
+    "avg_score": 6.5,
+    "top_issue": "Самая частая проблема одним предложением",
+    "quick_win": "Самое быстрое улучшение которое даст результат"
+  }
+}"""
+
+    user_message = "Оцени качество этих объявлений Яндекс Директ:\n\n" + _json.dumps(
+        ads_data, ensure_ascii=False, indent=2
+    )
+
+    try:
+        raw = await client.generate(SYSTEM_PROMPT, user_message)
+        # Вырезаем JSON из ответа (на случай если модель добавила markdown)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = _json.loads(raw.strip())
+    except _json.JSONDecodeError as e:
+        raise HTTPException(status_code=502, detail=f"Ошибка парсинга ответа ИИ: {e}")
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return result
