@@ -12,7 +12,7 @@ from app.models.geo import AiReadinessAudit, GeoKeyword, GeoScanResult
 from app.models.project import Project
 from app.models.task import Task, TaskStatus, TaskType
 from app.services import ai_checker
-from app.services.settings import settings_service
+from app.services.settings_service import settings_service
 
 
 def _run_async(coro):

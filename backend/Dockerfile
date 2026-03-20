@@ -20,6 +20,9 @@ COPY alembic ./alembic
 COPY alembic.ini ./alembic.ini
 COPY init_superadmin.py ./init_superadmin.py
 
+# Create uploads directory and give appuser write access to it
+RUN mkdir -p /app/static/uploads && chown -R appuser:appuser /app/static
+
 # Switch to non-root user
 USER appuser
 
