@@ -85,11 +85,11 @@ def create_app() -> FastAPI:
     from app.routers.reports import router as reports_router
     from app.routers.seo import router as seo_router
     from app.routers.seo_enrichments import router as seo_enrichments_router
+    from app.routers.server import router as server_router
     from app.routers.settings import router as settings_router
     from app.routers.tasks import router as tasks_router
     from app.routers.topvisor import router as topvisor_router
     from app.routers.users import router as users_router
-    from app.routers.server import router as server_router
     from app.routers.utm import router as utm_router
 
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
