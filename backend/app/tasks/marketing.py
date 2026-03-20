@@ -202,7 +202,9 @@ def task_semantic_expand(
                 site_context=site_context,
             )
             try:
-                raw = _run_async(claude.generate(_EXPAND_SYSTEM, prompt))
+                from app.services.settings_service import get_prompt
+                expand_system = get_prompt("semantic_expand", db) or _EXPAND_SYSTEM
+                raw = _run_async(claude.generate(expand_system, prompt))
                 phrases = _parse_json_array(raw)
                 all_phrases.extend(phrases)
             except Exception as exc:
@@ -493,7 +495,9 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
                 region=sp.region,
             )
             try:
-                raw = _run_async(claude.generate(_CLUSTER_SYSTEM, prompt))
+                from app.services.settings_service import get_prompt as _gp
+                cluster_system = _gp("semantic_cluster", db) or _CLUSTER_SYSTEM
+                raw = _run_async(claude.generate(cluster_system, prompt))
                 clusters = _parse_cluster_json(raw)
                 all_clusters.extend(clusters)
             except Exception as exc:
