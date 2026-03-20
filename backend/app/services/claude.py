@@ -5,9 +5,6 @@ from typing import AsyncGenerator
 
 import httpx
 
-from app.config import get_settings
-
-
 # ── LLM Task Registry ────────────────────────────────────────────────────────
 # Every place in the codebase that calls an LLM is registered here.
 # Each task can have its own model, temperature, max_tokens configured via settings.
@@ -267,7 +264,6 @@ def get_llm_client(db, task_type: str | None = None) -> LLMClient:
     from app.services.settings_service import get_setting
 
     # Resolve per-task settings with fallback to global → registry default
-    task_defaults = LLM_TASKS.get(task_type, {}) if task_type else {}
     global_model = get_setting("ai_model", db) or "anthropic/claude-sonnet-4-20250514"
     global_max_tokens = int(get_setting("ai_max_tokens", db) or 4000)
     global_temperature = float(get_setting("ai_temperature", db) or 0.7)

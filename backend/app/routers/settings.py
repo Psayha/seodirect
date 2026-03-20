@@ -339,7 +339,7 @@ def get_llm_tasks(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Get all LLM tasks with their current settings (per-task overrides + defaults)."""
-    from app.services.claude import LLM_TASKS, LLM_TASK_GROUPS
+    from app.services.claude import LLM_TASK_GROUPS, LLM_TASKS
 
     result = []
     for task_id, task_info in LLM_TASKS.items():
