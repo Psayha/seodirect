@@ -37,6 +37,19 @@ export interface SemanticKeyword {
   created_at: string
 }
 
+export interface SemanticCluster {
+  id: string
+  name: string
+  intent: string | null
+  priority: string | null
+  campaign_type: string | null
+  suggested_title: string | null
+  suggested_description: string | null
+  keyword_count: number
+  created_at: string
+  updated_at: string
+}
+
 export interface MinusWord {
   id: string
   word: string
@@ -160,5 +173,28 @@ export const marketingApi = {
   deleteMinusWord: (projectId: string, semId: string, wordId: string): Promise<void> =>
     api
       .delete(`/projects/${projectId}/marketing/semantic/${semId}/minus-words/${wordId}`)
+      .then(() => undefined),
+
+  // ── Clustering ─────────────────────────────────────────────────────────────
+
+  startCluster: (projectId: string, semId: string): Promise<{ task_id: string; status: string }> =>
+    api.post(`/projects/${projectId}/marketing/semantic/${semId}/cluster`).then((r) => r.data),
+
+  getClusters: (projectId: string, semId: string): Promise<SemanticCluster[]> =>
+    api.get(`/projects/${projectId}/marketing/semantic/${semId}/clusters`).then((r) => r.data),
+
+  updateCluster: (
+    projectId: string,
+    semId: string,
+    clusterId: string,
+    data: Partial<Pick<SemanticCluster, 'name' | 'intent' | 'priority' | 'campaign_type' | 'suggested_title' | 'suggested_description'>>
+  ): Promise<SemanticCluster> =>
+    api
+      .patch(`/projects/${projectId}/marketing/semantic/${semId}/clusters/${clusterId}`, data)
+      .then((r) => r.data),
+
+  deleteCluster: (projectId: string, semId: string, clusterId: string): Promise<void> =>
+    api
+      .delete(`/projects/${projectId}/marketing/semantic/${semId}/clusters/${clusterId}`)
       .then(() => undefined),
 }

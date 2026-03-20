@@ -880,6 +880,297 @@ function CleaningStep({
 
 // ─── Locked step placeholder ──────────────────────────────────────────────────
 
+// ─── Step 5: Cluster ─────────────────────────────────────────────────────────
+
+const INTENT_COLOR: Record<string, string> = {
+  'коммерческий': 'bg-green-100 text-green-700',
+  'информационный': 'bg-blue-100 text-blue-700',
+  'навигационный': 'bg-purple-100 text-purple-700',
+  'общий': 'bg-gray-100 text-gray-600',
+}
+const PRIORITY_COLOR: Record<string, string> = {
+  'высокий': 'bg-red-100 text-red-600',
+  'средний': 'bg-yellow-100 text-yellow-700',
+  'низкий': 'bg-green-100 text-green-700',
+}
+const INTENTS_CLUSTER = ['коммерческий', 'информационный', 'навигационный', 'общий']
+const PRIORITIES = ['высокий', 'средний', 'низкий']
+
+function ClusterCard({
+  cluster,
+  mode,
+  onUpdate,
+  onDelete,
+}: {
+  cluster: import('../../api/marketing').SemanticCluster
+  mode: string
+  onUpdate: (id: string, data: any) => void
+  onDelete: (id: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(cluster.name)
+  const [intent, setIntent] = useState(cluster.intent ?? '')
+  const [priority, setPriority] = useState(cluster.priority ?? '')
+  const [campaignType, setCampaignType] = useState(cluster.campaign_type ?? '')
+  const [title, setTitle] = useState(cluster.suggested_title ?? '')
+
+  const save = () => {
+    onUpdate(cluster.id, {
+      name,
+      intent: intent || null,
+      priority: priority || null,
+      campaign_type: campaignType || null,
+      suggested_title: title || null,
+    })
+    setEditing(false)
+  }
+
+  return (
+    <div className="border border-[var(--border)] rounded-xl p-4 space-y-2 hover:border-accent/40 transition">
+      {editing ? (
+        <div className="space-y-2">
+          <input
+            className="input w-full text-sm font-medium"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Название кластера"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <select className="input text-xs" value={intent} onChange={(e) => setIntent(e.target.value)}>
+              <option value="">Интент</option>
+              {INTENTS_CLUSTER.map((i) => <option key={i} value={i}>{i}</option>)}
+            </select>
+            <select className="input text-xs" value={priority} onChange={(e) => setPriority(e.target.value)}>
+              <option value="">Приоритет</option>
+              {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          {mode === 'direct' && (
+            <div className="grid grid-cols-2 gap-2">
+              <select className="input text-xs" value={campaignType} onChange={(e) => setCampaignType(e.target.value)}>
+                <option value="">Тип кампании</option>
+                <option value="search">Поиск</option>
+                <option value="rsa">RSA</option>
+              </select>
+              <input
+                className="input text-xs"
+                maxLength={35}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Заголовок объявления (35 симв.)"
+              />
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={save} className="btn-primary px-3 py-1 text-xs">Сохранить</button>
+            <button onClick={() => setEditing(false)} className="btn-ghost px-3 py-1 text-xs">Отмена</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-medium text-primary leading-snug">{cluster.name}</p>
+            <div className="flex gap-1 flex-shrink-0">
+              <button
+                onClick={() => setEditing(true)}
+                className="text-muted hover:text-accent transition p-0.5"
+                title="Редактировать"
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                  <path d="M11 2l3 3L5 14H2v-3L11 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <button
+                onClick={() => onDelete(cluster.id)}
+                className="text-muted hover:text-red-500 transition p-0.5"
+                title="Удалить"
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                  <path d="M3 4h10M6 4V2h4v2M5 4l.5 9h5L11 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-xs text-muted tabular-nums">
+              {cluster.keyword_count} ключ{cluster.keyword_count === 1 ? '' : cluster.keyword_count < 5 ? 'а' : 'ей'}
+            </span>
+            {cluster.intent && (
+              <span className={cx('text-[10px] font-medium px-1.5 py-0.5 rounded', INTENT_COLOR[cluster.intent] ?? 'bg-gray-100 text-gray-600')}>
+                {cluster.intent}
+              </span>
+            )}
+            {cluster.priority && (
+              <span className={cx('text-[10px] font-medium px-1.5 py-0.5 rounded', PRIORITY_COLOR[cluster.priority] ?? 'bg-gray-100 text-gray-600')}>
+                {cluster.priority}
+              </span>
+            )}
+            {cluster.campaign_type && (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">
+                {cluster.campaign_type === 'search' ? 'Поиск' : 'RSA'}
+              </span>
+            )}
+          </div>
+          {cluster.suggested_title && (
+            <p className="text-xs text-muted font-mono border-l-2 border-accent/30 pl-2 italic">
+              «{cluster.suggested_title}»
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function ClusterStep({
+  projectId,
+  sp,
+  onStepAdvance,
+}: {
+  projectId: string
+  sp: import('../../api/marketing').SemanticProject
+  onStepAdvance: () => void
+}) {
+  const qc = useQueryClient()
+  const [taskId, setTaskId] = useState<string | null>(null)
+  const [taskResult, setTaskResult] = useState<TaskResult | null>(null)
+  const [taskError, setTaskError] = useState('')
+
+  const startMut = useMutation({
+    mutationFn: () => marketingApi.startCluster(projectId, sp.id),
+    onSuccess: (d) => { setTaskId(d.task_id); setTaskError('') },
+    onError: (e: any) => setTaskError(e?.response?.data?.detail || 'Ошибка запуска'),
+  })
+
+  useTaskPoller(taskId, (t) => {
+    setTaskResult(t)
+    setTaskId(null)
+    if (t.status === 'success') {
+      qc.invalidateQueries({ queryKey: ['clusters', projectId, sp.id] })
+      qc.invalidateQueries({ queryKey: ['sem-projects', projectId] })
+    }
+  })
+
+  const { data: taskLive } = useQuery({
+    queryKey: ['task', taskId],
+    queryFn: () => tasksApi.get(taskId!),
+    enabled: !!taskId,
+    refetchInterval: 2000,
+  })
+
+  const { data: clusters, isLoading: clustersLoading } = useQuery({
+    queryKey: ['clusters', projectId, sp.id],
+    queryFn: () => marketingApi.getClusters(projectId, sp.id),
+  })
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) =>
+      marketingApi.updateCluster(projectId, sp.id, id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['clusters', projectId, sp.id] }),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => marketingApi.deleteCluster(projectId, sp.id, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['clusters', projectId, sp.id] }),
+  })
+
+  const progress = taskLive?.progress ?? 0
+  const isRunning = !!taskId
+  const hasClusters = (clusters?.length ?? 0) > 0 && sp.pipeline_step >= 4
+
+  const totalKw = clusters?.reduce((s, c) => s + c.keyword_count, 0) ?? 0
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-muted">
+        Claude сгруппирует очищенные ключи в смысловые кластеры
+        {sp.mode === 'direct' ? ', подберёт тип кампании и заголовок объявления' : ''}.
+      </p>
+
+      {/* Run / re-run button */}
+      {!isRunning && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => { setTaskResult(null); startMut.mutate() }}
+            disabled={startMut.isPending}
+            className="btn-primary px-5 py-2 text-sm"
+          >
+            {startMut.isPending
+              ? 'Запуск...'
+              : hasClusters
+              ? '↺ Перекластеризовать'
+              : 'Запустить кластеризацию'}
+          </button>
+          {taskError && <p className="text-xs text-red-500">{taskError}</p>}
+          {hasClusters && (
+            <span className="text-xs text-muted">
+              {clusters!.length} кластеров, {totalKw.toLocaleString('ru')} ключей
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Progress bar */}
+      {isRunning && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm text-accent">
+            <span className="w-4 h-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+            <span>
+              {progress < 80 ? `Кластеризация... ${progress}%` : `Сохранение... ${progress}%`}
+            </span>
+          </div>
+          <div className="w-full bg-[var(--border)] rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-accent h-2 rounded-full transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {taskResult?.status === 'failed' && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">
+          Ошибка: {taskResult.error || 'Неизвестная ошибка'}
+          <button className="ml-3 underline text-xs" onClick={() => setTaskResult(null)}>Повторить</button>
+        </div>
+      )}
+
+      {/* Cluster grid */}
+      {!isRunning && hasClusters && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {clusters!.map((c) => (
+              <ClusterCard
+                key={c.id}
+                cluster={c}
+                mode={sp.mode}
+                onUpdate={(id, data) => updateMut.mutate({ id, data })}
+                onDelete={(id) => deleteMut.mutate(id)}
+              />
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <p className="text-xs text-muted">
+              {clusters!.length} кластеров · {totalKw.toLocaleString('ru')} ключей
+            </p>
+            <button onClick={onStepAdvance} className="btn-primary px-5 py-2 text-sm">
+              Далее — Экспорт →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isRunning && clustersLoading && (
+        <div className="text-sm text-muted">Загрузка...</div>
+      )}
+    </div>
+  )
+}
+
+// ─── Locked step placeholder ──────────────────────────────────────────────────
+
 function LockedStep({ label, requiredStep }: { label: string; requiredStep: number }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center text-muted gap-2">
@@ -1085,7 +1376,14 @@ export default function MarketingTab({ projectId }: { projectId: string }) {
             )}
 
             {activeStep === 5 && (
-              <LockedStep label="Шаг 5 — Кластеризация" requiredStep={4} />
+              <>
+                <h3 className="font-semibold text-base mb-4">Шаг 5 — Кластеризация</h3>
+                <ClusterStep
+                  projectId={projectId}
+                  sp={sp}
+                  onStepAdvance={() => setActiveStep(6)}
+                />
+              </>
             )}
 
             {activeStep === 6 && (

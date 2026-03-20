@@ -909,3 +909,190 @@ def restore_snapshot(
     db.commit()
     return {"restored": restored}
 
+
+# ─── Clustering ───────────────────────────────────────────────────────────────
+
+class ClusterResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    intent: str | None
+    priority: str | None
+    campaign_type: str | None
+    suggested_title: str | None
+    suggested_description: str | None
+    keyword_count: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ClusterUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=255)
+    intent: str | None = None
+    priority: str | None = None
+    campaign_type: str | None = None
+    suggested_title: str | None = None
+    suggested_description: str | None = None
+
+
+def _cluster_response(cluster: SemanticCluster, db: Session) -> dict:
+    from sqlalchemy import func
+    count = db.scalar(
+        select(func.count()).select_from(
+            select(SemanticKeyword.id).where(
+                SemanticKeyword.semantic_project_id == cluster.semantic_project_id,
+                SemanticKeyword.cluster_name == cluster.name,
+                SemanticKeyword.is_excluded.is_(False),
+            ).subquery()
+        )
+    ) or 0
+    return {
+        "id": cluster.id,
+        "name": cluster.name,
+        "intent": cluster.intent,
+        "priority": cluster.priority,
+        "campaign_type": cluster.campaign_type,
+        "suggested_title": cluster.suggested_title,
+        "suggested_description": cluster.suggested_description,
+        "keyword_count": count,
+        "created_at": cluster.created_at,
+        "updated_at": cluster.updated_at,
+    }
+
+
+@router.post(
+    "/projects/{project_id}/marketing/semantic/{sem_id}/cluster",
+    response_model=TaskResponse,
+    status_code=202,
+)
+def start_cluster(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Start async clustering via Claude. Returns task_id to poll."""
+    _check_project_access(project_id, current_user, db)
+    sp = _get_sem_project(sem_id, project_id, db)
+
+    if sp.pipeline_step < 3:
+        raise HTTPException(status_code=422, detail="Сначала завершите очистку (шаг 4)")
+
+    now = datetime.now(timezone.utc)
+    task = Task(
+        project_id=project_id,
+        type=TaskType.SEMANTIC_CLUSTER,
+        status=TaskStatus.PENDING,
+        progress=0,
+        created_at=now,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    from app.tasks.marketing import task_semantic_cluster
+    task_semantic_cluster.delay(
+        task_id=str(task.id),
+        sem_project_id=str(sem_id),
+        project_id=str(project_id),
+    )
+
+    return {"task_id": str(task.id), "status": "pending"}
+
+
+@router.get(
+    "/projects/{project_id}/marketing/semantic/{sem_id}/clusters",
+    response_model=list[ClusterResponse],
+)
+def list_clusters(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    _check_project_access(project_id, current_user, db)
+    _get_sem_project(sem_id, project_id, db)
+    clusters = db.scalars(
+        select(SemanticCluster)
+        .where(SemanticCluster.semantic_project_id == sem_id)
+        .order_by(SemanticCluster.created_at)
+    ).all()
+    return [_cluster_response(c, db) for c in clusters]
+
+
+@router.patch(
+    "/projects/{project_id}/marketing/semantic/{sem_id}/clusters/{cluster_id}",
+    response_model=ClusterResponse,
+)
+def update_cluster(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    cluster_id: uuid.UUID,
+    body: ClusterUpdate,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    _check_project_access(project_id, current_user, db)
+    _get_sem_project(sem_id, project_id, db)
+    cluster = db.get(SemanticCluster, cluster_id)
+    if not cluster or cluster.semantic_project_id != sem_id:
+        raise HTTPException(status_code=404, detail="Cluster not found")
+
+    old_name = cluster.name
+    if body.name is not None:
+        cluster.name = body.name
+        # Update cluster_name on keywords too
+        for kw in db.scalars(
+            select(SemanticKeyword).where(
+                SemanticKeyword.semantic_project_id == sem_id,
+                SemanticKeyword.cluster_name == old_name,
+            )
+        ).all():
+            kw.cluster_name = body.name
+    if body.intent is not None:
+        cluster.intent = body.intent
+    if body.priority is not None:
+        cluster.priority = body.priority
+    if body.campaign_type is not None:
+        cluster.campaign_type = body.campaign_type
+    if body.suggested_title is not None:
+        cluster.suggested_title = body.suggested_title
+    if body.suggested_description is not None:
+        cluster.suggested_description = body.suggested_description
+
+    db.commit()
+    db.refresh(cluster)
+    return _cluster_response(cluster, db)
+
+
+@router.delete(
+    "/projects/{project_id}/marketing/semantic/{sem_id}/clusters/{cluster_id}",
+    status_code=204,
+)
+def delete_cluster(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    cluster_id: uuid.UUID,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    _check_project_access(project_id, current_user, db)
+    _get_sem_project(sem_id, project_id, db)
+    cluster = db.get(SemanticCluster, cluster_id)
+    if not cluster or cluster.semantic_project_id != sem_id:
+        raise HTTPException(status_code=404, detail="Cluster not found")
+    # Clear cluster_name on keywords
+    for kw in db.scalars(
+        select(SemanticKeyword).where(
+            SemanticKeyword.semantic_project_id == sem_id,
+            SemanticKeyword.cluster_name == cluster.name,
+        )
+    ).all():
+        kw.cluster_name = None
+    db.delete(cluster)
+    db.commit()
+
