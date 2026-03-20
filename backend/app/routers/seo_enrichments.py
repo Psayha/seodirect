@@ -55,21 +55,26 @@ async def generate_schema_org(
     import json
     import re
 
+    _check_project_access(project_id, current_user, db)
+
     crawl = _get_latest_crawl(project_id, db)
     if not crawl:
-        raise HTTPException(status_code=400, detail="No completed crawl found")
+        raise HTTPException(status_code=400, detail="Нет завершённого парсинга. Сначала запустите парсинг сайта.")
 
     page = db.scalar(
         select(Page).where(Page.crawl_session_id == crawl.id, Page.url == body.page_url)
     )
     if not page:
-        raise HTTPException(status_code=404, detail="Page not found in latest crawl")
+        raise HTTPException(status_code=404, detail="Страница не найдена в последнем парсинге")
 
     from app.models.brief import Brief
     brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
 
-    from app.services.claude import get_claude_client
-    claude = get_claude_client(db)
+    try:
+        from app.services.claude import get_claude_client
+        claude = get_claude_client(db)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     brief_context = ""
     if brief:
@@ -96,10 +101,14 @@ Description: {page.description or 'нет'}
 
 Верни ТОЛЬКО JSON-LD объект (без markdown, без пояснений)."""
 
-    response_text = await claude.generate(system_prompt, user_msg)
+    try:
+        response_text = await claude.generate(system_prompt, user_msg)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"Ошибка Claude API: {exc}") from exc
+
     json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
     if not json_match:
-        raise HTTPException(status_code=502, detail="Failed to generate valid Schema.org JSON-LD")
+        raise HTTPException(status_code=502, detail="Не удалось сгенерировать валидный Schema.org JSON-LD")
     schema_json = json_match.group()
 
     try:
@@ -210,15 +219,17 @@ async def generate_faq(
     import json
     import re
 
+    _check_project_access(project_id, current_user, db)
+
     crawl = _get_latest_crawl(project_id, db)
     if not crawl:
-        raise HTTPException(status_code=400, detail="No completed crawl found")
+        raise HTTPException(status_code=400, detail="Нет завершённого парсинга. Сначала запустите парсинг сайта.")
 
     page = db.scalar(
         select(Page).where(Page.crawl_session_id == crawl.id, Page.url == body.page_url)
     )
     if not page:
-        raise HTTPException(status_code=404, detail="Page not found in latest crawl")
+        raise HTTPException(status_code=404, detail="Страница не найдена в последнем парсинге")
 
     from app.models.brief import Brief
     brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
@@ -233,8 +244,11 @@ async def generate_faq(
             kws = db.scalars(select(Keyword).where(Keyword.ad_group_id.in_(group_ids)).limit(20)).all()
             keyword_phrases = [k.phrase for k in kws]
 
-    from app.services.claude import get_claude_client
-    claude = get_claude_client(db)
+    try:
+        from app.services.claude import get_claude_client
+        claude = get_claude_client(db)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     products = brief.products if brief else ""
     system_prompt = "Ты — контент-маркетолог. Генерируй полезные FAQ для веб-страниц. Отвечай только JSON."
@@ -248,10 +262,14 @@ URL: {body.page_url}
 Верни ТОЛЬКО JSON (без markdown):
 {{"faq": [{{"question": "...", "answer": "..."}}]}}"""
 
-    response_text = await claude.generate(system_prompt, user_msg)
+    try:
+        response_text = await claude.generate(system_prompt, user_msg)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"Ошибка Claude API: {exc}") from exc
+
     json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
     if not json_match:
-        raise HTTPException(status_code=502, detail="Failed to parse Claude response")
+        raise HTTPException(status_code=502, detail="Не удалось разобрать ответ Claude")
 
     data = json.loads(json_match.group())
     faq_items = data.get("faq", [])

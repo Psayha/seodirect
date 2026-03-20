@@ -483,6 +483,8 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
   const [copied, setCopied] = useState(false)
   const [validatorInput, setValidatorInput] = useState('')
   const [validationResult, setValidationResult] = useState<{ valid: boolean; errors: string[]; warnings: string[] } | null>(null)
+  const [showValidator, setShowValidator] = useState(false)
+  const [showReference, setShowReference] = useState(false)
   const [bulkSchemaTypes, setBulkSchemaTypes] = useState<Set<string>>(new Set(['Organization', 'LocalBusiness', 'Product', 'Article', 'WebSite', 'WebPage', 'Service']))
   const [bulkOnlyMissing, setBulkOnlyMissing] = useState(true)
   const [bulkTaskId, setBulkTaskId] = useState<string | null>(null)
@@ -683,8 +685,13 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
       </div>
 
       {/* Validator */}
-      <div className="bg-surface border rounded-xl p-5">
-        <h3 className="font-semibold text-lg mb-1">Валидатор Schema.org</h3>
+      <div className="bg-surface border rounded-xl overflow-hidden">
+        <button onClick={() => setShowValidator(v => !v)}
+          className="w-full flex items-center justify-between px-5 py-4 hover:bg-surface-raised transition text-left">
+          <h3 className="font-semibold text-lg">Валидатор Schema.org</h3>
+          <span className="text-muted text-sm">{showValidator ? '▲' : '▼'}</span>
+        </button>
+        {showValidator && <div className="px-5 pb-5">
         <p className="text-xs text-muted mb-4">
           Вставьте JSON-LD (включая <code className="bg-surface-raised px-1 rounded">@graph</code>) для проверки
         </p>
@@ -739,19 +746,28 @@ function SchemaOrgView({ projectId }: { projectId: string }) {
             )}
           </div>
         )}
+        </div>}
       </div>
 
       {/* Reference */}
-      <div className="bg-surface-raised border rounded-xl p-5">
-        <h4 className="text-sm font-semibold text-primary mb-3">Справочник типов и обязательных полей</h4>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          {Object.entries(SCHEMA_REQUIRED_FIELDS).map(([type, fields]) => (
-            <div key={type} className="bg-surface border rounded px-3 py-2 flex items-center gap-2">
-              <span className="font-medium text-primary shrink-0">{type}</span>
-              <span className="text-muted truncate">{fields.join(', ')}</span>
+      <div className="bg-surface-raised border rounded-xl overflow-hidden">
+        <button onClick={() => setShowReference(v => !v)}
+          className="w-full flex items-center justify-between px-5 py-4 hover:bg-surface-raised transition text-left">
+          <h4 className="text-sm font-semibold text-primary">Справочник типов и обязательных полей</h4>
+          <span className="text-muted text-sm">{showReference ? '▲' : '▼'}</span>
+        </button>
+        {showReference && (
+          <div className="px-5 pb-5">
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              {Object.entries(SCHEMA_REQUIRED_FIELDS).map(([type, fields]) => (
+                <div key={type} className="bg-surface border rounded px-3 py-2 flex items-center gap-2">
+                  <span className="font-medium text-primary shrink-0">{type}</span>
+                  <span className="text-muted truncate">{fields.join(', ')}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )
