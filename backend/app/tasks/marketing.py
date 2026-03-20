@@ -103,6 +103,7 @@ def task_semantic_expand(
     from app.services.wordstat import get_wordstat_client
 
     db = SessionLocal()
+    task = None
     try:
         task = db.get(Task, uuid.UUID(task_id))
         if task:
@@ -189,6 +190,8 @@ def task_semantic_expand(
 
         # ── Claude: generate keywords per mask ───────────────────────────────
         claude = get_claude_client(db, task_type="semantic_expand")
+        from app.services.settings_service import get_prompt
+        expand_system = get_prompt("semantic_expand", db) or _EXPAND_SYSTEM
         all_phrases: list[str] = []
         total_masks = len(mask_phrases)
 
@@ -202,8 +205,6 @@ def task_semantic_expand(
                 site_context=site_context,
             )
             try:
-                from app.services.settings_service import get_prompt
-                expand_system = get_prompt("semantic_expand", db) or _EXPAND_SYSTEM
                 raw = _run_async(claude.generate(expand_system, prompt))
                 phrases = _parse_json_array(raw)
                 all_phrases.extend(phrases)
@@ -305,6 +306,12 @@ def task_semantic_expand(
             db.commit()
 
         # ── Save keywords to DB ───────────────────────────────────────────────
+        if not unique_phrases:
+            raise RuntimeError(
+                "Claude не сгенерировал ни одного ключа. "
+                "Проверьте маски и попробуйте снова."
+            )
+
         def _kw_type(exact: int) -> str | None:
             if exact >= 1000:
                 return "ВЧ"
@@ -315,6 +322,7 @@ def task_semantic_expand(
             return None
 
         # Delete existing non-mask keywords for this semantic project
+        # (safe: we verified unique_phrases is non-empty above)
         old_kws = db.scalars(
             select(SemanticKeyword).where(
                 SemanticKeyword.semantic_project_id == sem_id,
@@ -481,6 +489,8 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
 
         # ── Call Claude in batches of 300 ─────────────────────────────────────
         claude = get_claude_client(db, task_type="semantic_cluster")
+        from app.services.settings_service import get_prompt as _gp
+        cluster_system = _gp("semantic_cluster", db) or _CLUSTER_SYSTEM
         all_clusters: list[dict] = []
         batch_size = 300
         phrase_set = set(phrases)
@@ -495,8 +505,6 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
                 region=sp.region,
             )
             try:
-                from app.services.settings_service import get_prompt as _gp
-                cluster_system = _gp("semantic_cluster", db) or _CLUSTER_SYSTEM
                 raw = _run_async(claude.generate(cluster_system, prompt))
                 clusters = _parse_cluster_json(raw)
                 all_clusters.extend(clusters)

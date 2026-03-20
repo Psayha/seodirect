@@ -507,6 +507,20 @@ def start_expand(
     if not selected_count:
         raise HTTPException(status_code=422, detail="Нет выбранных масок")
 
+    # Prevent concurrent expand tasks for the same semantic project
+    running_task = db.scalar(
+        select(Task).where(
+            Task.project_id == project_id,
+            Task.type == TaskType.SEMANTIC_EXPAND,
+            Task.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING]),
+        )
+    )
+    if running_task:
+        raise HTTPException(
+            status_code=409,
+            detail="Расширение уже запущено. Дождитесь завершения.",
+        )
+
     now = datetime.now(timezone.utc)
     task = Task(
         project_id=project_id,
@@ -989,6 +1003,20 @@ def start_cluster(
 
     if sp.pipeline_step < 3:
         raise HTTPException(status_code=422, detail="Сначала завершите очистку (шаг 4)")
+
+    # Prevent concurrent cluster tasks
+    running_task = db.scalar(
+        select(Task).where(
+            Task.project_id == project_id,
+            Task.type == TaskType.SEMANTIC_CLUSTER,
+            Task.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING]),
+        )
+    )
+    if running_task:
+        raise HTTPException(
+            status_code=409,
+            detail="Кластеризация уже запущена. Дождитесь завершения.",
+        )
 
     now = datetime.now(timezone.utc)
     task = Task(

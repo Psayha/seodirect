@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { marketingApi, SemanticMode, SemanticProject, SemanticKeyword } from '../../api/marketing'
 import { tasksApi, TaskResult } from '../../api/tasks'
@@ -359,28 +359,6 @@ function MasksStep({
   )
 }
 
-// ─── TaskPoller ────────────────────────────────────────────────────────────────
-
-function useTaskPoller(taskId: string | null, onDone: (t: TaskResult) => void) {
-  const interval = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  useEffect(() => {
-    if (!taskId) return
-    const poll = async () => {
-      try {
-        const t = await tasksApi.get(taskId)
-        if (t.status === 'success' || t.status === 'failed') {
-          if (interval.current) clearInterval(interval.current)
-          onDone(t)
-        }
-      } catch { /* ignore */ }
-    }
-    poll()
-    interval.current = setInterval(poll, 2000)
-    return () => { if (interval.current) clearInterval(interval.current) }
-  }, [taskId])
-}
-
 // ─── Step 3: Expand ────────────────────────────────────────────────────────────
 
 function ExpandStep({
@@ -406,22 +384,26 @@ function ExpandStep({
     onError: (e: any) => setTaskError(e?.response?.data?.detail || 'Ошибка запуска'),
   })
 
-  useTaskPoller(taskId, (t) => {
-    setTaskResult(t)
-    setTaskId(null)
-    if (t.status === 'success') {
-      qc.invalidateQueries({ queryKey: ['sem-keywords', projectId, sp.id] })
-      qc.invalidateQueries({ queryKey: ['sem-project', projectId, sp.id] })
-      qc.invalidateQueries({ queryKey: ['sem-projects', projectId] })
-    }
-  })
-
   const { data: taskLive } = useQuery({
     queryKey: ['task', taskId],
     queryFn: () => tasksApi.get(taskId!),
     enabled: !!taskId,
     refetchInterval: 2000,
   })
+
+  // Handle task completion via useQuery data
+  useEffect(() => {
+    if (!taskLive || !taskId) return
+    if (taskLive.status === 'success' || taskLive.status === 'failed') {
+      setTaskResult(taskLive)
+      setTaskId(null)
+      if (taskLive.status === 'success') {
+        qc.invalidateQueries({ queryKey: ['sem-keywords', projectId, sp.id] })
+        qc.invalidateQueries({ queryKey: ['sem-project', projectId, sp.id] })
+        qc.invalidateQueries({ queryKey: ['sem-projects', projectId] })
+      }
+    }
+  }, [taskLive?.status])
 
   const progress = taskLive?.progress ?? 0
   const isRunning = !!taskId || taskLive?.status === 'running'
@@ -1055,21 +1037,24 @@ function ClusterStep({
     onError: (e: any) => setTaskError(e?.response?.data?.detail || 'Ошибка запуска'),
   })
 
-  useTaskPoller(taskId, (t) => {
-    setTaskResult(t)
-    setTaskId(null)
-    if (t.status === 'success') {
-      qc.invalidateQueries({ queryKey: ['clusters', projectId, sp.id] })
-      qc.invalidateQueries({ queryKey: ['sem-projects', projectId] })
-    }
-  })
-
   const { data: taskLive } = useQuery({
     queryKey: ['task', taskId],
     queryFn: () => tasksApi.get(taskId!),
     enabled: !!taskId,
     refetchInterval: 2000,
   })
+
+  useEffect(() => {
+    if (!taskLive || !taskId) return
+    if (taskLive.status === 'success' || taskLive.status === 'failed') {
+      setTaskResult(taskLive)
+      setTaskId(null)
+      if (taskLive.status === 'success') {
+        qc.invalidateQueries({ queryKey: ['clusters', projectId, sp.id] })
+        qc.invalidateQueries({ queryKey: ['sem-projects', projectId] })
+      }
+    }
+  }, [taskLive?.status])
 
   const { data: clusters, isLoading: clustersLoading } = useQuery({
     queryKey: ['clusters', projectId, sp.id],
