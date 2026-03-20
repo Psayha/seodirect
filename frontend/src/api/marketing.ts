@@ -37,6 +37,13 @@ export interface SemanticKeyword {
   created_at: string
 }
 
+export interface MinusWord {
+  id: string
+  word: string
+  note: string | null
+  added_at: string
+}
+
 export interface KeywordsListResponse {
   items: SemanticKeyword[]
   total: number
@@ -105,4 +112,53 @@ export const marketingApi = {
     api
       .get(`/projects/${projectId}/marketing/semantic/${semId}/keywords`, { params })
       .then((r) => r.data),
+
+  updateKeyword: (
+    projectId: string,
+    semId: string,
+    kwId: string,
+    data: {
+      is_excluded?: boolean
+      is_branded?: boolean
+      is_competitor?: boolean
+      is_seasonal?: boolean
+      geo_dependent?: boolean
+      intent?: string
+    }
+  ): Promise<SemanticKeyword> =>
+    api
+      .patch(`/projects/${projectId}/marketing/semantic/${semId}/keywords/${kwId}`, data)
+      .then((r) => r.data),
+
+  // ── Cleaning ──────────────────────────────────────────────────────────────────
+
+  autoClean: (
+    projectId: string,
+    semId: string
+  ): Promise<{
+    excluded_zero_freq: number
+    excluded_long_tail: number
+    excluded_minus_words: number
+    total_excluded: number
+    total_kept: number
+    snapshot_id: string
+  }> => api.post(`/projects/${projectId}/marketing/semantic/${semId}/auto-clean`).then((r) => r.data),
+
+  completeCleaning: (projectId: string, semId: string): Promise<SemanticProject> =>
+    api.post(`/projects/${projectId}/marketing/semantic/${semId}/cleaning/complete`).then((r) => r.data),
+
+  // ── Minus Words ───────────────────────────────────────────────────────────────
+
+  getMinusWords: (projectId: string, semId: string): Promise<MinusWord[]> =>
+    api.get(`/projects/${projectId}/marketing/semantic/${semId}/minus-words`).then((r) => r.data),
+
+  addMinusWords: (projectId: string, semId: string, words: string[]): Promise<MinusWord[]> =>
+    api
+      .post(`/projects/${projectId}/marketing/semantic/${semId}/minus-words`, words.map((w) => ({ word: w })))
+      .then((r) => r.data),
+
+  deleteMinusWord: (projectId: string, semId: string, wordId: string): Promise<void> =>
+    api
+      .delete(`/projects/${projectId}/marketing/semantic/${semId}/minus-words/${wordId}`)
+      .then(() => undefined),
 }
