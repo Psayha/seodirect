@@ -10,7 +10,6 @@ const CrawlTab       = lazy(() => import('./tabs/CrawlTab'))
 const DirectTab      = lazy(() => import('./tabs/DirectTab'))
 const SeoTab         = lazy(() => import('./tabs/SeoTab'))
 const OgTab          = lazy(() => import('./tabs/OgTab'))
-const SchemaTab      = lazy(() => import('./tabs/SchemaTab'))
 const MediaplanTab   = lazy(() => import('./tabs/MediaplanTab'))
 const AnalyticsTab   = lazy(() => import('./tabs/AnalyticsTab'))
 const TopvisorTab    = lazy(() => import('./tabs/TopvisorTab'))
@@ -22,7 +21,7 @@ const UtmTab         = lazy(() => import('./tabs/UtmTab'))
 const GeoTab         = lazy(() => import('./tabs/GeoTab'))
 const MarketingTab   = lazy(() => import('./tabs/MarketingTab'))
 
-type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og' | 'schema'
+type Tab = 'overview' | 'brief' | 'crawl' | 'direct' | 'seo' | 'og'
          | 'mediaplan' | 'analytics' | 'topvisor' | 'content-plan'
          | 'reports' | 'history' | 'export' | 'utm' | 'marketing' | 'geo'
 
@@ -89,7 +88,6 @@ const TAB_GROUPS: TabGroup[] = [
     tabs: [
       { key: 'seo',          label: 'Мета-теги' },
       { key: 'og',           label: 'OpenGraph' },
-      { key: 'schema',       label: 'Schema.org' },
       { key: 'content-plan', label: 'Контент-план' },
     ],
   },
@@ -260,7 +258,7 @@ export default function ProjectPage() {
 
       {/* ── Tab content ────────────────────────────────────────────────────── */}
       <div className="flex-1 bg-page">
-        <ErrorBoundary label={tab}>
+        <ErrorBoundary key={tab} label={tab}>
           <Suspense fallback={<TabFallback />}>
             {tab === 'overview'     && <OverviewTab    projectId={id!} onTabChange={(t) => setTab(t as Tab)} />}
             {tab === 'brief'        && <BriefTab        projectId={id!} />}
@@ -268,7 +266,6 @@ export default function ProjectPage() {
             {tab === 'direct'       && <DirectTab       projectId={id!} />}
             {tab === 'seo'          && <SeoTab          projectId={id!} />}
             {tab === 'og'           && <OgTab           projectId={id!} />}
-            {tab === 'schema'       && <SchemaTab       projectId={id!} />}
             {tab === 'mediaplan'    && <MediaplanTab    projectId={id!} />}
             {tab === 'analytics'    && <AnalyticsTab    projectId={id!} />}
             {tab === 'topvisor'     && <TopvisorTab     projectId={id!} />}
