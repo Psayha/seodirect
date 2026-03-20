@@ -477,6 +477,122 @@ function CampaignBlock({ campaign, projectId }: { campaign: Campaign; projectId:
   )
 }
 
+
+// ─── Чеклист запуска ────────────────────────────────────────────────────────
+function ReadinessCheckSection({ projectId }: { projectId: string }) {
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["readiness-check", projectId],
+    queryFn: () => directApi.readinessCheck(projectId),
+    staleTime: 30_000,
+  })
+
+  if (isLoading) return (
+    <div className="p-6 text-sm text-muted animate-pulse">Проверяем...</div>
+  )
+
+  const score = data?.score ?? 0
+  const scoreColor = score >= 80 ? "#34d399" : score >= 50 ? "#fbbf24" : "#f87171"
+
+  return (
+    <div className="p-6 space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-base" style={{ color: "var(--text)", letterSpacing: "-0.01em" }}>
+            Чеклист запуска
+          </h3>
+          <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
+            Автоматическая проверка готовности кампаний по стандартам специалиста
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* Score badge */}
+          <div className="text-center px-4 py-2 rounded-2xl" style={{ background: "var(--surface-raised)", border: "1px solid var(--border)" }}>
+            <div className="text-2xl font-bold font-data" style={{ color: scoreColor, lineHeight: 1 }}>{score}%</div>
+            <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{data?.passed}/{data?.total} проверок</div>
+          </div>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="btn-ghost text-sm px-4 py-2"
+          >
+            {isFetching ? "Проверка..." : "↻ Обновить"}
+          </button>
+        </div>
+      </div>
+
+      {/* Stats row */}
+      {data && (
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: "Кампаний", value: data.campaigns_count },
+            { label: "Групп", value: data.groups_count },
+            { label: "Объявлений", value: data.ads_count },
+          ].map((s) => (
+            <div key={s.label} className="card px-4 py-3 text-center">
+              <div className="text-xl font-bold font-data" style={{ color: "var(--text)" }}>{s.value}</div>
+              <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Categories */}
+      {data?.categories.map((cat) => {
+        const catPassed = cat.items.filter((i) => i.pass).length
+        const catTotal  = cat.items.length
+        return (
+          <div key={cat.name} className="card p-0 overflow-hidden">
+            {/* Category header */}
+            <div
+              className="flex items-center justify-between px-5 py-3"
+              style={{ borderBottom: "1px solid var(--border)", background: "var(--surface-raised)" }}
+            >
+              <h4 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{cat.name}</h4>
+              <span className="text-xs font-data font-medium" style={{ color: catPassed === catTotal ? "#34d399" : "var(--muted)" }}>
+                {catPassed}/{catTotal}
+              </span>
+            </div>
+            {/* Items */}
+            <div className="divide-y" style={{ borderColor: "var(--border)" }}>
+              {cat.items.map((item, idx) => (
+                <div key={idx} className="px-5 py-3">
+                  <div className="flex items-start gap-3">
+                    {/* Icon */}
+                    <div
+                      className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold"
+                      style={{
+                        background: item.pass ? "rgba(52,211,153,0.15)" : "rgba(248,113,113,0.12)",
+                        color: item.pass ? "#34d399" : "#f87171",
+                      }}
+                    >
+                      {item.pass ? "✓" : "✕"}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm" style={{ color: "var(--text)" }}>{item.label}</p>
+                      <p className="text-xs mt-0.5" style={{ color: item.pass ? "var(--muted)" : "#f87171" }}>
+                        {item.detail}
+                      </p>
+                      {/* Sub-issues list */}
+                      {!item.pass && item.issues && item.issues.length > 0 && (
+                        <ul className="mt-1.5 space-y-0.5">
+                          {item.issues.map((issue: string, i: number) => (
+                            <li key={i} className="text-xs truncate" style={{ color: "var(--muted)" }}>• {issue}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function NgramsSection({ projectId }: { projectId: string }) {
   const [n, setN] = useState(2)
   const [selected, setSelected] = useState<string | null>(null)
@@ -889,7 +1005,7 @@ export default function DirectTab({ projectId }: { projectId: string }) {
   const [newCampaignName, setNewCampaignName] = useState('')
   const [negInput, setNegInput] = useState('')
   const [showSearchQueriesModal, setShowSearchQueriesModal] = useState(false)
-  const [directSubSection, setDirectSubSection] = useState<'campaigns' | 'ngrams' | 'heatmap' | 'ab' | 'cluster'>('campaigns')
+  const [directSubSection, setDirectSubSection] = useState<'campaigns' | 'ngrams' | 'heatmap' | 'ab' | 'cluster' | 'checklist'>('campaigns')
 
   const { data: strategyData, refetch: refetchStrategy } = useQuery({
     queryKey: ['direct-strategy', projectId],
@@ -1013,6 +1129,7 @@ export default function DirectTab({ projectId }: { projectId: string }) {
           ['heatmap', 'Тепловая карта'],
           ['ab', 'A/B сравнение'],
           ['cluster', 'Автокластеризация'],
+          ['checklist', '✅ Чеклист запуска'],
         ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setDirectSubSection(key)}
             className={cx('px-3 py-1.5 text-sm rounded-xl transition',
@@ -1094,6 +1211,7 @@ export default function DirectTab({ projectId }: { projectId: string }) {
       {directSubSection === 'heatmap' && <HeatmapSection projectId={projectId} />}
       {directSubSection === 'ab' && <AbSection projectId={projectId} />}
       {directSubSection === 'cluster' && <LocalClusterSection projectId={projectId} />}
+      {directSubSection === 'checklist' && <ReadinessCheckSection projectId={projectId} />}
 
       {showSearchQueriesModal && (
         <SearchQueriesModal projectId={projectId} onClose={() => setShowSearchQueriesModal(false)} />
