@@ -38,14 +38,20 @@ PREV_FRONTEND=$(docker compose -f "${COMPOSE_FILE}" images frontend --format jso
 echo "[deploy] Pulling latest images..."
 docker compose -f "${COMPOSE_FILE}" pull
 
-echo "[deploy] Starting services..."
-docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
+# Start only DB and Redis first so migrations can run before the app serves traffic
+echo "[deploy] Starting database and cache..."
+docker compose -f "${COMPOSE_FILE}" up -d postgres redis
+echo "[deploy] Waiting for database to be ready..."
+docker compose -f "${COMPOSE_FILE}" exec -T postgres sh -c 'until pg_isready -U ${POSTGRES_USER:-seodirect}; do sleep 1; done'
 
 echo "[deploy] Running migrations..."
-docker compose -f "${COMPOSE_FILE}" exec -T backend alembic upgrade head
+docker compose -f "${COMPOSE_FILE}" run --rm -T backend alembic upgrade head
 
 echo "[deploy] Initializing super admin..."
-docker compose -f "${COMPOSE_FILE}" exec -T backend python3 init_superadmin.py
+docker compose -f "${COMPOSE_FILE}" run --rm -T backend python3 init_superadmin.py
+
+echo "[deploy] Starting all services..."
+docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
 
 echo "[deploy] Health check..."
 sleep 5
