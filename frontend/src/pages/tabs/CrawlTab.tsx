@@ -481,7 +481,7 @@ export default function CrawlTab({ projectId }: { projectId: string }) {
   const scoreColor = score === null ? 'text-muted' : score >= 80 ? 'text-green-600' : score >= 50 ? 'text-yellow-600' : 'text-red-600'
 
   return (
-    <div className="p-6 max-w-7xl">
+    <div className="p-6">
       {/* Header */}
       <div className="flex items-center gap-4 mb-5">
         <div>

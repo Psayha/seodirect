@@ -547,7 +547,7 @@ export default function GeoTab({ projectId }: { projectId: string }) {
   const [view, setView] = useState<GeoView>('audit')
 
   return (
-    <div className="p-6 max-w-5xl">
+    <div className="p-6">
       {/* Sub-nav */}
       <div className="flex gap-1 mb-6 flex-wrap">
         {VIEWS.map(v => (

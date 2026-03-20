@@ -959,7 +959,7 @@ export default function DirectTab({ projectId }: { projectId: string }) {
   })
 
   return (
-    <div className="p-6 max-w-4xl space-y-6">
+    <div className="p-6 space-y-6">
       {/* Strategy */}
       <div className="border border-[var(--border)] rounded-xl bg-surface overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b cursor-pointer hover:bg-surface-raised"

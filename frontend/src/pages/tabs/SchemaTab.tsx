@@ -196,7 +196,7 @@ export default function SchemaTab({ projectId }: { projectId: string }) {
   const copyToValidator = () => { setValidatorInput(generatedJson); setValidationResult(null) }
 
   return (
-    <div className="p-6 max-w-4xl space-y-6">
+    <div className="p-6 space-y-6">
       {/* Generator */}
       <div className="bg-surface border rounded-xl p-5">
         <h3 className="font-semibold text-lg mb-1">Генератор Schema.org</h3>

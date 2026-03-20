@@ -37,7 +37,7 @@ export default function HistoryTab({ projectId }: { projectId: string }) {
   const events: any[] = data?.events ?? []
 
   return (
-    <div className="p-6 max-w-2xl">
+    <div className="p-6 max-w-4xl">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold">История действий</h3>
         <span className="text-sm text-muted">{data?.total ?? 0} событий</span>

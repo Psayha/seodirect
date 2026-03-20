@@ -33,8 +33,8 @@ function Stepper({ step }: { step: number }) {
                   done
                     ? 'bg-accent border-accent text-white'
                     : active
-                    ? 'bg-white border-accent text-accent'
-                    : 'bg-white border-[var(--border)] text-muted'
+                    ? 'bg-surface border-accent text-accent'
+                    : 'bg-surface border-[var(--border)] text-muted'
                 )}
               >
                 {done ? (
@@ -110,7 +110,7 @@ function CreateModal({
           <div>
             <label className="block text-xs text-muted mb-1">Название проекта</label>
             <input
-              className="input w-full"
+              className="field"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="SEO-семантика"
@@ -119,7 +119,7 @@ function CreateModal({
           <div>
             <label className="block text-xs text-muted mb-1">Регион (необязательно)</label>
             <input
-              className="input w-full"
+              className="field"
               value={region}
               onChange={(e) => setRegion(e.target.value)}
               placeholder="Москва"
@@ -193,7 +193,10 @@ function MasksStep({
       qc.invalidateQueries({ queryKey: ['sem-project', projectId, sp.id] })
       setError('')
     },
-    onError: (e: any) => setError(e?.response?.data?.detail || e?.message || 'Ошибка'),
+    onError: (e: any) => {
+      const detail = e?.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : e?.message || 'Ошибка')
+    },
   })
 
   const toggleMut = useMutation({
@@ -214,7 +217,7 @@ function MasksStep({
           <code className="bg-surface-raised px-1 rounded">купить диван, мягкая мебель</code>
         </p>
         <textarea
-          className="input w-full h-24 resize-none font-mono text-sm"
+          className="field w-full h-24 resize-none font-mono text-sm"
           placeholder={'купить диван\nмягкая мебель\nдиван в гостиную'}
           value={masksText}
           onChange={(e) => setMasksText(e.target.value)}
@@ -313,9 +316,9 @@ function MasksStep({
                           <span
                             className={cx(
                               'text-[10px] font-semibold px-1.5 py-0.5 rounded',
-                              kw.kw_type === 'ВЧ' && 'bg-red-100 text-red-600',
-                              kw.kw_type === 'СЧ' && 'bg-yellow-100 text-yellow-700',
-                              kw.kw_type === 'НЧ' && 'bg-green-100 text-green-700'
+                              kw.kw_type === 'ВЧ' && 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
+                              kw.kw_type === 'СЧ' && 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400',
+                              kw.kw_type === 'НЧ' && 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
                             )}
                           >
                             {kw.kw_type}
@@ -434,7 +437,7 @@ function ExpandStep({
           <input
             type="number"
             min={0}
-            className="input w-full"
+            className="field w-full"
             value={minFreq}
             onChange={(e) => setMinFreq(Number(e.target.value))}
             placeholder="0 — не фильтровать"
@@ -637,13 +640,13 @@ function CleaningStep({
       {/* ── Top bar: filters + auto-clean ───────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3">
         <input
-          className="input text-sm w-52"
+          className="field text-sm w-52"
           placeholder="Поиск по фразе..."
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1) }}
         />
         <select
-          className="input text-sm w-28"
+          className="field text-sm w-28"
           value={filterType}
           onChange={(e) => { setFilterType(e.target.value); setPage(1) }}
         >
@@ -726,9 +729,9 @@ function CleaningStep({
                       {kw.kw_type && (
                         <span className={cx(
                           'text-[9px] font-bold px-1 rounded',
-                          kw.kw_type === 'ВЧ' && 'bg-red-100 text-red-600',
-                          kw.kw_type === 'СЧ' && 'bg-yellow-100 text-yellow-700',
-                          kw.kw_type === 'НЧ' && 'bg-green-100 text-green-700',
+                          kw.kw_type === 'ВЧ' && 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
+                          kw.kw_type === 'СЧ' && 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400',
+                          kw.kw_type === 'НЧ' && 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400',
                         )}>
                           {kw.kw_type}
                         </span>
@@ -825,7 +828,7 @@ function CleaningStep({
         <h4 className="text-sm font-medium text-primary">Минус-слова</h4>
         <div className="flex gap-2">
           <textarea
-            className="input flex-1 h-16 resize-none text-sm font-mono"
+            className="field flex-1 h-16 resize-none text-sm font-mono"
             placeholder={'бесплатно\nсвоими руками\nвидео'}
             value={minusInput}
             onChange={(e) => setMinusInput(e.target.value)}
@@ -883,15 +886,15 @@ function CleaningStep({
 // ─── Step 5: Cluster ─────────────────────────────────────────────────────────
 
 const INTENT_COLOR: Record<string, string> = {
-  'коммерческий': 'bg-green-100 text-green-700',
-  'информационный': 'bg-blue-100 text-blue-700',
-  'навигационный': 'bg-purple-100 text-purple-700',
-  'общий': 'bg-gray-100 text-gray-600',
+  'коммерческий': 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400',
+  'информационный': 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400',
+  'навигационный': 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400',
+  'общий': 'bg-surface-raised text-muted',
 }
 const PRIORITY_COLOR: Record<string, string> = {
-  'высокий': 'bg-red-100 text-red-600',
-  'средний': 'bg-yellow-100 text-yellow-700',
-  'низкий': 'bg-green-100 text-green-700',
+  'высокий': 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
+  'средний': 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400',
+  'низкий': 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400',
 }
 const INTENTS_CLUSTER = ['коммерческий', 'информационный', 'навигационный', 'общий']
 const PRIORITIES = ['высокий', 'средний', 'низкий']
@@ -930,30 +933,30 @@ function ClusterCard({
       {editing ? (
         <div className="space-y-2">
           <input
-            className="input w-full text-sm font-medium"
+            className="field w-full text-sm font-medium"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Название кластера"
           />
           <div className="grid grid-cols-2 gap-2">
-            <select className="input text-xs" value={intent} onChange={(e) => setIntent(e.target.value)}>
+            <select className="field text-xs" value={intent} onChange={(e) => setIntent(e.target.value)}>
               <option value="">Интент</option>
               {INTENTS_CLUSTER.map((i) => <option key={i} value={i}>{i}</option>)}
             </select>
-            <select className="input text-xs" value={priority} onChange={(e) => setPriority(e.target.value)}>
+            <select className="field text-xs" value={priority} onChange={(e) => setPriority(e.target.value)}>
               <option value="">Приоритет</option>
               {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
           {mode === 'direct' && (
             <div className="grid grid-cols-2 gap-2">
-              <select className="input text-xs" value={campaignType} onChange={(e) => setCampaignType(e.target.value)}>
+              <select className="field text-xs" value={campaignType} onChange={(e) => setCampaignType(e.target.value)}>
                 <option value="">Тип кампании</option>
                 <option value="search">Поиск</option>
                 <option value="rsa">RSA</option>
               </select>
               <input
-                className="input text-xs"
+                className="field text-xs"
                 maxLength={35}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -1366,7 +1369,7 @@ export default function MarketingTab({ projectId }: { projectId: string }) {
   const pipelineStep = sp?.pipeline_step ?? 0
 
   return (
-    <div className="p-6 max-w-5xl space-y-6">
+    <div className="p-6 space-y-6">
       {/* ── Mode tabs ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div className="flex gap-1 bg-surface-raised rounded-xl p-1">

@@ -88,8 +88,8 @@ export default function OverviewTab({ projectId, onTabChange }: { projectId: str
     : null
 
   return (
-    <div className="p-6 max-w-7xl">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="p-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
 
         {/* ── Left: Project info ─────────────────────────────────────────────── */}
         <div className="space-y-4">

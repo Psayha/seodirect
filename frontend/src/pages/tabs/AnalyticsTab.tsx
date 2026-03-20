@@ -21,23 +21,23 @@ function AnomalyBanner({ projectId }: { projectId: string }) {
 
   if (anomalies.length === 0) {
     return (
-      <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2 mb-4 text-sm text-green-700">
+      <div className="alert-success mb-4">
         ✅ Трафик в норме
       </div>
     )
   }
 
   const levelColors: Record<string, string> = {
-    error: 'bg-red-50 border-red-200 text-red-800',
-    warn: 'bg-yellow-50 border-yellow-200 text-yellow-800',
-    info: 'bg-blue-50 border-blue-200 text-blue-800',
+    error: 'alert-danger',
+    warn: 'alert-warning',
+    info: 'alert-info',
   }
   const levelIcons: Record<string, string> = { error: '🔴', warn: '🟡', info: '🔵' }
 
   return (
     <div className="space-y-2 mb-4">
       {anomalies.map((a: any, i: number) => (
-        <div key={i} className={cx('flex items-start gap-3 border rounded-xl px-4 py-3 text-sm', levelColors[a.level] || levelColors.info)}>
+        <div key={i} className={cx('alert', levelColors[a.level] || levelColors.info)}>
           <span>{levelIcons[a.level] || '🔵'}</span>
           <div className="flex-1">
             <p className="font-medium">{a.message}</p>
@@ -85,7 +85,7 @@ function RoiSection({ projectId }: { projectId: string }) {
               {rows.map((r: any, i: number) => {
                 const roiOk = r.actual_leads != null && r.forecast_leads != null && r.actual_leads >= r.forecast_leads
                 return (
-                  <tr key={i} className={cx('border-b', roiOk ? 'bg-green-50' : r.actual_leads != null ? 'bg-red-50' : '')}>
+                  <tr key={i} className={cx('border-b', roiOk ? 'bg-green-50 dark:bg-green-900/20' : r.actual_leads != null ? 'bg-red-50 dark:bg-red-900/20' : '')}>
                     <td className="px-3 py-2 font-medium text-primary">{r.month_name}</td>
                     <td className="px-3 py-2 tabular-nums">{r.budget?.toLocaleString() ?? '—'} ₽</td>
                     <td className="px-3 py-2 tabular-nums text-blue-600">{r.forecast_leads?.toLocaleString() ?? '—'}</td>
@@ -193,7 +193,7 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
   const hasError = !!dashError
 
   return (
-    <div className="p-6 max-w-4xl">
+    <div className="p-6">
       {/* Anomaly banner */}
       <AnomalyBanner projectId={projectId} />
 
@@ -218,7 +218,7 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
         </div>
         <div className="flex items-center gap-2 ml-auto">
           <label className="text-xs text-muted">От:</label>
-          <input type="date" className="border rounded px-2 py-1 text-sm" value={dateFrom}
+          <input type="date" className="bg-surface border border-[var(--border)] text-primary rounded-lg px-2 py-1 text-sm outline-none focus:border-accent transition" value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)} />
           <label className="text-xs text-muted">до: {dateTo}</label>
         </div>
@@ -233,7 +233,7 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
       )}
 
       {hasError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+        <div className="alert-danger mb-4">
           ❌ Ошибка загрузки данных. Проверьте OAuth токен Метрики в настройках.
         </div>
       )}
@@ -315,7 +315,7 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted">Проект:</span>
             {tvProjectId ? (
-              <span className="text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded px-2 py-0.5">
+              <span className="badge-green text-sm font-medium rounded px-2 py-0.5">
                 #{tvProjectId}
               </span>
             ) : (
@@ -334,7 +334,7 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
             <label className="text-xs text-muted">Регион:</label>
             <input type="number" min={0} value={posRegion}
               onChange={(e) => setPosRegion(Number(e.target.value))}
-              className="border rounded px-2 py-1 text-sm w-16" />
+              className="bg-surface border border-[var(--border)] text-primary rounded-lg px-2 py-1 text-sm w-16 outline-none focus:border-accent transition" />
             <button onClick={() => tvPositionsMut.mutate()} disabled={tvPositionsMut.isPending || !tvProjectId}
               className="bg-accent text-white px-3 py-1.5 rounded-xl text-xs hover:bg-accent disabled:opacity-50">
               {tvPositionsMut.isPending ? '⏳ Загрузка...' : 'Загрузить позиции'}

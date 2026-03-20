@@ -11,6 +11,7 @@ from app.models.direct import (
     KeywordTemperature,
     NegativeKeyword,
 )
+from app.models.geo import AiReadinessAudit, GeoKeyword, GeoScanResult
 from app.models.history import EventType, ProjectEvent
 from app.models.mediaplan import MediaPlan
 from app.models.meta_history import SeoMetaHistory
@@ -40,4 +41,5 @@ __all__ = [
     "UtmTemplate",
     "SeoMetaHistory",
     "ProjectAccessToken",
+    "GeoKeyword", "GeoScanResult", "AiReadinessAudit",
 ]

@@ -7,7 +7,7 @@ export default function ExportTab({ projectId }: { projectId: string }) {
     queryFn: () => api.get(`/projects/${projectId}/export/validate`).then((r) => r.data),
   })
   return (
-    <div className="p-6 max-w-xl">
+    <div className="p-6 max-w-3xl">
       <h3 className="font-semibold mb-4">Экспорт</h3>
       {validation && (
         <div className="bg-surface-raised rounded-xl p-4 mb-4 text-sm space-y-1.5">
