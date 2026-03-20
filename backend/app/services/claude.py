@@ -189,8 +189,20 @@ class LLMClient:
     def _parse_response(self, data: dict) -> str:
         choices = data.get("choices", [])
         if not choices:
+            error = data.get("error", {})
+            if error:
+                raise ValueError(f"OpenRouter error: {error.get('message', error)}")
             raise ValueError("Empty choices in OpenRouter response")
-        return choices[0].get("message", {}).get("content", "")
+        choice = choices[0]
+        content = choice.get("message", {}).get("content", "")
+        finish_reason = choice.get("finish_reason", "")
+        if finish_reason == "length":
+            import logging
+            logging.getLogger(__name__).warning(
+                "LLM response truncated (finish_reason=length, model=%s, max_tokens=%d, content_len=%d)",
+                self.model, self.max_tokens, len(content),
+            )
+        return content
 
     async def generate(self, system_prompt: str, user_message: str) -> str:
         """Generate a completion and return full text."""

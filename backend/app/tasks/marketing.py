@@ -230,6 +230,8 @@ def task_semantic_expand(
         expand_system = get_prompt("semantic_expand", db) or _EXPAND_SYSTEM
         all_phrases: list[str] = []
         total_masks = len(mask_phrases)
+        mask_errors: list[str] = []
+        masks_ok = 0
 
         logger.info("Expanding %d masks (model=%s, max_tokens=%s)", total_masks, claude.model, claude.max_tokens)
 
@@ -247,11 +249,18 @@ def task_semantic_expand(
                 logger.info(
                     "Mask '%s': Claude returned %d chars", mask, len(raw) if raw else 0
                 )
+                if raw:
+                    logger.debug("Mask '%s' raw response: %.1000s", mask, raw)
                 phrases = _parse_json_array(raw)
                 logger.info("Mask '%s': parsed %d keywords", mask, len(phrases))
-                all_phrases.extend(phrases)
+                if phrases:
+                    masks_ok += 1
+                    all_phrases.extend(phrases)
+                else:
+                    mask_errors.append(f"'{mask}': пустой результат парсинга (ответ {len(raw or '')} символов)")
             except Exception as exc:
                 logger.warning("Claude error for mask '%s': %s", mask, exc)
+                mask_errors.append(f"'{mask}': {exc}")
 
             if task:
                 task.progress = int(10 + (idx + 1) / total_masks * 40)  # 10→50
@@ -355,9 +364,15 @@ def task_semantic_expand(
 
         # ── Save keywords to DB ───────────────────────────────────────────────
         if not unique_phrases:
+            error_details = (
+                f"Обработано масок: {total_masks}, успешных: {masks_ok}. "
+            )
+            if mask_errors:
+                error_details += "Ошибки: " + "; ".join(mask_errors[:3])
+            else:
+                error_details += "Claude вернул ответы, но ни один не распарсился как JSON."
             raise RuntimeError(
-                "Claude не сгенерировал ни одного ключа. "
-                "Проверьте маски и попробуйте снова."
+                f"Claude не сгенерировал ни одного ключа. {error_details}"
             )
 
         def _kw_type(exact: int) -> str | None:
@@ -416,7 +431,7 @@ def task_semantic_expand(
     except Exception as e:
         if task:
             task.status = TaskStatus.FAILED
-            task.error = str(e)[:500]
+            task.error = str(e)[:1500]
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
         raise
@@ -651,7 +666,7 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
     except Exception as e:
         if task:
             task.status = TaskStatus.FAILED
-            task.error = str(e)[:500]
+            task.error = str(e)[:1500]
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
         raise
