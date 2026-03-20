@@ -58,22 +58,55 @@ def _build_expand_prompt(
 
 
 def _parse_json_array(text: str) -> list[str]:
-    """Extract JSON array from Claude response, tolerating markdown fences."""
+    """Extract JSON array from Claude response, tolerating markdown fences and truncation."""
+    import logging as _log
+    logger = _log.getLogger(__name__)
+
     text = text.strip()
     # Strip ```json ... ``` or ``` ... ```
     if text.startswith("```"):
         lines = text.split("\n")
         text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    # Find first [ and last ]
+
     start = text.find("[")
-    end = text.rfind("]")
-    if start == -1 or end == -1:
+    if start == -1:
+        logger.warning("_parse_json_array: no '[' found in response (%d chars)", len(text))
         return []
-    try:
-        data = json.loads(text[start : end + 1])
-        return [s.strip().lower() for s in data if isinstance(s, str) and s.strip()]
-    except json.JSONDecodeError:
+
+    fragment = text[start:]
+    end = fragment.rfind("]")
+
+    # ── Happy path: complete JSON array ────────────────────────────────────
+    if end != -1:
+        try:
+            data = json.loads(fragment[: end + 1])
+            result = [s.strip().lower() for s in data if isinstance(s, str) and s.strip()]
+            logger.info("_parse_json_array: parsed %d items (complete JSON)", len(result))
+            return result
+        except json.JSONDecodeError:
+            pass  # fall through to truncation recovery
+
+    # ── Truncation recovery: response was cut off by max_tokens ────────────
+    # Find the last complete quoted string entry: ..."some phrase",  or  ..."some phrase"
+    logger.warning("_parse_json_array: incomplete JSON, attempting truncation recovery")
+    # Trim to last complete quoted string
+    last_quote = fragment.rfind('"')
+    if last_quote <= 0:
         return []
+    # Walk back to find the opening quote of this last entry
+    candidate = fragment[: last_quote + 1]
+    # Try progressively shorter slices until we get valid JSON
+    for trim in (candidate + "]", candidate.rsplit(",", 1)[0] + "]"):
+        try:
+            data = json.loads(trim)
+            result = [s.strip().lower() for s in data if isinstance(s, str) and s.strip()]
+            logger.info("_parse_json_array: recovered %d items from truncated JSON", len(result))
+            return result
+        except json.JSONDecodeError:
+            continue
+
+    logger.warning("_parse_json_array: truncation recovery failed, response: %.500s", text)
+    return []
 
 
 @celery_app.task(
@@ -189,11 +222,16 @@ def task_semantic_expand(
             logging.getLogger(__name__).warning("Failed to load crawl data for semantic expand", exc_info=True)
 
         # ── Claude: generate keywords per mask ───────────────────────────────
+        import logging
+        logger = logging.getLogger(__name__)
+
         claude = get_claude_client(db, task_type="semantic_expand")
         from app.services.settings_service import get_prompt
         expand_system = get_prompt("semantic_expand", db) or _EXPAND_SYSTEM
         all_phrases: list[str] = []
         total_masks = len(mask_phrases)
+
+        logger.info("Expanding %d masks (model=%s, max_tokens=%s)", total_masks, claude.model, claude.max_tokens)
 
         for idx, mask in enumerate(mask_phrases):
             prompt = _build_expand_prompt(
@@ -206,12 +244,14 @@ def task_semantic_expand(
             )
             try:
                 raw = _run_async(claude.generate(expand_system, prompt))
+                logger.info(
+                    "Mask '%s': Claude returned %d chars", mask, len(raw) if raw else 0
+                )
                 phrases = _parse_json_array(raw)
+                logger.info("Mask '%s': parsed %d keywords", mask, len(phrases))
                 all_phrases.extend(phrases)
             except Exception as exc:
-                # Don't fail the whole task on one mask error — log and continue
-                import logging
-                logging.getLogger(__name__).warning("Claude error for mask %s: %s", mask, exc)
+                logger.warning("Claude error for mask '%s': %s", mask, exc)
 
             if task:
                 task.progress = int(10 + (idx + 1) / total_masks * 40)  # 10→50
@@ -225,6 +265,11 @@ def task_semantic_expand(
                 seen.add(p)
                 unique_phrases.append(p)
 
+        logger.info(
+            "Claude total: %d phrases generated, %d unique after dedup",
+            len(all_phrases), len(unique_phrases),
+        )
+
         if task:
             task.progress = 50
             db.commit()
@@ -232,6 +277,9 @@ def task_semantic_expand(
         # ── Fetch frequencies from Wordstat (with cache) ──────────────────────
         wordstat = get_wordstat_client(db)
         freq_map: dict[str, dict] = {}
+
+        if not wordstat:
+            logger.warning("Wordstat client not configured — frequencies will be 0")
 
         if wordstat and unique_phrases:
             from datetime import timedelta  # noqa: PLC0415
