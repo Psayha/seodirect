@@ -26,7 +26,7 @@ services:
     command: redis-server --maxmemory 200mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-changeme}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD:-changeme} ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -51,11 +51,11 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "--max-time", "5", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 30s
     deploy:
       resources:
         limits:
