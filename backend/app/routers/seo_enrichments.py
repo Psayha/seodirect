@@ -73,7 +73,7 @@ async def generate_schema_org(
     try:
         from app.services.claude import get_claude_client
         claude = get_claude_client(db)
-    except RuntimeError as exc:
+    except (RuntimeError, Exception) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     brief_context = ""
@@ -124,7 +124,12 @@ Description: {page.description or 'нет'}
         meta = SeoPageMeta(project_id=project_id, page_url=body.page_url)
         db.add(meta)
     meta.schema_org_json = schema_json
-    db.commit()
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("DB commit failed for schema_org: %s", exc)
+        raise HTTPException(status_code=500, detail="Не удалось сохранить Schema.org в БД") from exc
 
     return {"schema_json": schema_json}
 
