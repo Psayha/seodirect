@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { directApi, type Campaign, type AdGroup, type Keyword, type Ad, type NegativeKeyword, type ReadinessCheckCategory, type ReadinessCheckItem } from '../../api/direct'
+import { imagesApi, type ProjectImage } from '../../api/images'
 
 function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
@@ -1150,6 +1151,220 @@ function LocalClusterSection({ projectId }: { projectId: string }) {
   )
 }
 
+/* ── Image Library ─────────────────────────────────────────────────────────── */
+function ImageLibrarySection({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
+  const [dragOver, setDragOver] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+  const [copied, setCopied] = useState<string | null>(null)
+
+  const { data: images = [], isLoading } = useQuery<ProjectImage[]>({
+    queryKey: ['project-images', projectId],
+    queryFn: () => imagesApi.list(projectId),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (imageId: string) => imagesApi.delete(projectId, imageId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['project-images', projectId] }),
+  })
+
+  async function handleFiles(files: FileList | null) {
+    if (!files || files.length === 0) return
+    setUploadError('')
+    setUploading(true)
+    try {
+      for (const file of Array.from(files)) {
+        await imagesApi.upload(projectId, file)
+      }
+      qc.invalidateQueries({ queryKey: ['project-images', projectId] })
+    } catch (e: any) {
+      setUploadError(e?.response?.data?.detail || 'Ошибка загрузки')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function copyUrl(url: string, id: string) {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(id)
+      setTimeout(() => setCopied(null), 2000)
+    })
+  }
+
+  function formatSize(bytes: number) {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div>
+        <h3 className="font-semibold text-base" style={{ color: 'var(--text)' }}>
+          Библиотека изображений
+        </h3>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
+          Загружайте изображения для колонки «Изображение» при импорте кампаний через Commander.
+          Форматы: JPEG, PNG, WEBP. Максимум 10 МБ, минимум 450×450 px.
+        </p>
+      </div>
+
+      {/* Drop zone */}
+      <div
+        className="relative rounded-2xl border-2 border-dashed flex flex-col items-center justify-center py-10 gap-3 transition-all duration-200 cursor-pointer"
+        style={{
+          borderColor: dragOver ? 'var(--accent)' : 'var(--border)',
+          background: dragOver ? 'var(--accent-subtle)' : 'var(--surface)',
+        }}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files) }}
+        onClick={() => document.getElementById('img-file-input')?.click()}
+      >
+        <input
+          id="img-file-input"
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          multiple
+          className="hidden"
+          onChange={(e) => handleFiles(e.target.files)}
+        />
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+          style={{ color: dragOver ? 'var(--accent)' : 'var(--muted)' }}>
+          <rect x="3" y="3" width="18" height="18" rx="3"/>
+          <circle cx="8.5" cy="8.5" r="1.5"/>
+          <path d="M21 15l-5-5L5 21"/>
+        </svg>
+        <div className="text-center">
+          <p className="text-sm font-medium" style={{ color: uploading ? 'var(--accent-text)' : 'var(--text)' }}>
+            {uploading ? 'Загрузка...' : 'Перетащите изображения или нажмите для выбора'}
+          </p>
+          <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
+            JPEG · PNG · WEBP · до 10 МБ · мин. 450×450 px
+          </p>
+        </div>
+        {uploading && (
+          <span
+            className="w-4 h-4 rounded-full border-2 animate-spin"
+            style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }}
+          />
+        )}
+      </div>
+
+      {uploadError && (
+        <p className="text-sm px-4 py-3 rounded-xl" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171' }}>
+          {uploadError}
+        </p>
+      )}
+
+      {/* Grid */}
+      {isLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          {[1,2,3,4].map((i) => (
+            <div key={i} className="skeleton rounded-2xl" style={{ aspectRatio: '1', animationDelay: `${i * 80}ms` }} />
+          ))}
+        </div>
+      ) : images.length === 0 ? (
+        <div className="flex flex-col items-center py-12 text-center" style={{ color: 'var(--muted)' }}>
+          <p className="text-sm">Изображения ещё не загружены</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          {images.map((img: ProjectImage) => (
+            <div
+              key={img.id}
+              className="card overflow-hidden flex flex-col animate-fade-up"
+              style={{ padding: 0 }}
+            >
+              {/* Thumbnail */}
+              <div
+                className="relative bg-surface-raised flex items-center justify-center overflow-hidden"
+                style={{ aspectRatio: '1' }}
+              >
+                <img
+                  src={img.url}
+                  alt={img.original_name}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                {img.width && img.height && (
+                  <span
+                    className="absolute bottom-1.5 right-1.5 text-xs px-1.5 py-0.5 rounded-lg font-mono"
+                    style={{ background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 10 }}
+                  >
+                    {img.width}×{img.height}
+                  </span>
+                )}
+              </div>
+
+              {/* Meta + actions */}
+              <div className="p-3 flex flex-col gap-2 flex-1">
+                <p
+                  className="text-xs truncate font-medium"
+                  style={{ color: 'var(--text)' }}
+                  title={img.original_name}
+                >
+                  {img.original_name}
+                </p>
+                <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                  {formatSize(img.file_size)}
+                </p>
+                <div className="flex gap-1.5 mt-auto">
+                  <button
+                    onClick={() => copyUrl(img.url, img.id)}
+                    className="flex-1 text-xs py-1.5 rounded-lg font-medium transition-all duration-150"
+                    style={{
+                      background: copied === img.id ? 'rgba(16,185,129,0.12)' : 'var(--accent-subtle)',
+                      color: copied === img.id ? '#34d399' : 'var(--accent-text)',
+                    }}
+                  >
+                    {copied === img.id ? '✓ Скопировано' : 'Копировать URL'}
+                  </button>
+                  <button
+                    onClick={() => { if (confirm('Удалить изображение?')) deleteMut.mutate(img.id) }}
+                    className="px-2 py-1.5 rounded-lg transition-all duration-150"
+                    style={{ color: 'var(--muted)', background: 'var(--surface-raised)' }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.color = '#f87171'
+                      ;(e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.08)'
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.color = 'var(--muted)'
+                      ;(e.currentTarget as HTMLElement).style.background = 'var(--surface-raised)'
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M3 6h18M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Commander tip */}
+      {images.length > 0 && (
+        <div
+          className="rounded-2xl p-4 text-sm"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+        >
+          <p className="font-medium mb-1" style={{ color: 'var(--text)' }}>Как использовать в Commander</p>
+          <p style={{ color: 'var(--muted)', lineHeight: 1.6 }}>
+            Скопируйте URL изображения и вставьте его в столбец <span className="font-mono px-1 rounded" style={{ background: 'var(--surface-raised)' }}>Изображение</span> в Excel-файле кампании.
+            Commander скачает изображение с этого URL во время импорта и прикрепит к объявлению.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function DirectTab({ projectId }: { projectId: string }) {
   const qc = useQueryClient()
   const [strategyOpen, setStrategyOpen] = useState(true)
@@ -1160,7 +1375,7 @@ export default function DirectTab({ projectId }: { projectId: string }) {
   const [newCampaignName, setNewCampaignName] = useState('')
   const [negInput, setNegInput] = useState('')
   const [showSearchQueriesModal, setShowSearchQueriesModal] = useState(false)
-  const [directSubSection, setDirectSubSection] = useState<'campaigns' | 'ngrams' | 'heatmap' | 'ab' | 'cluster' | 'checklist' | 'offers'>('campaigns')
+  const [directSubSection, setDirectSubSection] = useState<'campaigns' | 'ngrams' | 'heatmap' | 'ab' | 'cluster' | 'checklist' | 'offers' | 'images'>('campaigns')
 
   const { data: strategyData, refetch: refetchStrategy } = useQuery({
     queryKey: ['direct-strategy', projectId],
@@ -1286,6 +1501,7 @@ export default function DirectTab({ projectId }: { projectId: string }) {
           ['cluster', 'Автокластеризация'],
           ['checklist', '✅ Чеклист запуска'],
           ['offers', '🎯 Оценка офферов'],
+          ['images', '🖼 Изображения'],
         ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setDirectSubSection(key)}
             className={cx('px-3 py-1.5 text-sm rounded-xl transition',
@@ -1369,6 +1585,7 @@ export default function DirectTab({ projectId }: { projectId: string }) {
       {directSubSection === 'cluster' && <LocalClusterSection projectId={projectId} />}
       {directSubSection === 'checklist' && <ReadinessCheckSection projectId={projectId} />}
       {directSubSection === 'offers' && <OfferAnalysisSection projectId={projectId} />}
+      {directSubSection === 'images' && <ImageLibrarySection projectId={projectId} />}
 
       {showSearchQueriesModal && (
         <SearchQueriesModal projectId={projectId} onClose={() => setShowSearchQueriesModal(false)} />

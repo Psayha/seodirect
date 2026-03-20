@@ -1,10 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
@@ -87,6 +89,7 @@ def create_app() -> FastAPI:
     from app.routers.topvisor import router as topvisor_router
     from app.routers.users import router as users_router
     from app.routers.utm import router as utm_router
+    from app.routers.images import router as images_router
 
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
@@ -112,6 +115,12 @@ def create_app() -> FastAPI:
     app.include_router(seo_enrichments_router, prefix="/api", tags=["seo"])
     app.include_router(direct_analysis_router, prefix="/api", tags=["direct"])
     app.include_router(marketing_router, prefix="/api", tags=["marketing"])
+    app.include_router(images_router, prefix="/api", tags=["images"])
+
+    # Serve uploaded images as static files at /uploads/...
+    uploads_dir = Path(__file__).parent.parent / "static" / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
     @app.get("/api/health", tags=["system"])
     def health():
