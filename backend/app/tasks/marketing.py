@@ -112,11 +112,8 @@ def _parse_json_array(text: str) -> list[str]:
 @celery_app.task(
     bind=True,
     name="tasks.marketing.semantic_expand",
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 2},
-    retry_backoff=True,
-    retry_backoff_max=120,
-    retry_jitter=True,
+    max_retries=2,
+    default_retry_delay=10,
 )
 def task_semantic_expand(
     self,
@@ -259,8 +256,12 @@ def task_semantic_expand(
                 else:
                     mask_errors.append(f"'{mask}': пустой результат парсинга (ответ {len(raw or '')} символов)")
             except Exception as exc:
+                from app.services.claude import LLMBillingError
                 logger.warning("Claude error for mask '%s': %s", mask, exc)
                 mask_errors.append(f"'{mask}': {exc}")
+                # Billing/auth errors won't resolve — stop immediately
+                if isinstance(exc, LLMBillingError):
+                    raise
 
             if task:
                 task.progress = int(10 + (idx + 1) / total_masks * 40)  # 10→50
@@ -429,12 +430,16 @@ def task_semantic_expand(
         return {"status": "success", "saved": saved}
 
     except Exception as e:
+        from app.services.claude import LLMBillingError
         if task:
             task.status = TaskStatus.FAILED
             task.error = str(e)[:1500]
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
-        raise
+        # Don't retry billing/auth errors — they won't resolve on their own
+        if isinstance(e, LLMBillingError):
+            return {"status": "failed", "error": str(e)}
+        raise self.retry(exc=e)
     finally:
         db.close()
 
@@ -496,11 +501,8 @@ def _parse_cluster_json(text: str) -> list[dict]:
 @celery_app.task(
     bind=True,
     name="tasks.marketing.semantic_cluster",
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 2},
-    retry_backoff=True,
-    retry_backoff_max=120,
-    retry_jitter=True,
+    max_retries=2,
+    default_retry_delay=10,
 )
 def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: str):
     import logging  # noqa: PLC0415
@@ -664,11 +666,14 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
         return {"status": "success", "clusters": saved_clusters}
 
     except Exception as e:
+        from app.services.claude import LLMBillingError
         if task:
             task.status = TaskStatus.FAILED
             task.error = str(e)[:1500]
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
-        raise
+        if isinstance(e, LLMBillingError):
+            return {"status": "failed", "error": str(e)}
+        raise self.retry(exc=e)
     finally:
         db.close()
