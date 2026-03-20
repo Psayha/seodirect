@@ -1,6 +1,5 @@
 from app.models.brief import Brief
 from app.models.crawl import CrawlSession, CrawlStatus, Page
-from app.models.geo import AiReadinessAudit, GeoKeyword, GeoScanResult
 from app.models.direct import (
     Ad,
     AdGroup,
@@ -12,6 +11,7 @@ from app.models.direct import (
     KeywordTemperature,
     NegativeKeyword,
 )
+from app.models.geo import AiReadinessAudit, GeoKeyword, GeoScanResult
 from app.models.history import EventType, ProjectEvent
 from app.models.mediaplan import MediaPlan
 from app.models.meta_history import SeoMetaHistory

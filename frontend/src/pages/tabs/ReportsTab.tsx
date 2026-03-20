@@ -124,13 +124,13 @@ export default function ReportsTab({ projectId }: { projectId: string }) {
       </p>
 
       {/* Auto-report banner */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 flex items-center justify-between gap-4">
+      <div className="bg-[var(--accent-subtle)] border border-accent/30 rounded-xl p-4 mb-6 flex items-center justify-between gap-4">
         <div>
-          <p className="text-sm font-medium text-blue-800">Автоматические отчёты</p>
-          <p className="text-xs text-blue-600 mt-0.5">Отчёты генерируются автоматически 1-го числа каждого месяца</p>
+          <p className="text-sm font-medium text-primary">Автоматические отчёты</p>
+          <p className="text-xs text-muted mt-0.5">Отчёты генерируются автоматически 1-го числа каждого месяца</p>
         </div>
         <button onClick={() => generateNowMut.mutate()} disabled={generateNowMut.isPending}
-          className="bg-blue-600 text-white px-3 py-1.5 rounded-xl text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0">
+          className="bg-accent text-white px-3 py-1.5 rounded-xl text-sm hover:opacity-90 disabled:opacity-50 shrink-0">
           {generateNowMut.isPending ? '⏳...' : 'Сгенерировать сейчас'}
         </button>
       </div>
