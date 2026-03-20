@@ -269,7 +269,7 @@ async def analyze_search_queries(
             existing_phrases = [k.phrase for k in kws]
 
     from app.services.claude import get_claude_client
-    claude = get_claude_client(db)
+    claude = get_claude_client(db, task_type="direct_search_queries")
 
     queries_text = "\n".join(f"- {q}" for q in body.queries[:200])
     keywords_text = "\n".join(f"- {k}" for k in existing_phrases)

@@ -364,7 +364,7 @@ async def brief_chat(
 
     from app.services.claude import get_claude_client
     try:
-        client = get_claude_client(db)
+        client = get_claude_client(db, task_type="brief_chat")
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
@@ -486,7 +486,7 @@ async def brief_improve(
     from app.services.claude import get_claude_client
 
     try:
-        client = get_claude_client(db)
+        client = get_claude_client(db, task_type="brief_improve")
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 

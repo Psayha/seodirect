@@ -45,6 +45,79 @@ function UrlTreeNode({ node, depth = 0 }: { node: Record<string, any>; depth?: n
   )
 }
 
+function AiAnalysisSection({ projectId }: { projectId: string }) {
+  const [analysis, setAnalysis] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
+
+  const run = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await crawlApi.aiAnalysis(projectId)
+      setAnalysis(res.analysis)
+      setExpanded(true)
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || 'Ошибка анализа')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="mt-6">
+      <div className="flex items-center gap-3 mb-3">
+        <button
+          onClick={() => analysis ? setExpanded((v) => !v) : run()}
+          className="text-sm text-accent hover:underline flex items-center gap-1"
+        >
+          <span>{expanded ? '▾' : '▸'}</span>
+          ИИ-анализ результатов обхода
+        </button>
+        {!analysis && (
+          <button
+            onClick={run}
+            disabled={loading}
+            className="btn-accent py-1.5 px-3 text-xs"
+          >
+            {loading ? 'Анализирую...' : 'Запустить ИИ-анализ'}
+          </button>
+        )}
+        {analysis && (
+          <button
+            onClick={run}
+            disabled={loading}
+            className="btn-ghost py-1.5 px-2.5 text-xs"
+          >
+            {loading ? '...' : 'Перегенерировать'}
+          </button>
+        )}
+      </div>
+      {error && <p className="text-red-500 text-sm mb-2">{error}</p>}
+      {expanded && analysis && (
+        <div className="card-bordered p-5 overflow-auto max-h-[600px] prose prose-sm dark:prose-invert max-w-none">
+          <div dangerouslySetInnerHTML={{ __html: renderMarkdown(analysis) }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function renderMarkdown(md: string): string {
+  // Simple markdown to HTML (headers, bold, lists, code)
+  return md
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\n\n/g, '<br/><br/>')
+    .replace(/\n/g, '<br/>')
+}
+
 function LinkingSection({ projectId }: { projectId: string }) {
   const [filter, setFilter] = useState<'all' | 'orphan' | 'hub' | 'isolated'>('all')
 
@@ -639,6 +712,7 @@ export default function CrawlTab({ projectId }: { projectId: string }) {
             )}
           </div>
 
+          <AiAnalysisSection projectId={projectId} />
           <LinkingSection projectId={projectId} />
           <RedirectsSection projectId={projectId} />
           <RobotsAuditSection projectId={projectId} />

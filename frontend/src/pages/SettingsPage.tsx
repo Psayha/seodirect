@@ -215,6 +215,11 @@ function AITab() {
     retry: false,
   })
 
+  const { data: tasksData, isLoading: tasksLoading } = useQuery({
+    queryKey: ['llm-tasks'],
+    queryFn: () => settingsApi.getLLMTasks(),
+  })
+
   const saveMut = useMutation({
     mutationFn: (d: AISettings) => settingsApi.updateAI(d),
     onSuccess: () => {
@@ -224,95 +229,261 @@ function AITab() {
     },
   })
 
+  const taskMut = useMutation({
+    mutationFn: ({ taskId, data: d }: { taskId: string; data: any }) =>
+      settingsApi.updateLLMTask(taskId, d),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['llm-tasks'] }),
+  })
+
+  const resetMut = useMutation({
+    mutationFn: (taskId: string) => settingsApi.resetLLMTask(taskId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['llm-tasks'] }),
+  })
+
+  const [editingTask, setEditingTask] = useState<string | null>(null)
+  const [taskForm, setTaskForm] = useState<{ model?: string; temperature?: number; max_tokens?: number }>({})
+
   if (isLoading) return <Spinner />
 
-  const cur        = { ...data, ...form } as AISettings
-  const isOpenRouter = cur.active_provider === 'openrouter'
-  const models     = modelsData?.models ?? []
+  const cur = { ...data, ...form } as AISettings
+  const models = modelsData?.models ?? []
+
+  // Group tasks by group
+  const tasks = tasksData?.tasks ?? []
+  const groups = tasksData?.groups ?? {}
+  const groupedTasks: Record<string, typeof tasks> = {}
+  for (const t of tasks) {
+    if (!groupedTasks[t.group]) groupedTasks[t.group] = []
+    groupedTasks[t.group].push(t)
+  }
 
   return (
-    <Section title="Параметры ИИ">
-      <div className="flex items-center gap-3">
-        <span className={cx('badge', isOpenRouter ? 'badge-purple' : 'badge-yellow')}>
-          {isOpenRouter ? '⚡ OpenRouter' : '🟠 Anthropic (прямой)'}
-        </span>
-      </div>
+    <div className="space-y-6">
+      {/* Global defaults */}
+      <Section title="Глобальные параметры ИИ (по умолчанию)">
+        <p className="text-xs text-muted -mt-1">
+          Эти настройки используются, если для конкретной задачи не задано своё значение.
+        </p>
 
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <Label>{isOpenRouter ? 'Модель (OpenRouter)' : 'Модель Claude'}</Label>
-          <button
-            onClick={() => refetchModels()}
-            disabled={modelsFetching}
-            className="text-xs text-accent hover:opacity-70 disabled:opacity-40 flex items-center gap-1 transition"
-          >
-            {modelsFetching ? 'Загрузка...' : '↻ Обновить'}
-          </button>
-        </div>
-        {modelsLoading || modelsFetching ? (
-          <div className="field text-muted bg-surface-raised">Загрузка моделей...</div>
-        ) : modelsError || models.length === 0 ? (
-          <div className="space-y-1.5">
-            <input className="field"
-              value={cur.ai_model ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, ai_model: e.target.value }))}
-              placeholder={isOpenRouter ? 'anthropic/claude-sonnet-4-6' : 'claude-sonnet-4-6'} />
-            <p className="text-xs text-amber-600">Введите ID модели вручную или нажмите «Обновить»</p>
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <Label>Модель по умолчанию (OpenRouter)</Label>
+            <button
+              onClick={() => refetchModels()}
+              disabled={modelsFetching}
+              className="text-xs text-accent hover:opacity-70 disabled:opacity-40 flex items-center gap-1 transition"
+            >
+              {modelsFetching ? 'Загрузка...' : '--- Обновить список'}
+            </button>
           </div>
-        ) : (
-          <select className="field"
-            value={cur.ai_model ?? ''}
-            onChange={(e) => setForm((f) => ({ ...f, ai_model: e.target.value }))}>
-            {cur.ai_model && !models.find((m) => m.id === cur.ai_model) && (
-              <option value={cur.ai_model}>{cur.ai_model} (текущая)</option>
-            )}
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>{m.name !== m.id ? `${m.name} — ${m.id}` : m.id}</option>
-            ))}
-          </select>
-        )}
-        {isOpenRouter && (
+          {modelsLoading || modelsFetching ? (
+            <div className="field text-muted bg-surface-raised">Загрузка моделей...</div>
+          ) : modelsError || models.length === 0 ? (
+            <div className="space-y-1.5">
+              <input className="field"
+                value={cur.ai_model ?? ''}
+                onChange={(e) => setForm((f) => ({ ...f, ai_model: e.target.value }))}
+                placeholder="anthropic/claude-sonnet-4-6" />
+              <p className="text-xs text-amber-600">Введите ID модели вручную или нажмите «Обновить»</p>
+            </div>
+          ) : (
+            <select className="field"
+              value={cur.ai_model ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, ai_model: e.target.value }))}>
+              {cur.ai_model && !models.find((m) => m.id === cur.ai_model) && (
+                <option value={cur.ai_model}>{cur.ai_model} (текущая)</option>
+              )}
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>{m.name !== m.id ? `${m.name} -- ${m.id}` : m.id}</option>
+              ))}
+            </select>
+          )}
           <p className="text-xs text-muted mt-1">
             Формат: <code className="bg-surface-raised px-1 rounded">provider/model-name</code>
           </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label>Макс. токенов</Label>
+            <input type="number" className="field"
+              value={cur.ai_max_tokens ?? 4000}
+              onChange={(e) => setForm((f) => ({ ...f, ai_max_tokens: Number(e.target.value) }))} />
+          </div>
+          <div>
+            <Label>Язык</Label>
+            <select className="field"
+              value={cur.ai_language ?? 'Русский'}
+              onChange={(e) => setForm((f) => ({ ...f, ai_language: e.target.value }))}>
+              <option>Русский</option>
+              <option>English</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <Label>Температура: <strong className="text-primary">{(cur.ai_temperature ?? 0.7).toFixed(1)}</strong></Label>
+          <input type="range" min="0" max="1" step="0.1" className="w-full accent-accent"
+            value={cur.ai_temperature ?? 0.7}
+            onChange={(e) => setForm((f) => ({ ...f, ai_temperature: Number(e.target.value) }))} />
+          <div className="flex justify-between text-xs text-muted mt-0.5">
+            <span>0 -- точно</span><span>1 -- творчески</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 pt-1">
+          <button onClick={() => saveMut.mutate(cur)} disabled={saveMut.isPending} className="btn-accent">
+            {saveMut.isPending ? 'Сохранение...' : 'Сохранить глобальные'}
+          </button>
+          {saved && <SaveFeedback ok />}
+        </div>
+      </Section>
+
+      {/* Per-task LLM settings */}
+      <Section title="Настройки ИИ по задачам">
+        <p className="text-xs text-muted -mt-1">
+          Выберите модель, температуру и лимит токенов для каждой задачи. Для экономии можно использовать дешёвые модели на простых задачах, а умные — на сложных.
+        </p>
+
+        {tasksLoading ? <Spinner /> : (
+          <div className="space-y-6">
+            {Object.entries(groupedTasks).map(([groupId, groupTasks]) => (
+              <div key={groupId}>
+                <h5 className="text-xs font-semibold uppercase tracking-widest text-accent mb-3 border-b border-[var(--border)] pb-2">
+                  {groups[groupId] || groupId}
+                </h5>
+                <div className="space-y-2">
+                  {groupTasks.map((t) => {
+                    const isEditing = editingTask === t.id
+                    const hasOverride = t.model !== null || t.temperature !== null || t.max_tokens !== null
+                    const displayModel = t.model || cur.ai_model || t.default_model
+                    const displayTemp = t.temperature ?? cur.ai_temperature ?? t.default_temperature
+                    const displayTokens = t.max_tokens ?? cur.ai_max_tokens ?? t.default_max_tokens
+
+                    return (
+                      <div key={t.id} className="card-bordered overflow-hidden">
+                        <div
+                          className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-surface-raised/50 transition"
+                          onClick={() => {
+                            if (isEditing) {
+                              setEditingTask(null)
+                            } else {
+                              setEditingTask(t.id)
+                              setTaskForm({
+                                model: t.model || '',
+                                temperature: t.temperature ?? t.default_temperature,
+                                max_tokens: t.max_tokens ?? t.default_max_tokens,
+                              })
+                            }
+                          }}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-primary">{t.label}</span>
+                              {hasOverride && (
+                                <span className="badge badge-purple text-[10px] py-0 px-1.5">настроено</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted truncate mt-0.5">{t.description}</p>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0 ml-4">
+                            <span className="text-xs text-muted font-mono">{displayModel.split('/').pop()}</span>
+                            <span className="text-xs text-muted">t={displayTemp.toFixed(1)}</span>
+                            <span className="text-xs text-muted">{displayTokens}tk</span>
+                            <span className="text-muted text-xs">{isEditing ? '---' : '+'}</span>
+                          </div>
+                        </div>
+
+                        {isEditing && (
+                          <div className="px-4 pb-4 pt-2 border-t border-[var(--border)] bg-surface-raised/30 space-y-3">
+                            <div>
+                              <Label>Модель (пусто = глобальная)</Label>
+                              {models.length > 0 ? (
+                                <select className="field"
+                                  value={taskForm.model || ''}
+                                  onChange={(e) => setTaskForm((f) => ({ ...f, model: e.target.value }))}>
+                                  <option value="">-- Глобальная ({cur.ai_model || 'не задана'}) --</option>
+                                  {taskForm.model && !models.find((m) => m.id === taskForm.model) && taskForm.model !== '' && (
+                                    <option value={taskForm.model}>{taskForm.model} (текущая)</option>
+                                  )}
+                                  {models.map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                      {m.name !== m.id ? `${m.name} -- ${m.id}` : m.id}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input className="field"
+                                  value={taskForm.model || ''}
+                                  onChange={(e) => setTaskForm((f) => ({ ...f, model: e.target.value }))}
+                                  placeholder={`Глобальная: ${cur.ai_model || t.default_model}`} />
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label>Температура: <strong className="text-primary">{(taskForm.temperature ?? t.default_temperature).toFixed(1)}</strong></Label>
+                                <input type="range" min="0" max="1" step="0.1" className="w-full accent-accent"
+                                  value={taskForm.temperature ?? t.default_temperature}
+                                  onChange={(e) => setTaskForm((f) => ({ ...f, temperature: Number(e.target.value) }))} />
+                                <div className="flex justify-between text-xs text-muted mt-0.5">
+                                  <span>0 -- точно</span><span>1 -- творчески</span>
+                                </div>
+                              </div>
+                              <div>
+                                <Label>Макс. токенов</Label>
+                                <input type="number" className="field"
+                                  value={taskForm.max_tokens ?? t.default_max_tokens}
+                                  onChange={(e) => setTaskForm((f) => ({ ...f, max_tokens: Number(e.target.value) }))} />
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 pt-1">
+                              <button
+                                onClick={() => {
+                                  const payload: any = {}
+                                  if (taskForm.model) payload.model = taskForm.model
+                                  if (taskForm.temperature !== undefined) payload.temperature = taskForm.temperature
+                                  if (taskForm.max_tokens !== undefined) payload.max_tokens = taskForm.max_tokens
+                                  taskMut.mutate({ taskId: t.id, data: payload })
+                                  setEditingTask(null)
+                                }}
+                                disabled={taskMut.isPending}
+                                className="btn-accent py-1.5 px-3 text-xs"
+                              >
+                                Сохранить
+                              </button>
+                              {hasOverride && (
+                                <button
+                                  onClick={() => {
+                                    resetMut.mutate(t.id)
+                                    setEditingTask(null)
+                                  }}
+                                  disabled={resetMut.isPending}
+                                  className="btn-ghost py-1.5 px-3 text-xs text-amber-600"
+                                >
+                                  Сбросить к глобальным
+                                </button>
+                              )}
+                              <button
+                                onClick={() => setEditingTask(null)}
+                                className="btn-ghost py-1.5 px-3 text-xs"
+                              >
+                                Отмена
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Макс. токенов</Label>
-          <input type="number" className="field"
-            value={cur.ai_max_tokens ?? 4000}
-            onChange={(e) => setForm((f) => ({ ...f, ai_max_tokens: Number(e.target.value) }))} />
-        </div>
-        <div>
-          <Label>Язык</Label>
-          <select className="field"
-            value={cur.ai_language ?? 'Русский'}
-            onChange={(e) => setForm((f) => ({ ...f, ai_language: e.target.value }))}>
-            <option>Русский</option>
-            <option>English</option>
-          </select>
-        </div>
-      </div>
-
-      <div>
-        <Label>Температура: <strong className="text-primary">{(cur.ai_temperature ?? 0.7).toFixed(1)}</strong></Label>
-        <input type="range" min="0" max="1" step="0.1" className="w-full accent-accent"
-          value={cur.ai_temperature ?? 0.7}
-          onChange={(e) => setForm((f) => ({ ...f, ai_temperature: Number(e.target.value) }))} />
-        <div className="flex justify-between text-xs text-muted mt-0.5">
-          <span>0 — точно</span><span>1 — творчески</span>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3 pt-1">
-        <button onClick={() => saveMut.mutate(cur)} disabled={saveMut.isPending} className="btn-accent">
-          {saveMut.isPending ? 'Сохранение...' : 'Сохранить'}
-        </button>
-        {saved && <SaveFeedback ok />}
-      </div>
-    </Section>
+      </Section>
+    </div>
   )
 }
 
@@ -759,7 +930,7 @@ export default function SettingsPage() {
       </div>
 
       <div className={cx(
-        tab === 'api-keys' || tab === 'users' || tab === 'prompts' ? 'max-w-5xl' : 'max-w-2xl'
+        tab === 'api-keys' || tab === 'users' || tab === 'prompts' || tab === 'ai' ? 'max-w-5xl' : 'max-w-2xl'
       )}>
         {tab === 'api-keys'    && <ApiKeysTab />}
         {tab === 'crawler'     && <CrawlerTab />}

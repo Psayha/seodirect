@@ -13,7 +13,25 @@ export interface AISettings {
   ai_max_tokens: number
   ai_temperature: number
   ai_language: string
-  active_provider?: string
+}
+
+export interface LLMTaskConfig {
+  id: string
+  label: string
+  group: string
+  group_label: string
+  description: string
+  default_model: string
+  default_temperature: number
+  default_max_tokens: number
+  model: string | null
+  temperature: number | null
+  max_tokens: number | null
+}
+
+export interface LLMTasksResponse {
+  tasks: LLMTaskConfig[]
+  groups: Record<string, string>
 }
 
 export interface UserRecord {
@@ -47,6 +65,14 @@ export const settingsApi = {
     api.get<AISettings>('/settings/ai').then((r) => r.data),
   updateAI: (data: AISettings) =>
     api.put('/settings/ai', data).then((r) => r.data),
+
+  // Per-task LLM settings
+  getLLMTasks: () =>
+    api.get<LLMTasksResponse>('/settings/ai/tasks').then((r) => r.data),
+  updateLLMTask: (taskId: string, data: { model?: string | null; temperature?: number | null; max_tokens?: number | null }) =>
+    api.put(`/settings/ai/tasks/${taskId}`, data).then((r) => r.data),
+  resetLLMTask: (taskId: string) =>
+    api.delete(`/settings/ai/tasks/${taskId}`).then((r) => r.data),
 
   // Users
   listUsers: () =>

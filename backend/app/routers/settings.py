@@ -32,13 +32,9 @@ AdminDep = require_roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 # ─── API Keys ────────────────────────────────────────────────────────────────
 
 SERVICES = {
-    "anthropic": {
-        "keys": ["anthropic_api_key"],
-        "label": "Anthropic (Claude)",
-    },
     "openrouter": {
         "keys": ["openrouter_api_key"],
-        "label": "OpenRouter (Claude через proxy)",
+        "label": "OpenRouter (LLM провайдер)",
     },
     "wordstat": {
         "keys": ["wordstat_oauth_token"],
@@ -129,18 +125,7 @@ async def test_api_key(
     try:
         async with httpx.AsyncClient(timeout=10) as client:
 
-            if service == "anthropic":
-                key = get_setting("anthropic_api_key", db)
-                if not key:
-                    return {"ok": False, "message": "API key not set"}
-                r = await client.get(
-                    "https://api.anthropic.com/v1/models",
-                    headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
-                )
-                ok = r.status_code == 200
-                return {"ok": ok, "message": "Подключено" if ok else "Неверный API ключ"}
-
-            elif service == "openrouter":
+            if service == "openrouter":
                 key = get_setting("openrouter_api_key", db)
                 if not key:
                     return {"ok": False, "message": "API ключ не задан"}
@@ -278,44 +263,29 @@ async def get_ai_models(
     _: Annotated[object, AdminDep],
     db: Annotated[Session, Depends(get_db)],
 ):
-    """Fetch available models from the active AI provider."""
+    """Fetch available models from OpenRouter."""
     try:
+        openrouter_key = get_setting("openrouter_api_key", db)
+        if not openrouter_key:
+            raise HTTPException(status_code=400, detail="OpenRouter API ключ не задан")
+
         async with httpx.AsyncClient(timeout=15) as client:
-            openrouter_key = get_setting("openrouter_api_key", db)
-            if openrouter_key:
-                r = await client.get(
-                    "https://openrouter.ai/api/v1/models",
-                    headers={"Authorization": f"Bearer {openrouter_key}"},
-                )
-                if r.status_code != 200:
-                    raise HTTPException(status_code=502, detail=f"OpenRouter returned {r.status_code}")
-                data = r.json().get("data", [])
-                models = sorted(
-                    [{"id": m["id"], "name": m.get("name", m["id"])} for m in data if m.get("id")],
-                    key=lambda m: m["id"],
-                )
-                return {"provider": "openrouter", "models": models}
-
-            anthropic_key = get_setting("anthropic_api_key", db)
-            if anthropic_key:
-                r = await client.get(
-                    "https://api.anthropic.com/v1/models",
-                    headers={"x-api-key": anthropic_key, "anthropic-version": "2023-06-01"},
-                )
-                if r.status_code != 200:
-                    raise HTTPException(status_code=502, detail=f"Anthropic returned {r.status_code}")
-                data = r.json().get("data", [])
-                models = sorted(
-                    [{"id": m["id"], "name": m.get("display_name", m["id"])} for m in data if m.get("id")],
-                    key=lambda m: m["id"],
-                )
-                return {"provider": "anthropic", "models": models}
-
-            raise HTTPException(status_code=400, detail="API ключ не задан")
+            r = await client.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={"Authorization": f"Bearer {openrouter_key}"},
+            )
+            if r.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"OpenRouter returned {r.status_code}")
+            data = r.json().get("data", [])
+            models = sorted(
+                [{"id": m["id"], "name": m.get("name", m["id"])} for m in data if m.get("id")],
+                key=lambda m: m["id"],
+            )
+            return {"provider": "openrouter", "models": models}
     except HTTPException:
         raise
     except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Таймаут запроса к API провайдера")
+        raise HTTPException(status_code=504, detail="Таймаут запроса к OpenRouter")
     except Exception:
         logger.exception("Failed to fetch AI models")
         raise HTTPException(status_code=502, detail="Не удалось получить список моделей")
@@ -324,11 +294,10 @@ async def get_ai_models(
 # ─── AI settings ─────────────────────────────────────────────────────────────
 
 class AISettings(BaseModel):
-    ai_model: str = "claude-sonnet-4-20250514"
+    ai_model: str = "anthropic/claude-sonnet-4-20250514"
     ai_max_tokens: int = 4000
     ai_temperature: float = 0.7
     ai_language: str = "Русский"
-    active_provider: str = "anthropic"  # "anthropic" | "openrouter"
 
 
 @router.get("/ai", response_model=AISettings)
@@ -336,13 +305,11 @@ def get_ai_settings(
     _: Annotated[object, AdminDep],
     db: Annotated[Session, Depends(get_db)],
 ):
-    openrouter_key = get_setting("openrouter_api_key", db)
     return AISettings(
-        ai_model=get_setting("ai_model", db) or "claude-sonnet-4-20250514",
+        ai_model=get_setting("ai_model", db) or "anthropic/claude-sonnet-4-20250514",
         ai_max_tokens=int(get_setting("ai_max_tokens", db) or 4000),
         ai_temperature=float(get_setting("ai_temperature", db) or 0.7),
         ai_language=get_setting("ai_language", db) or "Русский",
-        active_provider="openrouter" if openrouter_key else "anthropic",
     )
 
 
@@ -356,6 +323,86 @@ def update_ai_settings(
     for field, value in body.model_dump().items():
         set_setting(field, str(value), db, updated_by=current_user.id)
     return {"detail": "Updated"}
+
+
+# ─── Per-task LLM settings ───────────────────────────────────────────────────
+
+class LLMTaskSettings(BaseModel):
+    model: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+
+
+@router.get("/ai/tasks")
+def get_llm_tasks(
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Get all LLM tasks with their current settings (per-task overrides + defaults)."""
+    from app.services.claude import LLM_TASK_GROUPS, LLM_TASKS
+
+    result = []
+    for task_id, task_info in LLM_TASKS.items():
+        # Read per-task overrides from DB
+        task_model = get_setting(f"llm_{task_id}_model", db)
+        task_temperature = get_setting(f"llm_{task_id}_temperature", db)
+        task_max_tokens = get_setting(f"llm_{task_id}_max_tokens", db)
+
+        result.append({
+            "id": task_id,
+            "label": task_info["label"],
+            "group": task_info["group"],
+            "group_label": LLM_TASK_GROUPS.get(task_info["group"], task_info["group"]),
+            "description": task_info["description"],
+            "default_model": task_info["default_model"],
+            "default_temperature": task_info["default_temperature"],
+            "default_max_tokens": task_info["default_max_tokens"],
+            # Current overrides (null = using global/default)
+            "model": task_model,
+            "temperature": float(task_temperature) if task_temperature else None,
+            "max_tokens": int(task_max_tokens) if task_max_tokens else None,
+        })
+    return {"tasks": result, "groups": LLM_TASK_GROUPS}
+
+
+@router.put("/ai/tasks/{task_id}")
+def update_llm_task(
+    task_id: str,
+    body: LLMTaskSettings,
+    current_user: CurrentUser,
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Update per-task LLM settings (model, temperature, max_tokens)."""
+    from app.services.claude import LLM_TASKS
+
+    if task_id not in LLM_TASKS:
+        raise HTTPException(status_code=404, detail=f"Unknown LLM task: {task_id}")
+
+    if body.model is not None:
+        set_setting(f"llm_{task_id}_model", body.model, db, updated_by=current_user.id)
+    if body.temperature is not None:
+        set_setting(f"llm_{task_id}_temperature", str(body.temperature), db, updated_by=current_user.id)
+    if body.max_tokens is not None:
+        set_setting(f"llm_{task_id}_max_tokens", str(body.max_tokens), db, updated_by=current_user.id)
+    return {"detail": "Updated"}
+
+
+@router.delete("/ai/tasks/{task_id}", status_code=204)
+def reset_llm_task(
+    task_id: str,
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Reset per-task LLM settings to defaults (deletes overrides)."""
+    from app.services.claude import LLM_TASKS
+
+    if task_id not in LLM_TASKS:
+        raise HTTPException(status_code=404, detail=f"Unknown LLM task: {task_id}")
+
+    for suffix in ("model", "temperature", "max_tokens"):
+        delete_setting(f"llm_{task_id}_{suffix}", db)
+    return None
 
 
 # ─── White Label settings ─────────────────────────────────────────────────────
