@@ -24,6 +24,7 @@ const PATHS = {
   sun:      'M12 1v2 M12 21v2 M4.22 4.22l1.42 1.42 M18.36 18.36l1.42 1.42 M1 12h2 M21 12h2 M4.22 19.78l1.42-1.42 M18.36 5.64l1.42-1.42 M12 5a7 7 0 100 14A7 7 0 0012 5z',
   moon:     'M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z',
   bell:     'M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 01-3.46 0',
+  server:   'M2 5a2 2 0 012-2h16a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2V5z M2 15a2 2 0 012-2h16a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z M6 7h.01 M6 17h.01',
   logout:   'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4 M16 17l5-5-5-5 M21 12H9',
   menu:     'M3 12h18 M3 6h18 M3 18h18',
   close:    'M18 6L6 18 M6 6l12 12',
@@ -33,6 +34,7 @@ const NAV = [
   { to: '/projects',    icon: 'projects', label: 'Проекты',      roles: ['super_admin','admin','specialist','viewer'] },
   { to: '/settings',    icon: 'settings', label: 'Настройки',    roles: ['super_admin','admin','specialist'] },
   { to: '/admin/users', icon: 'users',    label: 'Пользователи', roles: ['super_admin','admin'] },
+  { to: '/admin/server', icon: 'server',  label: 'Сервер',       roles: ['super_admin','admin'] },
   { to: '/trash',       icon: 'trash',    label: 'Корзина',      roles: ['super_admin','admin'] },
 ]
 
