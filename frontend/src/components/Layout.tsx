@@ -6,8 +6,11 @@ import { usePushNotifications } from '../hooks/usePushNotifications'
 
 function Icon({ d, size = 20 }: { d: string; size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width={size} height={size} viewBox="0 0 24 24"
+      fill="none" stroke="currentColor"
+      strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"
+    >
       <path d={d} />
     </svg>
   )
@@ -27,28 +30,29 @@ const PATHS = {
 }
 
 const NAV = [
-  { to: '/projects',     icon: 'projects', label: 'Проекты',      roles: ['super_admin','admin','specialist','viewer'] },
-  { to: '/settings',     icon: 'settings', label: 'Настройки',    roles: ['super_admin','admin','specialist'] },
-  { to: '/admin/users',  icon: 'users',    label: 'Пользователи', roles: ['super_admin','admin'] },
-  { to: '/trash',        icon: 'trash',    label: 'Корзина',      roles: ['super_admin','admin'] },
+  { to: '/projects',    icon: 'projects', label: 'Проекты',      roles: ['super_admin','admin','specialist','viewer'] },
+  { to: '/settings',    icon: 'settings', label: 'Настройки',    roles: ['super_admin','admin','specialist'] },
+  { to: '/admin/users', icon: 'users',    label: 'Пользователи', roles: ['super_admin','admin'] },
+  { to: '/trash',       icon: 'trash',    label: 'Корзина',      roles: ['super_admin','admin'] },
 ]
 
-// ── Tooltip wrapper ────────────────────────────────────────────────────────────
+/* ── Tooltip ──────────────────────────────────────────────────────────────── */
 function NavTooltip({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="relative group w-full">
       {children}
       <span
         className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 -translate-y-1/2
-                   px-3 py-1.5 rounded-lg text-xs font-semibold text-white whitespace-nowrap
-                   opacity-0 group-hover:opacity-100
-                   scale-95 group-hover:scale-100
-                   transition-all duration-100 ease-out
-                   shadow-lg z-50"
-        style={{ background: 'var(--sb-panel)', border: '1px solid var(--sb-border)' }}
+                   px-3 py-1.5 rounded-xl text-xs font-semibold text-white whitespace-nowrap z-50
+                   opacity-0 group-hover:opacity-100 translate-x-1 group-hover:translate-x-0
+                   transition-all duration-150 ease-out"
+        style={{
+          background: 'var(--sb-panel)',
+          border: '1px solid var(--sb-border)',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.45)',
+        }}
       >
         {label}
-        {/* Arrow */}
         <span
           className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent"
           style={{ borderRightColor: 'var(--sb-panel)' }}
@@ -58,13 +62,14 @@ function NavTooltip({ label, children }: { label: string; children: React.ReactN
   )
 }
 
-// ── Sidebar ────────────────────────────────────────────────────────────────────
+/* ── Sidebar ──────────────────────────────────────────────────────────────── */
 function Sidebar() {
   const { user, logout } = useAuthStore()
   const { dark, toggle } = useThemeStore()
   const { isSupported, isSubscribed, subscribe, unsubscribe } = usePushNotifications()
   const navigate = useNavigate()
   const location = useLocation()
+  const [logoutHover, setLogoutHover] = useState(false)
 
   const visible = NAV.filter((i) => user && i.roles.includes(user.role))
 
@@ -73,19 +78,29 @@ function Sidebar() {
       className="flex flex-col items-center py-3 w-16 h-full shrink-0"
       style={{ background: 'var(--sb-bg)', borderRight: '1px solid var(--sb-border)' }}
     >
-      {/* Logo */}
+      {/* Logo mark */}
       <div className="mb-4 shrink-0">
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer"
-             style={{ background: 'var(--accent)' }}
-             onClick={() => navigate('/projects')}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white"
-               strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+        <button
+          onClick={() => navigate('/projects')}
+          className="w-9 h-9 rounded-xl flex items-center justify-center
+                     transition-all duration-200 hover:scale-105 hover:brightness-110"
+          style={{
+            background: 'linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%)',
+            boxShadow: '0 2px 14px var(--sb-glow)',
+          }}
+          aria-label="Проекты"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+               stroke="white" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5" />
           </svg>
-        </div>
+        </button>
       </div>
 
-      {/* Nav icons */}
+      {/* Thin divider */}
+      <div className="w-6 h-px mb-2 shrink-0" style={{ background: 'var(--sb-border)' }} />
+
+      {/* Nav items */}
       <div className="flex-1 flex flex-col items-center gap-0.5 w-full px-2.5">
         {visible.map((item) => {
           const isActive = location.pathname.startsWith(item.to)
@@ -94,36 +109,53 @@ function Sidebar() {
               <button
                 onClick={() => navigate(item.to)}
                 className={`sb-btn w-full ${isActive ? 'active' : ''}`}
+                aria-label={item.label}
               >
                 <Icon d={PATHS[item.icon as keyof typeof PATHS]} size={18} />
+                {/* Active indicator dot */}
+                {isActive && (
+                  <span
+                    className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full"
+                    style={{ background: 'var(--accent)', boxShadow: '0 0 8px var(--sb-glow)' }}
+                  />
+                )}
               </button>
             </NavTooltip>
           )
         })}
       </div>
 
-      {/* Bottom */}
+      {/* Bottom controls */}
       <div className="flex flex-col items-center gap-0.5 px-2.5 pb-1 shrink-0">
+        <div className="w-6 h-px mb-1" style={{ background: 'var(--sb-border)' }} />
+
         {isSupported && (
           <NavTooltip label={isSubscribed ? 'Уведомления вкл.' : 'Уведомления выкл.'}>
             <button
               onClick={isSubscribed ? unsubscribe : subscribe}
               className="sb-btn w-full"
               style={{ color: isSubscribed ? 'var(--accent)' : undefined }}
+              aria-label="Уведомления"
             >
               <Icon d={PATHS.bell} size={18} />
             </button>
           </NavTooltip>
         )}
+
         <NavTooltip label={dark ? 'Светлая тема' : 'Тёмная тема'}>
-          <button onClick={toggle} className="sb-btn w-full">
+          <button onClick={toggle} className="sb-btn w-full" aria-label="Переключить тему">
             <Icon d={dark ? PATHS.sun : PATHS.moon} size={18} />
           </button>
         </NavTooltip>
+
         <NavTooltip label="Выйти">
           <button
             onClick={() => { logout(); navigate('/login') }}
-            className="sb-btn w-full hover:text-red-400"
+            className="sb-btn w-full"
+            style={{ color: logoutHover ? '#f87171' : undefined, transition: 'color 0.15s' }}
+            onMouseEnter={() => setLogoutHover(true)}
+            onMouseLeave={() => setLogoutHover(false)}
+            aria-label="Выйти"
           >
             <Icon d={PATHS.logout} size={18} />
           </button>
@@ -133,7 +165,7 @@ function Sidebar() {
   )
 }
 
-// ── Root layout ────────────────────────────────────────────────────────────────
+/* ── Root layout ──────────────────────────────────────────────────────────── */
 export default function Layout() {
   const location = useLocation()
   const { dark, toggle } = useThemeStore()
@@ -152,32 +184,37 @@ export default function Layout() {
 
       {/* Mobile sidebar overlay */}
       {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-30 flex">
+        <div className="lg:hidden fixed inset-0 z-30 flex animate-fade-in">
           <Sidebar />
-          <div className="flex-1 bg-black/50" onClick={() => setMobileOpen(false)} />
+          <div
+            className="flex-1 bg-black/60 backdrop-blur-sm"
+            onClick={() => setMobileOpen(false)}
+          />
         </div>
       )}
 
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top header */}
-        <header className="flex items-center gap-3 h-14 px-4 shrink-0 bg-surface"
-                style={{ borderBottom: '1px solid var(--border)' }}>
+        {/* Mobile header */}
+        <header
+          className="flex items-center gap-3 h-13 px-4 shrink-0 lg:hidden"
+          style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}
+        >
           <button
-            className="lg:hidden p-2 rounded-lg text-muted hover:text-primary hover:bg-surface-raised transition"
+            className="p-2 rounded-xl"
+            style={{ color: 'var(--muted)' }}
             onClick={() => setMobileOpen((v) => !v)}
           >
             <Icon d={mobileOpen ? PATHS.close : PATHS.menu} size={20} />
           </button>
-
-          <span className="text-sm text-muted">SEODirect</span>
-          <span className="text-muted opacity-40">·</span>
-          <span className="text-sm font-semibold text-primary">{currentLabel}</span>
-
-          <div className="ml-auto lg:hidden">
+          <span style={{ color: 'var(--muted)', fontSize: 13 }}>SEODirect</span>
+          <span style={{ color: 'var(--subtle)' }}>·</span>
+          <span style={{ color: 'var(--text)', fontSize: 13, fontWeight: 600 }}>{currentLabel}</span>
+          <div className="ml-auto">
             <button
               onClick={toggle}
-              className="p-2 rounded-lg text-muted hover:text-primary hover:bg-surface-raised transition"
+              className="p-2 rounded-xl"
+              style={{ color: 'var(--muted)' }}
             >
               <Icon d={dark ? PATHS.sun : PATHS.moon} size={18} />
             </button>
