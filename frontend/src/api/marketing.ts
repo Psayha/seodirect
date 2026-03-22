@@ -74,6 +74,34 @@ export interface KeywordsParams {
   search?: string
 }
 
+export interface NicheTemplateListItem {
+  id: string
+  name: string
+  masks_count: number
+  categories_count: number
+}
+
+export interface NicheTemplate {
+  id: string
+  example_masks: string[]
+  mask_categories: string[]
+  example_keywords: string[]
+  negative_keywords_base: string[]
+  modifiers_commercial: string[]
+  modifiers_seo: string[]
+}
+
+export interface CompetitorCrawlResult {
+  url: string
+  title: string
+  h1: string
+  description: string
+  nav_items: string[]
+  anchors: string[]
+  frequent_terms: string[]
+  pages: { url: string; title: string; h1: string }[]
+}
+
 export const marketingApi = {
   // ── Semantic Projects ───────────────────────────────────────────────────────
 
@@ -224,4 +252,48 @@ export const marketingApi = {
         const filename = match ? match[1] : `semantic.${fmt}`
         return { blob: r.data as Blob, filename }
       }),
+
+  // ── Niche Templates ──────────────────────────────────────────────────────
+
+  listNicheTemplates: (): Promise<NicheTemplateListItem[]> =>
+    api.get('/marketing/niche-templates').then((r) => r.data),
+
+  getNicheTemplate: (nicheId: string): Promise<NicheTemplate> =>
+    api.get(`/marketing/niche-templates/${nicheId}`).then((r) => r.data),
+
+  getProjectNicheTemplate: (projectId: string, semId: string): Promise<NicheTemplate> =>
+    api
+      .get(`/projects/${projectId}/marketing/semantic/${semId}/niche-template`)
+      .then((r) => r.data),
+
+  saveNicheTemplateOverride: (
+    projectId: string,
+    semId: string,
+    data: Partial<Omit<NicheTemplate, 'id'>>
+  ): Promise<NicheTemplate> =>
+    api
+      .put(`/projects/${projectId}/marketing/semantic/${semId}/niche-template`, data)
+      .then((r) => r.data),
+
+  // ── Competitors ──────────────────────────────────────────────────────────
+
+  getCompetitors: (projectId: string, semId: string): Promise<{ urls: string[] }> =>
+    api
+      .get(`/projects/${projectId}/marketing/semantic/${semId}/competitors`)
+      .then((r) => r.data),
+
+  addCompetitor: (projectId: string, semId: string, url: string): Promise<{ urls: string[] }> =>
+    api
+      .post(`/projects/${projectId}/marketing/semantic/${semId}/competitors`, { url })
+      .then((r) => r.data),
+
+  removeCompetitor: (projectId: string, semId: string, url: string): Promise<{ urls: string[] }> =>
+    api
+      .delete(`/projects/${projectId}/marketing/semantic/${semId}/competitors`, { data: { url } })
+      .then((r) => r.data),
+
+  crawlCompetitors: (projectId: string, semId: string): Promise<CompetitorCrawlResult[]> =>
+    api
+      .post(`/projects/${projectId}/marketing/semantic/${semId}/competitors/crawl`)
+      .then((r) => r.data),
 }

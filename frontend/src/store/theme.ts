@@ -1,15 +1,22 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+export type ThemeMode = 'light' | 'dark' | 'system'
+
 interface ThemeStore {
-  dark: boolean
-  // null = follow system, true/false = explicit user choice
-  userChoice: boolean | null
-  toggle: () => void
-  setDark: (v: boolean) => void
+  mode: ThemeMode
+  dark: boolean          // resolved: is it actually dark right now?
+  setMode: (m: ThemeMode) => void
+  cycle: () => void      // light → dark → system → light
 }
 
 const sysDark = () => window.matchMedia('(prefers-color-scheme: dark)').matches
+
+function resolve(mode: ThemeMode): boolean {
+  if (mode === 'dark') return true
+  if (mode === 'light') return false
+  return sysDark()
+}
 
 function applyTheme(dark: boolean) {
   document.documentElement.classList.toggle('dark', dark)
@@ -18,33 +25,34 @@ function applyTheme(dark: boolean) {
 export const useThemeStore = create<ThemeStore>()(
   persist(
     (set, get) => ({
+      mode: 'system' as ThemeMode,
       dark: sysDark(),
-      userChoice: null,
 
-      toggle: () => set(() => {
-        const next = !get().dark
-        applyTheme(next)
-        return { dark: next, userChoice: next }
-      }),
+      setMode: (m) => {
+        const dark = resolve(m)
+        applyTheme(dark)
+        set({ mode: m, dark })
+      },
 
-      setDark: (v) => set(() => {
-        applyTheme(v)
-        return { dark: v, userChoice: v }
-      }),
+      cycle: () => {
+        const order: ThemeMode[] = ['light', 'dark', 'system']
+        const idx = order.indexOf(get().mode)
+        const next = order[(idx + 1) % order.length]
+        get().setMode(next)
+      },
     }),
     {
       name: 'seodirect-theme',
-      partialize: (s) => ({ userChoice: s.userChoice }),
+      partialize: (s) => ({ mode: s.mode }),
       onRehydrateStorage: () => (state) => {
         if (!state) return
-        // Apply user's explicit choice, or fall back to system
-        const dark = state.userChoice ?? sysDark()
+        const dark = resolve(state.mode)
         applyTheme(dark)
         state.dark = dark
 
-        // Follow system changes only when user hasn't chosen explicitly
+        // Follow system changes when mode === 'system'
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-          if (useThemeStore.getState().userChoice === null) {
+          if (useThemeStore.getState().mode === 'system') {
             useThemeStore.setState({ dark: e.matches })
             applyTheme(e.matches)
           }

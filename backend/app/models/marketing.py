@@ -35,6 +35,7 @@ class SemanticProject(Base, TimestampMixin):
     needs_brand_check: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 0=created, 1=masks done, 2=expanded, 3=cleaned, 4=clustered
     pipeline_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # niche template overrides, competitor crawl cache
 
 
 class SemanticKeyword(Base, TimestampMixin):
