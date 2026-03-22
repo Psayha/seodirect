@@ -3,10 +3,10 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 
-from app.celery_app import celery_app
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.celery_app import celery_app
 from app.db.session import SessionLocal
 from app.models.geo import AiReadinessAudit, GeoKeyword, GeoScanResult
 from app.models.project import Project
