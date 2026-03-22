@@ -40,7 +40,7 @@ export default function DebugPanel() {
       const url = (config.baseURL || '') + (config.url || '')
       addLog({
         id,
-        ts: new Date().toLocaleTimeString('ru-RU', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 }),
+        ts: new Date().toLocaleTimeString('ru-RU', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         method: (config.method || 'GET').toUpperCase(),
         url,
         reqBody: config.data ? (typeof config.data === 'string' ? tryParse(config.data) : config.data) : undefined,
@@ -198,7 +198,7 @@ export default function DebugPanel() {
             </div>
             {expanded === entry.id && (
               <div className="px-3 pb-2 space-y-1">
-                {entry.reqBody && (
+                {entry.reqBody != null && (
                   <div>
                     <span className="text-gray-500">Request:</span>
                     <pre className="text-green-300 bg-gray-950 rounded p-2 mt-0.5 overflow-x-auto max-h-[200px] overflow-y-auto whitespace-pre-wrap break-all">
