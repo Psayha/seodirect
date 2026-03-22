@@ -3,10 +3,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 
+import httpx
+
 from app.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
@@ -292,8 +297,6 @@ async def _collect_serp_suggestions(
     """
     import asyncio
 
-    import httpx
-
     all_suggestions: list[str] = []
     seen: set[str] = set()
     request_count = 0
@@ -372,13 +375,9 @@ async def _extract_content_gap_keywords(
     Safety: SSRF on every URL + redirect hop, crawl delay 1s, connection limits.
     """
     import asyncio
-    import logging
     import re
 
-    import httpx
     from bs4 import BeautifulSoup
-
-    logger = logging.getLogger(__name__)
 
     # Crawl competitor internal pages (up to 15 per site, max 3 sites)
     comp_pages: list[dict] = []
@@ -491,8 +490,6 @@ async def _cluster_via_topvisor(
 
     Returns list of {"group_id": str, "keywords": [str]} or None if failed/timeout.
     """
-    import logging
-    logger = logging.getLogger(__name__)
 
     from app.services.topvisor import (
         add_keywords_to_project,
@@ -722,12 +719,9 @@ def task_semantic_expand(
                         parts.append(page_info)
                     site_context = "\n".join(parts)
         except Exception:
-            import logging
-            logging.getLogger(__name__).warning("Failed to load crawl data for semantic expand", exc_info=True)
+            logger.warning("Failed to load crawl data for semantic expand", exc_info=True)
 
         # ── Wordstat: collect suggestions (nested + similar) per mask ──────
-        import logging
-        logger = logging.getLogger(__name__)
 
         total_masks = len(mask_phrases)
         all_phrases: list[str] = []
@@ -951,8 +945,7 @@ def task_semantic_expand(
                                     cached_at=now,
                                 ))
                     except Exception as exc:
-                        import logging
-                        logging.getLogger(__name__).warning("Wordstat batch error: %s", exc)
+                        logger.warning("Wordstat batch error: %s", exc)
 
                     if task:
                         task.progress = min(85, int(50 + (i + sub_batch) / len(uncached) * 35))
@@ -1141,7 +1134,6 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
     from app.models.task import Task, TaskStatus  # noqa: PLC0415
     from app.services.claude import get_claude_client  # noqa: PLC0415
 
-    logger = logging.getLogger(__name__)
     db = SessionLocal()
     task = None
     try:
@@ -1466,7 +1458,6 @@ async def _safe_get(
     client: "httpx.AsyncClient", url: str, max_redirects: int = 3,
 ) -> "httpx.Response | None":
     """GET with manual redirect following + SSRF check on each hop."""
-    import httpx
     current_url = url
     for _ in range(max_redirects + 1):
         if not _is_safe_url_crawl(current_url):
@@ -1505,7 +1496,6 @@ async def _crawl_competitor_pages(
     """
     import asyncio
 
-    import httpx
     from bs4 import BeautifulSoup
 
     lines: list[str] = []
@@ -1670,8 +1660,6 @@ def _kw_type_classify(exact: int) -> str | None:
 @celery_app.task(bind=True, name="tasks.marketing.semantic_autopilot", max_retries=0)
 def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id: str, min_freq_exact: int = 0):
     """Full semantic pipeline: brief -> competitors -> masks -> wordstat suggestions -> matrix -> expand -> clean -> cluster."""
-    import logging
-
     from sqlalchemy import select
 
     from app.db.session import SessionLocal
@@ -1682,7 +1670,6 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
     from app.services.settings_service import get_prompt
     from app.services.wordstat import get_wordstat_client
 
-    logger = logging.getLogger(__name__)
     db = SessionLocal()
     task = None
     try:
