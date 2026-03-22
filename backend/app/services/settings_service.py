@@ -11,7 +11,9 @@ from app.services.encryption import decrypt, encrypt
 # Определяем какие ключи являются API ключами (шифруются)
 API_KEY_FIELDS = {
     "openrouter_api_key",
-    "wordstat_oauth_token",
+    "wordstat_oauth_token",  # deprecated, kept for backward compat
+    "wordstat_api_key",
+    "wordstat_folder_id",
     "topvisor_api_key",
     "topvisor_user_id",
     "metrika_oauth_token",

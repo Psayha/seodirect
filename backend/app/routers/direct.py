@@ -343,11 +343,13 @@ async def keyword_dynamics(
     if not phrase:
         raise HTTPException(status_code=400, detail="phrase required")
     from app.services.settings_service import get_setting
-    from app.services.wordstat import WordstatClient
-    token = get_setting("wordstat_oauth_token", db)
-    if not token:
-        raise HTTPException(status_code=400, detail="Wordstat OAuth token not configured")
-    client = WordstatClient(token)
+    from app.services.wordstat import get_wordstat_client
+    client = get_wordstat_client(db)
+    if not client:
+        raise HTTPException(
+            status_code=400,
+            detail="Wordstat API key or folder ID not configured. Add them in Settings → API keys.",
+        )
     data = await client.get_dynamics(phrase)
     return {"phrase": phrase, "dynamics": data}
 
