@@ -451,7 +451,11 @@ async def content_gap_analysis(
             logger.warning("Failed to crawl competitor URL %s: %s", comp_url, str(e)[:200])
 
     from app.services.claude import get_claude_client
-    claude = get_claude_client(db, task_type="seo_content_gap")
+
+    try:
+        claude = get_claude_client(db, task_type="seo_content_gap")
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
     client_list = "\n".join(
         f"- {p['url']}: {p.get('title', '')} | {p.get('h1', '')}"
@@ -461,6 +465,12 @@ async def content_gap_analysis(
         f"- {p['url']}: {p.get('title', '')} | {p.get('h1', '')}"
         for p in competitor_pages[:50]
     )
+
+    if not comp_list:
+        raise HTTPException(
+            status_code=422,
+            detail="Не удалось загрузить страницы конкурентов. Проверьте URL-адреса.",
+        )
 
     system_prompt = get_prompt("seo_content_gap", db) or "Ты — SEO-аналитик. Находи контентные пробелы между сайтами. Отвечай только JSON."
     user_msg = f"""Вот страницы сайта клиента:
@@ -473,12 +483,21 @@ async def content_gap_analysis(
 Верни ТОЛЬКО JSON (без markdown):
 {{"gaps": [{{"topic": "строка", "example_url": "url", "priority": "high|medium|low", "content_type": "page|article|landing"}}]}}"""
 
-    response_text = await claude.generate(system_prompt, user_msg)
+    try:
+        response_text = await claude.generate(system_prompt, user_msg)
+    except Exception as e:
+        logger.exception("Content-gap Claude call failed for project %s", project_id)
+        raise HTTPException(status_code=502, detail=f"Ошибка ИИ-анализа: {e}")
+
     json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
     if not json_match:
-        raise HTTPException(status_code=502, detail="Failed to parse Claude response")
+        raise HTTPException(status_code=502, detail="Не удалось разобрать ответ ИИ")
 
-    data = json.loads(json_match.group())
+    try:
+        data = json.loads(json_match.group())
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="ИИ вернул невалидный JSON")
+
     return {
         "gaps": data.get("gaps", []),
         "competitor_pages_analyzed": pages_analyzed,
