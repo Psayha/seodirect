@@ -46,7 +46,7 @@ def _build_expand_prompt(
         lines.append(f"\nДанные анализа сайта (структура, УТП, ключевые темы):\n{site_context}")
     if modifiers:
         lines.append(f"\nОбязательно используй модификаторы: {', '.join(modifiers)}")
-    lines.append("\nСгенерируй 60–100 поисковых запросов. Включи:")
+    lines.append("\nСгенерируй 200–300 поисковых запросов. Включи:")
     lines.append("- Коммерческие (купить, заказать, цена, стоимость, недорого)")
     lines.append("- Характеристики и типы (виды, размеры, материалы)")
     lines.append("- Целевые (для [аудитория], в [город/место])")
@@ -218,19 +218,67 @@ def task_semantic_expand(
             import logging
             logging.getLogger(__name__).warning("Failed to load crawl data for semantic expand", exc_info=True)
 
-        # ── Claude: generate keywords per mask ───────────────────────────────
+        # ── Wordstat: collect suggestions (nested + similar) per mask ──────
         import logging
         logger = logging.getLogger(__name__)
+
+        total_masks = len(mask_phrases)
+        all_phrases: list[str] = []
+        seen: set[str] = set(p.lower() for p in mask_phrases)
+        ws_suggestions_count = 0
+
+        wordstat_for_suggestions = get_wordstat_client(db)
+        if wordstat_for_suggestions:
+            logger.info("Collecting Wordstat suggestions for %d masks", total_masks)
+            for idx, mask in enumerate(mask_phrases):
+                try:
+                    suggestions = _run_async(
+                        wordstat_for_suggestions.get_suggestions(
+                            mask,
+                            regions=[sp.region_id] if sp.region_id else None,
+                            num_phrases=200,
+                        )
+                    )
+                    for item in suggestions.get("nested", []):
+                        p = item["phrase"].strip().lower()
+                        if p and p not in seen:
+                            seen.add(p)
+                            all_phrases.append(p)
+                            ws_suggestions_count += 1
+                    for item in suggestions.get("similar", []):
+                        p = item["phrase"].strip().lower()
+                        if p and p not in seen:
+                            seen.add(p)
+                            all_phrases.append(p)
+                            ws_suggestions_count += 1
+                except Exception as exc:
+                    logger.warning("Wordstat suggestions error for mask '%s': %s", mask, exc)
+
+                if task:
+                    task.progress = int(5 + (idx + 1) / total_masks * 10)  # 5→15
+                    db.commit()
+
+            logger.info("Wordstat suggestions: %d unique phrases collected", ws_suggestions_count)
+        else:
+            logger.warning("Wordstat not configured — skipping suggestions")
+
+        if task:
+            task.progress = 15
+            db.commit()
+
+        # ── Claude: generate keywords per mask ───────────────────────────────
+        MIN_TARGET_KEYWORDS = 300
 
         claude = get_claude_client(db, task_type="semantic_expand")
         from app.services.settings_service import get_prompt
         expand_system = get_prompt("semantic_expand", db) or _EXPAND_SYSTEM
-        all_phrases: list[str] = []
-        total_masks = len(mask_phrases)
         mask_errors: list[str] = []
         masks_ok = 0
 
-        logger.info("Expanding %d masks (model=%s, max_tokens=%s)", total_masks, claude.model, claude.max_tokens)
+        logger.info(
+            "Expanding %d masks (model=%s, max_tokens=%s), already have %d from Wordstat",
+            total_masks, claude.model, claude.max_tokens, ws_suggestions_count,
+        )
 
         for idx, mask in enumerate(mask_phrases):
             prompt = _build_expand_prompt(
@@ -252,32 +300,83 @@ def task_semantic_expand(
                 logger.info("Mask '%s': parsed %d keywords", mask, len(phrases))
                 if phrases:
                     masks_ok += 1
-                    all_phrases.extend(phrases)
+                    for p in phrases:
+                        if p not in seen:
+                            seen.add(p)
+                            all_phrases.append(p)
                 else:
                     mask_errors.append(f"'{mask}': пустой результат парсинга (ответ {len(raw or '')} символов)")
             except Exception as exc:
                 from app.services.claude import LLMBillingError
                 logger.warning("Claude error for mask '%s': %s", mask, exc)
                 mask_errors.append(f"'{mask}': {exc}")
-                # Billing/auth errors won't resolve — stop immediately
                 if isinstance(exc, LLMBillingError):
                     raise
 
             if task:
-                task.progress = int(10 + (idx + 1) / total_masks * 40)  # 10→50
+                task.progress = int(15 + (idx + 1) / total_masks * 25)  # 15→40
                 db.commit()
 
-        # Deduplicate and filter out masks themselves
-        seen: set[str] = set(mask_phrases)
-        unique_phrases: list[str] = []
-        for p in all_phrases:
-            if p not in seen:
-                seen.add(p)
-                unique_phrases.append(p)
+        logger.info(
+            "After pass 1: %d unique phrases (Wordstat: %d, Claude: %d)",
+            len(all_phrases), ws_suggestions_count, len(all_phrases) - ws_suggestions_count,
+        )
+
+        # ── Iterative expansion: if < MIN_TARGET, do additional Claude passes ──
+        if len(all_phrases) < MIN_TARGET_KEYWORDS and masks_ok > 0:
+            max_extra_passes = 2
+            for pass_num in range(1, max_extra_passes + 1):
+                if len(all_phrases) >= MIN_TARGET_KEYWORDS:
+                    break
+                logger.info(
+                    "Extra pass %d: have %d, need %d more",
+                    pass_num, len(all_phrases), MIN_TARGET_KEYWORDS - len(all_phrases),
+                )
+                for mask in mask_phrases:
+                    if len(all_phrases) >= MIN_TARGET_KEYWORDS:
+                        break
+                    # Show Claude what we already have so it generates NEW ones
+                    existing_sample = list(seen)[:200]
+                    extra_prompt = (
+                        f'Расширь маску «{mask}» для '
+                        f'{"SEO-продвижения" if sp.mode.value == "seo" else "Яндекс Директ"}.\n\n'
+                        f'УЖЕ СОБРАННЫЕ запросы (НЕ повторяй их):\n'
+                        f'{json.dumps(existing_sample, ensure_ascii=False)}\n\n'
+                        f'Сгенерируй ещё 100–200 НОВЫХ запросов, которых нет в списке выше.\n'
+                        f'Используй:\n'
+                        f'- Синонимы и переформулировки\n'
+                        f'- Длиннохвостые запросы (3-5 слов)\n'
+                        f'- Вопросительные формы (как, где, сколько, какой)\n'
+                        f'- Модификаторы (цена, стоимость, отзывы, рейтинг, сравнение)\n'
+                        f'- Географические вариации\n'
+                        f'- Сезонные и временные (2024, 2025, зимой, летом)\n\n'
+                        f'Верни ТОЛЬКО JSON-массив строк.'
+                    )
+                    try:
+                        raw = _run_async(claude.generate(expand_system, extra_prompt))
+                        phrases = _parse_json_array(raw)
+                        new_count = 0
+                        for p in phrases:
+                            if p not in seen:
+                                seen.add(p)
+                                all_phrases.append(p)
+                                new_count += 1
+                        logger.info("Extra pass %d, mask '%s': +%d new phrases", pass_num, mask, new_count)
+                    except Exception as exc:
+                        from app.services.claude import LLMBillingError
+                        logger.warning("Extra pass error for '%s': %s", mask, exc)
+                        if isinstance(exc, LLMBillingError):
+                            break
+
+                if task:
+                    task.progress = int(40 + pass_num / max_extra_passes * 10)  # 40→50
+                    db.commit()
+
+        unique_phrases = all_phrases  # already deduplicated via `seen`
 
         logger.info(
-            "Claude total: %d phrases generated, %d unique after dedup",
-            len(all_phrases), len(unique_phrases),
+            "Total: %d unique phrases (Wordstat suggestions: %d)",
+            len(unique_phrases), ws_suggestions_count,
         )
 
         if task:
@@ -423,7 +522,13 @@ def task_semantic_expand(
         if task:
             task.status = TaskStatus.SUCCESS
             task.progress = 100
-            task.result = {"saved": saved, "generated": len(unique_phrases), "masks_used": total_masks}
+            task.result = {
+                "saved": saved,
+                "generated": len(unique_phrases),
+                "from_wordstat": ws_suggestions_count,
+                "from_claude": len(unique_phrases) - ws_suggestions_count,
+                "masks_used": total_masks,
+            }
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
 

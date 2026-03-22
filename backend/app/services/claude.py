@@ -132,7 +132,7 @@ LLM_TASKS: dict[str, dict] = {
         "group": "marketing",
         "default_model": "anthropic/claude-sonnet-4-20250514",
         "default_temperature": 0.7,
-        "default_max_tokens": 8000,
+        "default_max_tokens": 16000,
         "description": "Расширение масок ключевых слов в полный список фраз",
     },
     "semantic_cluster": {

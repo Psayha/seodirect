@@ -104,7 +104,7 @@ function Legend({ onClose }: { onClose: () => void }) {
           <div className="text-xs text-muted space-y-1.5">
             <p><b>1. Проект</b> — выбираете режим (SEO или Директ) и регион</p>
             <p><b>2. Маски</b> — вводите базовые фразы вашей ниши (1–2 слова). Wordstat показывает частотность</p>
-            <p><b>3. Расширение</b> — ИИ генерирует 60–100 поисковых запросов на каждую маску, учитывая бриф и данные сайта. Wordstat собирает частоты</p>
+            <p><b>3. Расширение</b> — Wordstat собирает вложенные и похожие запросы по каждой маске, затем ИИ дорасширяет до 300+ ключей. Частоты собираются автоматически</p>
             <p><b>4. Очистка</b> — убираете мусор: нулевые запросы, слишком длинные, с минус-словами. Расставляете флаги и интенты</p>
             <p><b>5. Кластеры</b> — ИИ группирует ключи по смыслу. Для Директа предлагает тип кампании и заголовок</p>
             <p><b>6. Экспорт</b> — скачиваете результат в Excel, CSV или TXT</p>
@@ -580,8 +580,10 @@ function ExpandStep({
           <div className="flex items-center gap-2 text-sm text-accent">
             <span className="w-4 h-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
             <span>
-              {progress < 50
-                ? `Генерация ключей... ${progress}%`
+              {progress < 15
+                ? `Сбор подсказок Wordstat... ${progress}%`
+                : progress < 50
+                ? `Генерация ключей (Claude)... ${progress}%`
                 : progress < 85
                 ? `Сбор частотности... ${progress}%`
                 : `Сохранение... ${progress}%`}
@@ -617,7 +619,13 @@ function ExpandStep({
             </svg>
             <p className="text-sm font-medium text-accent">
               Расширение выполнено — {totalKw.toLocaleString('ru')} ключей
-              {taskResult?.result && ` (сохранено: ${(taskResult.result as any).saved})`}
+              {taskResult?.result && (() => {
+                const r = taskResult.result as any;
+                const parts = [`сохранено: ${r.saved}`];
+                if (r.from_wordstat) parts.push(`из Wordstat: ${r.from_wordstat}`);
+                if (r.from_claude) parts.push(`от Claude: ${r.from_claude}`);
+                return ` (${parts.join(', ')})`;
+              })()}
             </p>
           </div>
           <div className="flex items-center gap-3">
