@@ -277,7 +277,13 @@ async def collect_masks(
             KeywordCache.cached_at > cutoff,
         )
     ).all()
-    cached_map: dict[str, KeywordCache] = {row.phrase: row for row in cached_rows}
+    # Skip all-zero cache entries — they likely came from failed API calls
+    cached_map: dict[str, KeywordCache] = {
+        row.phrase: row
+        for row in cached_rows
+        if (row.frequency_base or 0) + (row.frequency_phrase or 0)
+        + (row.frequency_exact or 0) + (row.frequency_order or 0) > 0
+    }
     uncached = [m for m in masks if m not in cached_map]
 
     # ── Fetch uncached from Wordstat ──────────────────────────────────────────
@@ -295,9 +301,12 @@ async def collect_masks(
             logger.exception("Wordstat error: %s", exc)
             raise HTTPException(status_code=502, detail="Wordstat API error")
 
-        # Save to cache
+        # Save to cache (skip all-zero results — likely API errors)
         now = datetime.now(tz=timezone.utc)
         for phrase, freqs in fresh.items():
+            total = freqs["base"] + freqs["phrase_freq"] + freqs["exact"] + freqs["order"]
+            if total == 0:
+                continue  # Don't cache zeros from failed/empty API responses
             existing_cache = db.scalar(
                 select(KeywordCache).where(
                     KeywordCache.phrase == phrase,

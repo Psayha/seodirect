@@ -134,6 +134,7 @@ class WordstatClient:
             return {}
 
         results: dict[str, int] = {}
+        batch_errors: list[Exception] = []
         async with httpx.AsyncClient(timeout=120) as client:
             # Обрабатываем батчами по MAX_PHRASES_PER_REPORT
             sem = asyncio.Semaphore(MAX_CONCURRENT_REPORTS)
@@ -147,6 +148,7 @@ class WordstatClient:
                             if phrase_key:
                                 results[phrase_key] = self._extract_shows(item)
                     except Exception as exc:
+                        batch_errors.append(exc)
                         logger.warning("Wordstat get_frequencies batch error: %s", exc)
 
             tasks = []
@@ -154,6 +156,15 @@ class WordstatClient:
                 batch = phrases[i : i + MAX_PHRASES_PER_REPORT]
                 tasks.append(_process_batch(batch))
             await asyncio.gather(*tasks)
+
+        # If all batches failed, propagate the error
+        total_batches = len(range(0, len(phrases), MAX_PHRASES_PER_REPORT))
+        if batch_errors and len(batch_errors) >= total_batches:
+            raise WordstatError(
+                0,
+                f"All {len(batch_errors)} Wordstat batches failed",
+                str(batch_errors[0]),
+            )
 
         return results
 
@@ -194,6 +205,7 @@ class WordstatClient:
 
         # Собираем частоты (макс. 10 фраз/отчёт, макс. 5 параллельно)
         raw: dict[str, int] = {}
+        batch_errors: list[Exception] = []
         async with httpx.AsyncClient(timeout=120) as client:
             sem = asyncio.Semaphore(MAX_CONCURRENT_REPORTS)
 
@@ -206,6 +218,7 @@ class WordstatClient:
                             if vphrase:
                                 raw[vphrase] = self._extract_shows(item)
                     except Exception as exc:
+                        batch_errors.append(exc)
                         logger.warning("Wordstat get_all_frequencies batch error: %s", exc)
 
             tasks = []
@@ -213,6 +226,15 @@ class WordstatClient:
                 batch = all_variant_phrases[i : i + MAX_PHRASES_PER_REPORT]
                 tasks.append(_process_batch(batch))
             await asyncio.gather(*tasks)
+
+        # If all batches failed, propagate the error
+        total_batches = len(range(0, len(all_variant_phrases), MAX_PHRASES_PER_REPORT))
+        if batch_errors and len(batch_errors) >= total_batches:
+            raise WordstatError(
+                0,
+                f"All {len(batch_errors)} Wordstat batches failed",
+                str(batch_errors[0]),
+            )
 
         # Маппим обратно на оригинальные фразы
         results: dict[str, dict] = {}
