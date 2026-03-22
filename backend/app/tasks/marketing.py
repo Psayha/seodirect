@@ -809,17 +809,28 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
 
 # ─── Mask Generation from Brief ──────────────────────────────────────────────
 
-_MASKS_SYSTEM = """Ты — специалист по сбору семантического ядра для Яндекс и Google.
-Твоя задача — на основе описания бизнеса сгенерировать базовые маски (корневые поисковые запросы из 1–3 слов).
+_MASKS_SYSTEM = """Ты — опытный PPC/SEO-специалист по сбору семантического ядра для Яндекс и Google.
+Твоя задача — сгенерировать ПОЛНЫЙ список базовых масок (корневые запросы 1–4 слова).
+
+КРИТИЧЕСКИ ВАЖНО:
+- Маска — это базис запроса БЕЗ модификаторов (цена/купить/недорого добавятся автоматически потом)
+- Генерируй ПРОДУКТОВЫЕ маски: конкретные товары, услуги, их разновидности
+- Включай СИНОНИМЫ (каркасный дом / щитовой дом / каркасно-щитовой дом)
+- Включай РАЗМЕРЫ и ХАРАКТЕРИСТИКИ (дом 6х6, дом 6х8, одноэтажный дом, дом с мансардой)
+- Включай ТИПЫ и МАТЕРИАЛЫ (дом из сип панелей, дом из бруса)
+- Включай НАЗНАЧЕНИЕ (дом для дачи, дом для постоянного проживания)
+- НЕ добавляй модификаторы типа "купить", "цена", "стоимость", "недорого" — они будут добавлены отдельно
+
 Отвечай строго JSON-массивом строк на русском языке. Никакого другого текста."""
 
 
 def _build_masks_prompt(
     niche: str | None, products: str | None, target_audience: str | None,
     pains: str | None, usp: str | None, geo: str | None, mode: str,
+    competitor_context: str | None = None, site_context: str | None = None,
 ) -> str:
-    mode_hint = "SEO-продвижения (включай информационные и коммерческие)" if mode == "seo" else "Яндекс Директ (только коммерческие)"
-    lines = [f"Сгенерируй базовые маски (корневые поисковые запросы из 1–3 слов) для {mode_hint}."]
+    mode_hint = "SEO-продвижения (информационные + коммерческие)" if mode == "seo" else "Яндекс Директ (коммерческие)"
+    lines = [f"Сгенерируй ПОЛНЫЙ список базовых масок для {mode_hint}."]
     if niche:
         lines.append(f"\nНиша: {niche}")
     if products:
@@ -832,12 +843,109 @@ def _build_masks_prompt(
         lines.append(f"УТП: {usp}")
     if geo:
         lines.append(f"Регион: {geo}")
-    lines.append("\nСгенерируй 10–20 масок. Каждая маска — 1–3 слова.")
-    lines.append("Включи: основные продукты/услуги, типы запросов (купить, заказать, цена), категории.")
-    if mode == "seo":
-        lines.append("Также включи информационные маски: как выбрать, обзор, плюсы и минусы.")
-    lines.append('\nВерни ТОЛЬКО JSON-массив. Пример: ["купить диван", "диван цена", "мягкая мебель"]')
+    if site_context:
+        lines.append(f"\nСтраницы сайта клиента (структура, услуги, товары):\n{site_context}")
+    if competitor_context:
+        lines.append(f"\nСтраницы конкурентов (какие услуги/товары продвигают):\n{competitor_context}")
+    lines.append("""
+Сгенерируй 30–60 масок. Обязательно включи:
+1. Основные продукты/услуги и их синонимы (каркасный дом, щитовой дом, каркасно-щитовой дом)
+2. Разновидности по размеру (6х6, 6х8, 6х9, 8х8, 9х9, 100 кв м, 120 кв м)
+3. Разновидности по типу (одноэтажный, двухэтажный, с мансардой, с террасой)
+4. Разновидности по назначению (для дачи, для постоянного проживания, круглогодичный)
+5. Разновидности по материалу/технологии (из сип панелей, каркасно-щитовой, деревянный)
+6. Этапы/услуги (строительство, проект, фундамент, отделка, коммуникации)
+7. Ценовые категории как продукт (бюджетный дом, эконом дом)
+8. Готовые решения (домокомплект, готовый дом)
+
+НЕ добавляй модификаторы (купить/цена/стоимость/недорого/под ключ) — они будут добавлены автоматически.
+Каждая маска — 1–4 слова, БЕЗ коммерческих модификаторов.""")
+    lines.append('\nВерни ТОЛЬКО JSON-массив. Пример: ["каркасный дом", "дом 6х6", "одноэтажный каркасный дом"]')
     return "\n".join(lines)
+
+
+# ─── Competitor crawling for masks ───────────────────────────────────────────
+
+async def _crawl_competitor_pages(urls: list[str], max_pages_per_site: int = 15) -> str:
+    """Crawl competitor URLs, extract title/H1/H2 for context."""
+    import httpx
+    from bs4 import BeautifulSoup
+
+    lines: list[str] = []
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers={"User-Agent": "SEODirectBot/1.0"}) as client:
+        for url in urls[:5]:  # max 5 competitors
+            try:
+                r = await client.get(url)
+                if r.status_code != 200:
+                    continue
+                soup = BeautifulSoup(r.text, "html.parser")
+                title = (soup.title.string or "").strip() if soup.title else ""
+                h1 = soup.find("h1")
+                h1_text = h1.get_text(strip=True) if h1 else ""
+                h2s = [h.get_text(strip=True) for h in soup.find_all("h2")[:10]]
+                lines.append(f"URL: {url}")
+                if title:
+                    lines.append(f"  Title: {title}")
+                if h1_text:
+                    lines.append(f"  H1: {h1_text}")
+                if h2s:
+                    lines.append(f"  H2: {'; '.join(h2s)}")
+
+                # Crawl internal links for product/service pages
+                internal = set()
+                base = f"{r.url.scheme}://{r.url.host}"
+                for a in soup.find_all("a", href=True):
+                    href = a["href"]
+                    if href.startswith("/") and not href.startswith("//"):
+                        href = base + href
+                    if href.startswith(base) and href != str(r.url) and len(internal) < max_pages_per_site:
+                        internal.add(href)
+
+                for iurl in list(internal)[:max_pages_per_site]:
+                    try:
+                        ir = await client.get(iurl)
+                        if ir.status_code != 200:
+                            continue
+                        isoup = BeautifulSoup(ir.text, "html.parser")
+                        it = (isoup.title.string or "").strip() if isoup.title else ""
+                        ih1 = isoup.find("h1")
+                        ih1_text = ih1.get_text(strip=True) if ih1 else ""
+                        if it or ih1_text:
+                            lines.append(f"  Страница: {iurl} | {it} | H1: {ih1_text}")
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+    return "\n".join(lines) if lines else ""
+
+
+# ─── Modifiers matrix ────────────────────────────────────────────────────────
+
+_DEFAULT_COMMERCIAL_MODIFIERS = [
+    "купить", "заказать", "цена", "стоимость", "сколько стоит",
+    "недорого", "дешево", "под ключ",
+]
+
+_DEFAULT_SEO_MODIFIERS = [
+    "купить", "заказать", "цена", "стоимость", "сколько стоит",
+    "недорого", "под ключ", "отзывы", "проекты",
+    "плюсы и минусы", "как выбрать",
+]
+
+
+def _generate_modifier_matrix(bases: list[str], modifiers: list[str], geo: str | None = None) -> list[str]:
+    """Cross-multiply base phrases with modifiers to get real search queries."""
+    result: list[str] = []
+    for base in bases:
+        for mod in modifiers:
+            result.append(f"{base} {mod}")
+            if geo:
+                result.append(f"{base} {mod} {geo}")
+        # base + geo without modifier
+        if geo:
+            result.append(f"{base} {geo}")
+            result.append(f"{base} в {geo}")
+    return result
 
 
 # ─── Autopilot Task ──────────────────────────────────────────────────────────
@@ -854,7 +962,7 @@ def _kw_type_classify(exact: int) -> str | None:
 
 @celery_app.task(bind=True, name="tasks.marketing.semantic_autopilot", max_retries=0)
 def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id: str, min_freq_exact: int = 0):
-    """Full semantic pipeline: brief -> masks -> expand -> clean -> cluster."""
+    """Full semantic pipeline: brief -> competitors -> masks -> wordstat suggestions -> matrix -> expand -> clean -> cluster."""
     import logging
 
     from sqlalchemy import select
@@ -875,7 +983,7 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         if task:
             task.status = TaskStatus.RUNNING
             task.progress = 0
-            task.result = {"stage": "masks", "stage_label": "Генерация масок из бриф"}
+            task.result = {"stage": "competitors", "stage_label": "Анализ конкурентов и сайта"}
             db.commit()
 
         sem_id = uuid.UUID(sem_project_id)
@@ -887,26 +995,48 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         if not brief or not (brief.niche or brief.products):
             raise RuntimeError("Бриф не заполнен. Укажите хотя бы нишу или продукты перед запуском автопилота.")
 
-        # ── Phase 1: Generate masks from brief (0-10%) ────────────────────
+        # ── Phase 0: Gather context — competitors + site (0-5%) ───────────
+        competitor_ctx = ""
+        if brief.competitors_urls:
+            try:
+                competitor_ctx = _run_async(_crawl_competitor_pages(brief.competitors_urls))
+                logger.info("Autopilot: competitor context %d chars from %d URLs", len(competitor_ctx), len(brief.competitors_urls))
+            except Exception as exc:
+                logger.warning("Autopilot competitor crawl: %s", exc)
+
+        site_ctx = None
+        try:
+            from app.models.crawl import CrawlSession, CrawlStatus, Page
+            cr = db.scalar(select(CrawlSession).where(CrawlSession.project_id == uuid.UUID(project_id), CrawlSession.status == CrawlStatus.DONE).order_by(CrawlSession.finished_at.desc()))
+            if cr:
+                pages = db.scalars(select(Page).where(Page.crawl_session_id == cr.id, Page.status_code == 200).order_by(Page.word_count.desc()).limit(20)).all()
+                if pages:
+                    site_ctx = "\n".join(f"— {p.url}: {p.title or ''}" + (f" | H1: {p.h1}" if p.h1 else "") for p in pages)
+        except Exception:
+            pass
+        _update_task(task, 5, {"stage": "masks", "stage_label": "Генерация масок из бриф + конкуренты"}, db)
+
+        # ── Phase 1: Generate masks from brief + competitors (5-10%) ──────
         claude_m = get_claude_client(db, task_type="semantic_masks")
         sys_m = get_prompt("semantic_masks", db) or _MASKS_SYSTEM
         prompt_m = _build_masks_prompt(
             niche=brief.niche, products=brief.products, target_audience=brief.target_audience,
             pains=brief.pains, usp=brief.usp, geo=brief.geo or sp.region, mode=sp.mode.value,
+            competitor_context=competitor_ctx or None, site_context=site_ctx,
         )
         mask_phrases = _parse_json_array(_run_async(claude_m.generate(sys_m, prompt_m)))
         if not mask_phrases:
             raise RuntimeError("ИИ не сгенерировал масок. Заполните бриф подробнее.")
-        logger.info("Autopilot: %d masks from brief", len(mask_phrases))
+        logger.info("Autopilot: %d masks from brief+competitors", len(mask_phrases))
         _update_task(task, 10, {"stage": "wordstat_masks", "stage_label": "Частотность масок", "masks": len(mask_phrases)}, db)
 
-        # ── Phase 2: Wordstat for masks (10-20%) ──────────────────────────
+        # ── Phase 2: Wordstat for masks (10-15%) ─────────────────────────
         wordstat = get_wordstat_client(db)
         mask_freq: dict[str, dict] = {}
         wordstat_ok = False
+        regions = [sp.region_id] if sp.region_id else None
         if wordstat:
             try:
-                regions = [sp.region_id] if sp.region_id else None
                 mask_freq = _run_async(wordstat.get_all_frequencies(mask_phrases, regions=regions))
                 wordstat_ok = bool(mask_freq)
             except Exception as exc:
@@ -934,9 +1064,47 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         )).all()]
         if not sel:
             raise RuntimeError("Все маски — нулевая частотность. Проверьте Wordstat-токен или бриф.")
-        _update_task(task, 20, {"stage": "expand", "stage_label": "Расширение", "masks": len(mask_phrases), "masks_selected": len(sel)}, db)
+        _update_task(task, 15, {"stage": "suggestions", "stage_label": "Сбор подсказок Wordstat", "masks": len(mask_phrases), "masks_selected": len(sel)}, db)
 
-        # ── Phase 3: Expand (20-55%) ──────────────────────────────────────
+        # ── Phase 3: Wordstat suggestions — real search tails (15-35%) ────
+        ws_suggestions: list[str] = []
+        if wordstat:
+            for idx, mask in enumerate(sel):
+                try:
+                    sug = _run_async(wordstat.get_suggestions(mask, regions=regions, num_phrases=200))
+                    nested = sug.get("nested", [])
+                    similar = sug.get("similar", [])
+                    for item in nested:
+                        ph = item.get("phrase", "").strip()
+                        if ph:
+                            ws_suggestions.append(ph)
+                    for item in similar[:20]:  # limit similar to avoid noise
+                        ph = item.get("phrase", "").strip()
+                        if ph:
+                            ws_suggestions.append(ph)
+                    logger.info("Autopilot suggestions '%s': %d nested, %d similar", mask, len(nested), len(similar))
+                except Exception as exc:
+                    logger.warning("Autopilot suggestions '%s': %s", mask, exc)
+                if task:
+                    task.progress = int(15 + (idx + 1) / len(sel) * 20)
+                    db.commit()
+        logger.info("Autopilot: %d raw suggestions from Wordstat", len(ws_suggestions))
+
+        # ── Phase 4: Modifier matrix (35-37%) ────────────────────────────
+        _update_task(task, 35, {"stage": "matrix", "stage_label": "Генерация матрицы базис × модификатор", "suggestions": len(ws_suggestions)}, db)
+        custom_mods = brief.keyword_modifiers if hasattr(brief, "keyword_modifiers") and brief.keyword_modifiers else None
+        if custom_mods:
+            modifiers = custom_mods
+        elif sp.mode.value == "seo":
+            modifiers = _DEFAULT_SEO_MODIFIERS
+        else:
+            modifiers = _DEFAULT_COMMERCIAL_MODIFIERS
+        geo_for_matrix = brief.geo or sp.region
+        matrix_phrases = _generate_modifier_matrix(sel, modifiers, geo=geo_for_matrix)
+        logger.info("Autopilot: %d phrases from modifier matrix", len(matrix_phrases))
+        _update_task(task, 37, {"stage": "expand", "stage_label": "ИИ-расширение семантики", "matrix": len(matrix_phrases)}, db)
+
+        # ── Phase 5: AI Expand — additional keywords (37-50%) ─────────────
         claude_e = get_claude_client(db, task_type="semantic_expand")
         sys_e = get_prompt("semantic_expand", db) or _EXPAND_SYSTEM
         bc_parts = [x for x in [
@@ -947,44 +1115,36 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             f"УТП: {brief.usp}" if brief.usp else None,
         ] if x]
         brief_ctx = "\n".join(bc_parts) or None
-        mods = brief.keyword_modifiers if hasattr(brief, "keyword_modifiers") and brief.keyword_modifiers else None
 
-        # Site context
-        site_ctx = None
-        try:
-            from app.models.crawl import CrawlSession, CrawlStatus, Page
-            cr = db.scalar(select(CrawlSession).where(CrawlSession.project_id == uuid.UUID(project_id), CrawlSession.status == CrawlStatus.DONE).order_by(CrawlSession.finished_at.desc()))
-            if cr:
-                pages = db.scalars(select(Page).where(Page.crawl_session_id == cr.id, Page.status_code == 200).order_by(Page.word_count.desc()).limit(10)).all()
-                if pages:
-                    site_ctx = "\n".join(f"— {p.url}: {p.title or ''}" + (f" | H1: {p.h1}" if p.h1 else "") for p in pages)
-        except Exception:
-            pass
-
-        all_ph: list[str] = []
+        ai_phrases: list[str] = []
         for idx, mask in enumerate(sel):
-            pr = _build_expand_prompt(mask=mask, mode=sp.mode.value, region=sp.region, brief_context=brief_ctx, modifiers=mods, site_context=site_ctx)
+            pr = _build_expand_prompt(mask=mask, mode=sp.mode.value, region=sp.region, brief_context=brief_ctx, modifiers=custom_mods, site_context=site_ctx)
             try:
-                all_ph.extend(_parse_json_array(_run_async(claude_e.generate(sys_e, pr))))
+                ai_phrases.extend(_parse_json_array(_run_async(claude_e.generate(sys_e, pr))))
             except LLMBillingError:
                 raise
             except Exception as exc:
                 logger.warning("Autopilot expand '%s': %s", mask, exc)
             if task:
-                task.progress = int(20 + (idx + 1) / len(sel) * 35)
+                task.progress = int(37 + (idx + 1) / len(sel) * 13)
                 db.commit()
+        logger.info("Autopilot: %d phrases from AI expand", len(ai_phrases))
 
-        seen: set[str] = set(sel)
-        uniq = []
-        for p in all_ph:
-            if p not in seen:
-                seen.add(p)
-                uniq.append(p)
+        # ── Merge all sources and deduplicate ─────────────────────────────
+        seen: set[str] = set(sel)  # masks already saved separately
+        uniq: list[str] = []
+        for p in ws_suggestions + matrix_phrases + ai_phrases:
+            norm = p.strip().lower()
+            if norm and norm not in seen and len(norm) < 200:
+                seen.add(norm)
+                uniq.append(norm)
+        logger.info("Autopilot: %d unique keywords after merge (ws=%d, matrix=%d, ai=%d)",
+                     len(uniq), len(ws_suggestions), len(matrix_phrases), len(ai_phrases))
         if not uniq:
-            raise RuntimeError("ИИ не сгенерировал ключей. Проверьте API-ключ OpenRouter.")
-        _update_task(task, 55, {"stage": "wordstat_kw", "stage_label": "Частотность ключей", "keywords": len(uniq)}, db)
+            raise RuntimeError("Не удалось собрать ключевые слова. Проверьте API-ключи.")
+        _update_task(task, 50, {"stage": "wordstat_kw", "stage_label": "Частотность ключей", "keywords": len(uniq)}, db)
 
-        # ── Phase 4: Wordstat for keywords (55-75%) ───────────────────────
+        # ── Phase 6: Wordstat for all keywords (50-75%) ──────────────────
         kw_freq: dict[str, dict] = {}
         if wordstat and uniq:
             from datetime import timedelta
@@ -994,7 +1154,6 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             cached = {r.phrase: r for r in db.scalars(select(KeywordCache).where(KeywordCache.phrase.in_(uniq), KeywordCache.region_id == sp.region_id, KeywordCache.cached_at > cutoff)).all()}
             uncached = [p for p in uniq if p not in cached]
             if uncached:
-                regions = [sp.region_id] if sp.region_id else None
                 for i in range(0, len(uncached), 250):
                     batch = uncached[i:i + 250]
                     try:
@@ -1010,7 +1169,7 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
                     except Exception as exc:
                         logger.warning("WS batch: %s", exc)
                     if task:
-                        task.progress = min(75, int(55 + (i + 250) / max(len(uncached), 1) * 20))
+                        task.progress = min(75, int(50 + (i + 250) / max(len(uncached), 1) * 25))
                         db.commit()
             for ph in uniq:
                 if ph not in kw_freq and ph in cached:
@@ -1027,13 +1186,14 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             ex = f.get("exact", 0) or 0
             if wordstat and min_freq_exact > 0 and ex < min_freq_exact:
                 continue
-            db.add(SemanticKeyword(semantic_project_id=sem_id, phrase=ph, frequency_base=f.get("base"), frequency_phrase=f.get("phrase_freq"), frequency_exact=f.get("exact"), frequency_order=f.get("order"), kw_type=_kw_type_classify(ex), source="claude", is_mask=False, mask_selected=False))
+            source = "wordstat" if ph in {s.strip().lower() for s in ws_suggestions} else "matrix" if ph in {m.strip().lower() for m in matrix_phrases} else "claude"
+            db.add(SemanticKeyword(semantic_project_id=sem_id, phrase=ph, frequency_base=f.get("base"), frequency_phrase=f.get("phrase_freq"), frequency_exact=f.get("exact"), frequency_order=f.get("order"), kw_type=_kw_type_classify(ex), source=source, is_mask=False, mask_selected=False))
             saved += 1
         sp.pipeline_step = max(sp.pipeline_step, 2)
         db.commit()
         _update_task(task, 75, {"stage": "clean", "stage_label": "Авто-очистка", "saved": saved}, db)
 
-        # ── Phase 5: Auto-clean (75-80%) ──────────────────────────────────
+        # ── Phase 7: Auto-clean (75-80%) ──────────────────────────────────
         mw_list = [mw.word.lower() for mw in db.scalars(select(MarketingMinusWord).where(MarketingMinusWord.semantic_project_id == sem_id)).all()]
         act = db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id, SemanticKeyword.is_mask.is_(False), SemanticKeyword.is_excluded.is_(False))).all()
         excl = 0

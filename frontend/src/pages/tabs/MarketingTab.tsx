@@ -1456,9 +1456,12 @@ function LockedStep({ label, requiredStep }: { label: string; requiredStep: numb
 // ─── Autopilot or Manual Choice ──────────────────────────────────────────────
 
 const AUTOPILOT_STAGES: Record<string, string> = {
-  masks: 'Генерация масок из бриф...',
+  competitors: 'Анализ конкурентов и сайта...',
+  masks: 'Генерация масок из бриф + конкуренты...',
   wordstat_masks: 'Сбор частотности масок...',
-  expand: 'Расширение семантики (ИИ)...',
+  suggestions: 'Сбор подсказок Wordstat (реальные запросы)...',
+  matrix: 'Генерация матрицы базис × модификатор...',
+  expand: 'ИИ-расширение семантики...',
   wordstat_kw: 'Сбор частотности ключей...',
   wordstat_expand: 'Сбор частотности ключей...',
   clean: 'Авто-очистка...',
