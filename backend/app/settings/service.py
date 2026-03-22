@@ -17,7 +17,7 @@ API_SERVICES = {
     "wordstat": {
         "label": "Яндекс Wordstat",
         "fields": ["oauth_token", "client_id"],
-        "test_url": "https://api.wordstat.yandex.net",
+        "test_url": "https://api.direct.yandex.ru/v4/json/",
     },
     "topvisor": {
         "label": "Topvisor",
