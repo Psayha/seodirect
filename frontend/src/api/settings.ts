@@ -53,6 +53,23 @@ export interface SystemPromptFull extends SystemPrompt {
   prompt_text: string
 }
 
+export interface BriefTemplateData {
+  niche: string
+  price_segment: string
+  campaign_goal: string
+  target_audience: string
+  pains: string
+  usp: string
+  keyword_modifiers: string[]
+}
+
+export interface BriefTemplate {
+  id: string
+  name: string
+  icon: string
+  data: BriefTemplateData
+}
+
 export const settingsApi = {
   // Crawler
   getCrawler: () =>
@@ -99,4 +116,18 @@ export const settingsApi = {
   // API Keys
   deleteApiKey: (service: string, keyName: string) =>
     api.delete(`/settings/api-keys/${service}/${keyName}`).then((r) => r.data),
+
+  // Brief Templates
+  getBriefTemplates: () =>
+    api.get<{ templates: BriefTemplate[] }>('/settings/brief-templates').then((r) => r.data),
+  saveBriefTemplates: (templates: BriefTemplate[]) =>
+    api.put('/settings/brief-templates', templates).then((r) => r.data),
+  addBriefTemplate: (template: BriefTemplate) =>
+    api.post('/settings/brief-templates', template).then((r) => r.data),
+  updateBriefTemplate: (id: string, data: Partial<BriefTemplate>) =>
+    api.put(`/settings/brief-templates/${id}`, data).then((r) => r.data),
+  deleteBriefTemplate: (id: string) =>
+    api.delete(`/settings/brief-templates/${id}`).then((r) => r.data),
+  resetBriefTemplates: () =>
+    api.post('/settings/brief-templates/reset').then((r) => r.data),
 }

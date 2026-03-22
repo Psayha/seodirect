@@ -1,13 +1,23 @@
-"""Brief templates by niche — static data."""
+"""Brief templates by niche — DB-driven with hardcoded defaults."""
+import json
 import logging
+from typing import Annotated
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.auth.deps import CurrentUser, require_roles
+from app.db.session import get_db
+from app.models.user import UserRole
+from app.services.settings_service import get_setting, set_setting
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+AdminDep = require_roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 
-TEMPLATES = [
+DEFAULT_TEMPLATES = [
     {
         "id": "ecommerce",
         "name": "Интернет-магазин",
@@ -123,17 +133,144 @@ TEMPLATES = [
 ]
 
 
+def _get_templates(db: Session) -> list[dict]:
+    """Return templates from DB or defaults."""
+    raw = get_setting("brief_templates", db)
+    if raw:
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("Invalid brief_templates JSON in DB, using defaults")
+    return DEFAULT_TEMPLATES
+
+
+# ── Public endpoints (for BriefTab) ──────────────────────────────────────────
+
 @router.get("/briefs/templates")
-def list_templates():
+def list_templates(db: Annotated[Session, Depends(get_db)]):
     """Return all available brief templates."""
-    return {"templates": [{"id": t["id"], "name": t["name"], "icon": t["icon"]} for t in TEMPLATES]}
+    templates = _get_templates(db)
+    return {"templates": [{"id": t["id"], "name": t["name"], "icon": t["icon"]} for t in templates]}
 
 
 @router.get("/briefs/templates/{template_id}")
-def get_template(template_id: str):
+def get_template(template_id: str, db: Annotated[Session, Depends(get_db)]):
     """Return brief template data by id."""
-    tmpl = next((t for t in TEMPLATES if t["id"] == template_id), None)
+    templates = _get_templates(db)
+    tmpl = next((t for t in templates if t["id"] == template_id), None)
     if not tmpl:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Template not found")
     return tmpl
+
+
+# ── Admin endpoints (for SettingsPage) ───────────────────────────────────────
+
+@router.get("/settings/brief-templates")
+def get_all_templates(
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Return all templates with full data for editing."""
+    return {"templates": _get_templates(db)}
+
+
+class TemplateData(BaseModel):
+    niche: str = ""
+    price_segment: str = "middle"
+    campaign_goal: str = "leads"
+    target_audience: str = ""
+    pains: str = ""
+    usp: str = ""
+    keyword_modifiers: list[str] = []
+
+
+class TemplateCreate(BaseModel):
+    id: str
+    name: str
+    icon: str = ""
+    data: TemplateData
+
+
+class TemplateUpdate(BaseModel):
+    name: str | None = None
+    icon: str | None = None
+    data: TemplateData | None = None
+
+
+@router.put("/settings/brief-templates")
+def save_all_templates(
+    templates: list[TemplateCreate],
+    current_user: CurrentUser,
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Replace all templates at once."""
+    data = [t.model_dump() for t in templates]
+    set_setting("brief_templates", json.dumps(data, ensure_ascii=False), db, updated_by=current_user.id)
+    return {"detail": "Updated", "count": len(data)}
+
+
+@router.post("/settings/brief-templates", status_code=201)
+def add_template(
+    body: TemplateCreate,
+    current_user: CurrentUser,
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Add a single template."""
+    templates = _get_templates(db)
+    if any(t["id"] == body.id for t in templates):
+        raise HTTPException(status_code=409, detail=f"Template '{body.id}' already exists")
+    templates.append(body.model_dump())
+    set_setting("brief_templates", json.dumps(templates, ensure_ascii=False), db, updated_by=current_user.id)
+    return body.model_dump()
+
+
+@router.put("/settings/brief-templates/{template_id}")
+def update_template(
+    template_id: str,
+    body: TemplateUpdate,
+    current_user: CurrentUser,
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Update a single template."""
+    templates = _get_templates(db)
+    idx = next((i for i, t in enumerate(templates) if t["id"] == template_id), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if body.name is not None:
+        templates[idx]["name"] = body.name
+    if body.icon is not None:
+        templates[idx]["icon"] = body.icon
+    if body.data is not None:
+        templates[idx]["data"] = body.data.model_dump()
+    set_setting("brief_templates", json.dumps(templates, ensure_ascii=False), db, updated_by=current_user.id)
+    return templates[idx]
+
+
+@router.delete("/settings/brief-templates/{template_id}", status_code=204)
+def delete_template(
+    template_id: str,
+    current_user: CurrentUser,
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Delete a single template."""
+    templates = _get_templates(db)
+    new_templates = [t for t in templates if t["id"] != template_id]
+    if len(new_templates) == len(templates):
+        raise HTTPException(status_code=404, detail="Template not found")
+    set_setting("brief_templates", json.dumps(new_templates, ensure_ascii=False), db, updated_by=current_user.id)
+
+
+@router.post("/settings/brief-templates/reset", status_code=200)
+def reset_templates(
+    current_user: CurrentUser,
+    _: Annotated[object, AdminDep],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Reset templates to defaults."""
+    from app.services.settings_service import delete_setting
+    delete_setting("brief_templates", db)
+    return {"detail": "Reset to defaults", "count": len(DEFAULT_TEMPLATES)}
