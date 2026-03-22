@@ -165,38 +165,87 @@ def _extract_keywords_from_meta(soup) -> list[str]:
     return result
 
 
+# ─── Text sanitization for Claude prompts ────────────────────────────────────
+
+def _sanitize_text(text: str, max_len: int = 300) -> str:
+    """Strip HTML tags, control chars, and truncate text before injecting into Claude prompts.
+
+    Prevents prompt injection via malicious competitor page titles/H1/descriptions.
+    """
+    import re
+    if not text:
+        return ""
+    # Strip any remaining HTML tags
+    text = re.sub(r"<[^>]+>", "", text)
+    # Remove control characters except newlines/tabs
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+    # Collapse multiple whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    # Truncate safely (no mid-character cut for UTF-8)
+    return text[:max_len]
+
+
 # ─── SERP parsing: autocomplete + related searches ──────────────────────────
 
-async def _fetch_yandex_suggest(query: str, region_id: int | None = None) -> list[str]:
-    """Fetch Yandex autocomplete suggestions for a query.
-    Free API, no key needed. Returns up to 10 suggestions per query.
-    """
-    import httpx
+# Realistic browser headers to avoid bot detection
+_SUGGEST_HEADERS_YA = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Referer": "https://yandex.ru/",
+}
+_SUGGEST_HEADERS_GOOGLE = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Referer": "https://www.google.com/",
+}
+
+# Safety limits
+_SUGGEST_MAX_REQUESTS_TOTAL = 500  # absolute cap per autopilot run
+_SUGGEST_DELAY_SECONDS = 0.5  # delay between requests (safe for Yandex/Google)
+_SUGGEST_MAX_MASKS = 15  # limit masks to avoid excessive requests
+
+
+async def _fetch_yandex_suggest(
+    client: "httpx.AsyncClient", query: str, region_id: int | None = None,
+) -> list[str]:
+    """Fetch Yandex autocomplete suggestions for a query."""
     params = {"part": query, "lr": str(region_id or 213)}
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.get("https://suggest.yandex.ru/suggest-ya.cgi", params=params)
-            if r.status_code == 200:
-                data = r.json()
-                # Format: [query, [suggestion1, suggestion2, ...]]
-                if isinstance(data, list) and len(data) > 1:
-                    return [s for s in data[1] if isinstance(s, str)]
+        r = await client.get(
+            "https://suggest.yandex.ru/suggest-ya.cgi",
+            params=params, headers=_SUGGEST_HEADERS_YA,
+        )
+        if r.status_code == 429:
+            logger.warning("Yandex Suggest rate limited (429), stopping")
+            return []
+        if r.status_code == 200:
+            data = r.json()
+            if isinstance(data, list) and len(data) > 1:
+                return [s for s in data[1] if isinstance(s, str)]
     except Exception:
         pass
     return []
 
 
-async def _fetch_google_suggest(query: str, lang: str = "ru", country: str = "ru") -> list[str]:
-    """Fetch Google autocomplete suggestions. Free, no key needed."""
-    import httpx
+async def _fetch_google_suggest(
+    client: "httpx.AsyncClient", query: str, lang: str = "ru", country: str = "ru",
+) -> list[str]:
+    """Fetch Google autocomplete suggestions."""
     params = {"q": query, "client": "firefox", "hl": lang, "gl": country}
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.get("https://suggestqueries.google.com/complete/search", params=params)
-            if r.status_code == 200:
-                data = r.json()
-                if isinstance(data, list) and len(data) > 1:
-                    return [s for s in data[1] if isinstance(s, str)]
+        r = await client.get(
+            "https://suggestqueries.google.com/complete/search",
+            params=params, headers=_SUGGEST_HEADERS_GOOGLE,
+        )
+        if r.status_code == 429:
+            logger.warning("Google Suggest rate limited (429), stopping")
+            return []
+        if r.status_code == 200:
+            data = r.json()
+            if isinstance(data, list) and len(data) > 1:
+                return [s for s in data[1] if isinstance(s, str)]
     except Exception:
         pass
     return []
@@ -209,49 +258,74 @@ async def _collect_serp_suggestions(
 ) -> list[str]:
     """Collect autocomplete suggestions from Yandex + Google for all masks.
 
-    Applies alphabet modifier technique: 'mask a', 'mask b', ... 'mask я'
+    Applies alphabet modifier technique: 'mask а', 'mask б', ... 'mask я'
     to extract more long-tail queries.
+
+    Safety: max 500 requests total, 0.5s between each, max 15 masks.
     """
-    import logging
-    logger = logging.getLogger(__name__)
+    import asyncio
+
+    import httpx
+
     all_suggestions: list[str] = []
     seen: set[str] = set()
+    request_count = 0
 
-    # Russian alphabet modifiers for deep autocomplete mining
     _RU_LETTERS = "абвгдежзиклмнопрстуфхцчшщэюя"
     _QUESTION_PREFIXES = ["как ", "где ", "какой ", "сколько ", "что ", "почему ", "зачем "]
 
-    async def _add_unique(suggestions: list[str]):
+    def _add_unique(suggestions: list[str]):
         for s in suggestions:
             s_lower = s.strip().lower()
             if s_lower and s_lower not in seen and len(s_lower) < 200:
                 seen.add(s_lower)
                 all_suggestions.append(s_lower)
 
-    import asyncio
+    # Cap masks to avoid 1000+ requests
+    capped_masks = masks[:_SUGGEST_MAX_MASKS]
 
-    for mask in masks:
-        # Base query
-        ya_base = await _fetch_yandex_suggest(mask, region_id)
-        await _add_unique(ya_base)
+    # Single persistent client — reuses connections, avoids socket exhaustion
+    async with httpx.AsyncClient(timeout=8, limits=httpx.Limits(max_connections=3, max_keepalive_connections=2)) as client:
+        for mask in capped_masks:
+            if request_count >= _SUGGEST_MAX_REQUESTS_TOTAL:
+                logger.warning("SERP suggest: hit %d request cap, stopping", _SUGGEST_MAX_REQUESTS_TOTAL)
+                break
 
-        if use_google:
-            g_base = await _fetch_google_suggest(mask)
-            await _add_unique(g_base)
+            # Base query — Yandex
+            ya_base = await _fetch_yandex_suggest(client, mask, region_id)
+            _add_unique(ya_base)
+            request_count += 1
+            await asyncio.sleep(_SUGGEST_DELAY_SECONDS)
 
-        # Alphabet mining: 'mask а', 'mask б', ...
-        for letter in _RU_LETTERS:
-            ya = await _fetch_yandex_suggest(f"{mask} {letter}", region_id)
-            await _add_unique(ya)
-            await asyncio.sleep(0.15)  # throttle to avoid IP bans
+            # Base query — Google
+            if use_google and request_count < _SUGGEST_MAX_REQUESTS_TOTAL:
+                g_base = await _fetch_google_suggest(client, mask)
+                _add_unique(g_base)
+                request_count += 1
+                await asyncio.sleep(_SUGGEST_DELAY_SECONDS)
 
-        # Question modifiers: 'как mask', 'где mask', ...
-        for prefix in _QUESTION_PREFIXES:
-            ya_q = await _fetch_yandex_suggest(f"{prefix}{mask}", region_id)
-            await _add_unique(ya_q)
-            await asyncio.sleep(0.15)
+            # Alphabet mining: 'mask а', 'mask б', ...
+            for letter in _RU_LETTERS:
+                if request_count >= _SUGGEST_MAX_REQUESTS_TOTAL:
+                    break
+                ya = await _fetch_yandex_suggest(client, f"{mask} {letter}", region_id)
+                _add_unique(ya)
+                request_count += 1
+                await asyncio.sleep(_SUGGEST_DELAY_SECONDS)
 
-    logger.info("SERP suggestions: collected %d unique phrases from %d masks", len(all_suggestions), len(masks))
+            # Question modifiers: 'как mask', 'где mask', ...
+            for prefix in _QUESTION_PREFIXES:
+                if request_count >= _SUGGEST_MAX_REQUESTS_TOTAL:
+                    break
+                ya_q = await _fetch_yandex_suggest(client, f"{prefix}{mask}", region_id)
+                _add_unique(ya_q)
+                request_count += 1
+                await asyncio.sleep(_SUGGEST_DELAY_SECONDS)
+
+    logger.info(
+        "SERP suggestions: collected %d unique phrases from %d masks (%d HTTP requests)",
+        len(all_suggestions), len(capped_masks), request_count,
+    )
     return all_suggestions
 
 
@@ -267,7 +341,10 @@ async def _extract_content_gap_keywords(
 
     Crawls competitor pages, compares with client pages, asks Claude
     to generate keyword phrases for missing topics.
+
+    Safety: SSRF on every URL + redirect hop, crawl delay 1s, connection limits.
     """
+    import asyncio
     import logging
     import re
 
@@ -276,69 +353,51 @@ async def _extract_content_gap_keywords(
 
     logger = logging.getLogger(__name__)
 
-    def _is_safe_url(url: str) -> bool:
-        """Block SSRF: reject internal IPs, non-http schemes."""
-        import ipaddress
-        from urllib.parse import urlparse
-        try:
-            parsed = urlparse(url)
-            if parsed.scheme not in ("http", "https"):
-                return False
-            hostname = parsed.hostname or ""
-            if not hostname:
-                return False
-            if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
-                return False
-            if hostname.endswith(".internal") or hostname.endswith(".local"):
-                return False
-            if hostname in ("169.254.169.254", "metadata.google.internal"):
-                return False
-            try:
-                ip = ipaddress.ip_address(hostname)
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                    return False
-            except ValueError:
-                pass
-            return True
-        except Exception:
-            return False
-
     # Crawl competitor internal pages (up to 15 per site, max 3 sites)
     comp_pages: list[dict] = []
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers={"User-Agent": "SEODirectBot/1.0"}) as client:
+    async with httpx.AsyncClient(
+        timeout=15,
+        follow_redirects=False,  # manual redirect following via _safe_get
+        headers={"User-Agent": "SEODirectBot/1.0 (internal)"},
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
+    ) as client:
         for url in competitor_urls[:3]:
-            if not _is_safe_url(url):
+            if not _is_safe_url_crawl(url):
                 logger.warning("Content gap: blocked unsafe URL %s", url)
                 continue
             try:
-                r = await client.get(url)
-                if r.status_code != 200:
+                r = await _safe_get(client, url)
+                if not r or r.status_code != 200:
                     continue
                 soup = BeautifulSoup(r.text, "html.parser")
-                title = (soup.title.string or "").strip() if soup.title else ""
+                title = _sanitize_text((soup.title.string or "").strip() if soup.title else "")
                 h1 = soup.find("h1")
-                h1_text = h1.get_text(strip=True) if h1 else ""
+                h1_text = _sanitize_text(h1.get_text(strip=True) if h1 else "")
                 comp_pages.append({"url": url, "title": title, "h1": h1_text})
 
                 # Crawl internal pages
-                base = f"{r.url.scheme}://{r.url.host}"
+                from urllib.parse import urlparse
+                parsed = urlparse(str(r.url))
+                base = f"{parsed.scheme}://{parsed.netloc}"
                 internal: set[str] = set()
                 for a in soup.find_all("a", href=True):
                     href = a["href"]
                     if href.startswith("/") and not href.startswith("//"):
                         href = base + href
-                    if href.startswith(base) and href != str(r.url):
-                        internal.add(href.split("?")[0].split("#")[0])
+                    clean = href.split("?")[0].split("#")[0]
+                    if clean.startswith(base) and clean != str(r.url) and _is_safe_url_crawl(clean):
+                        internal.add(clean)
 
                 for iurl in list(internal)[:15]:
+                    await asyncio.sleep(1.0)  # crawl delay
                     try:
-                        ir = await client.get(iurl)
-                        if ir.status_code != 200:
+                        ir = await _safe_get(client, iurl)
+                        if not ir or ir.status_code != 200:
                             continue
                         isoup = BeautifulSoup(ir.text, "html.parser")
-                        it = (isoup.title.string or "").strip() if isoup.title else ""
+                        it = _sanitize_text((isoup.title.string or "").strip() if isoup.title else "")
                         ih1 = isoup.find("h1")
-                        ih1_t = ih1.get_text(strip=True) if ih1 else ""
+                        ih1_t = _sanitize_text(ih1.get_text(strip=True) if ih1 else "")
                         if it or ih1_t:
                             comp_pages.append({"url": iurl, "title": it, "h1": ih1_t})
                     except Exception:
@@ -358,8 +417,14 @@ async def _extract_content_gap_keywords(
         logger.warning("Claude not available for content gap keyword extraction")
         return []
 
-    client_list = "\n".join(f"- {p['url']}: {p.get('title', '')} | {p.get('h1', '')}" for p in client_pages[:30])
-    comp_list = "\n".join(f"- {p['url']}: {p.get('title', '')} | {p.get('h1', '')}" for p in comp_pages[:50])
+    client_list = "\n".join(
+        f"- {p['url']}: {_sanitize_text(p.get('title', ''))} | {_sanitize_text(p.get('h1', ''))}"
+        for p in client_pages[:30]
+    )
+    comp_list = "\n".join(
+        f"- {p['url']}: {_sanitize_text(p.get('title', ''))} | {_sanitize_text(p.get('h1', ''))}"
+        for p in comp_pages[:50]
+    )
 
     prompt = f"""Ниша: {brief_niche or 'не указана'}
 
@@ -1325,26 +1390,121 @@ def _extract_frequent_terms(soup, top_n: int = 25) -> list[str]:
     return [w for w, _ in counter.most_common(top_n)]
 
 
+def _is_safe_url_crawl(url: str) -> bool:
+    """Block SSRF: reject internal IPs, non-http schemes, metadata endpoints."""
+    import ipaddress
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = parsed.hostname or ""
+        if not hostname:
+            return False
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            return False
+        if hostname.endswith(".internal") or hostname.endswith(".local"):
+            return False
+        if hostname in ("169.254.169.254", "metadata.google.internal"):
+            return False
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False
+        except ValueError:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+async def _fetch_robots_crawl_delay(client: "httpx.AsyncClient", base_url: str) -> float:
+    """Fetch robots.txt and extract Crawl-delay. Returns delay in seconds (default 1.0)."""
+    try:
+        r = await client.get(f"{base_url}/robots.txt")
+        if r.status_code == 200:
+            for line in r.text.splitlines():
+                lower = line.strip().lower()
+                if lower.startswith("crawl-delay:"):
+                    try:
+                        return max(1.0, float(lower.split(":", 1)[1].strip()))
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    return 1.0  # default: 1 second between requests
+
+
+async def _safe_get(
+    client: "httpx.AsyncClient", url: str, max_redirects: int = 3,
+) -> "httpx.Response | None":
+    """GET with manual redirect following + SSRF check on each hop."""
+    import httpx
+    current_url = url
+    for _ in range(max_redirects + 1):
+        if not _is_safe_url_crawl(current_url):
+            logger.warning("Blocked SSRF attempt to %s", current_url)
+            return None
+        try:
+            r = await client.get(current_url)
+        except Exception:
+            return None
+        if r.status_code in (301, 302, 303, 307, 308):
+            location = r.headers.get("location", "")
+            if not location:
+                return None
+            # Resolve relative redirects
+            if location.startswith("/"):
+                from urllib.parse import urlparse
+                parsed = urlparse(current_url)
+                location = f"{parsed.scheme}://{parsed.netloc}{location}"
+            current_url = location
+            continue
+        return r
+    logger.warning("Too many redirects for %s", url)
+    return None
+
+
 async def _crawl_competitor_pages(
     urls: list[str], max_pages_per_site: int = 15,
 ) -> tuple[str, list[str]]:
     """Crawl competitor URLs, extract title/H1/H2/description/nav/anchors/terms.
 
+    Safety: SSRF protection on every URL, robots.txt Crawl-delay respected,
+    manual redirect following with hop validation, connection limits.
+
     Returns:
         (context_text, extracted_keywords) — context for Claude + keyword phrases from meta tags.
     """
+    import asyncio
+
     import httpx
     from bs4 import BeautifulSoup
 
     lines: list[str] = []
     all_extracted_keywords: list[str] = []
 
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers={"User-Agent": "SEODirectBot/1.0"}) as client:
+    async with httpx.AsyncClient(
+        timeout=15,
+        follow_redirects=False,  # manual redirect following with SSRF checks
+        headers={"User-Agent": "SEODirectBot/1.0 (internal)"},
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
+    ) as client:
         for url in urls[:5]:  # max 5 competitors
+            if not _is_safe_url_crawl(url):
+                logger.warning("Competitor crawl: blocked unsafe URL %s", url)
+                continue
             try:
-                r = await client.get(url)
-                if r.status_code != 200:
+                r = await _safe_get(client, url)
+                if not r or r.status_code != 200:
                     continue
+
+                # Respect robots.txt Crawl-delay
+                from urllib.parse import urlparse
+                parsed = urlparse(str(r.url))
+                base = f"{parsed.scheme}://{parsed.netloc}"
+                crawl_delay = await _fetch_robots_crawl_delay(client, base)
+
                 soup = BeautifulSoup(r.text, "html.parser")
                 title = (soup.title.string or "").strip() if soup.title else ""
                 h1 = soup.find("h1")
@@ -1372,10 +1532,9 @@ async def _crawl_competitor_pages(
                     nav_items = [a.get_text(strip=True) for a in nav.find_all("a") if a.get_text(strip=True)]
                     if nav_items:
                         lines.append(f"  Навигация: {' | '.join(nav_items[:30])}")
-                        break  # usually first nav is the main one
+                        break
 
                 # Internal link anchors
-                base = f"{r.url.scheme}://{r.url.host}"
                 anchors: list[str] = []
                 internal_urls: set[str] = set()
                 for a in soup.find_all("a", href=True):
@@ -1386,8 +1545,9 @@ async def _crawl_competitor_pages(
                         text = a.get_text(strip=True)
                         if text and 2 < len(text) < 100:
                             anchors.append(text)
-                        if len(internal_urls) < max_pages_per_site:
-                            internal_urls.add(href)
+                        clean_href = href.split("?")[0].split("#")[0]
+                        if len(internal_urls) < max_pages_per_site and _is_safe_url_crawl(clean_href):
+                            internal_urls.add(clean_href)
                 if anchors:
                     unique_anchors = list(dict.fromkeys(anchors))[:50]
                     lines.append(f"  Анкоры: {' | '.join(unique_anchors)}")
@@ -1397,11 +1557,12 @@ async def _crawl_competitor_pages(
                 if terms:
                     lines.append(f"  Частые термины: {', '.join(terms)}")
 
-                # Crawl internal pages
+                # Crawl internal pages with delay
                 for iurl in list(internal_urls)[:max_pages_per_site]:
+                    await asyncio.sleep(crawl_delay)  # respect Crawl-delay
                     try:
-                        ir = await client.get(iurl)
-                        if ir.status_code != 200:
+                        ir = await _safe_get(client, iurl)
+                        if not ir or ir.status_code != 200:
                             continue
                         isoup = BeautifulSoup(ir.text, "html.parser")
                         it = (isoup.title.string or "").strip() if isoup.title else ""
@@ -1414,7 +1575,6 @@ async def _crawl_competitor_pages(
                             if idesc_text:
                                 page_line += f" | Desc: {idesc_text}"
                             lines.append(page_line)
-                        # Extract keywords from internal pages too
                         page_kws = _extract_keywords_from_meta(isoup)
                         all_extracted_keywords.extend(page_kws)
                     except Exception:

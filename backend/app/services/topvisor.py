@@ -321,9 +321,10 @@ async def add_keywords_to_project(
     """
     if not phrases:
         return {"added": 0, "existing": 0}
+    import asyncio
     total_added = 0
     total_existing = 0
-    batch_size = 1000
+    batch_size = 500  # conservative batch size to avoid API throttling
     async with httpx.AsyncClient(timeout=60) as client:
         for i in range(0, len(phrases), batch_size):
             batch = phrases[i : i + batch_size]
@@ -347,8 +348,22 @@ async def add_keywords_to_project(
                     total_existing += result.get("existing", 0) if isinstance(result, dict) else 0
                 else:
                     logger.warning("Topvisor add_keywords error: %s", data["errors"])
+            elif r.status_code == 429:
+                logger.warning("Topvisor add_keywords rate limited (429), waiting 10s")
+                await asyncio.sleep(10)
+                # Retry once
+                r = await _post(client, f"{BASE_URL}/add/keywords_2/keywords", headers=_headers(api_key, user_id), json=body)
+                if r.status_code == 200:
+                    data = r.json()
+                    if not data.get("errors"):
+                        result = data.get("result", {})
+                        total_added += result.get("added", 0) if isinstance(result, dict) else len(batch)
             else:
                 logger.warning("Topvisor add_keywords HTTP %s", r.status_code)
+            # Throttle between batches to avoid API rate limits
+            if i + batch_size < len(phrases):
+                await asyncio.sleep(2.0)
+    logger.info("Topvisor add_keywords: %d phrases → added=%d, existing=%d", len(phrases), total_added, total_existing)
     return {"added": total_added, "existing": total_existing}
 
 
