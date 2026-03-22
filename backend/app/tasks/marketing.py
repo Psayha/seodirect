@@ -830,6 +830,9 @@ def _build_masks_prompt(
     niche: str | None, products: str | None, target_audience: str | None,
     pains: str | None, usp: str | None, geo: str | None, mode: str,
     competitor_context: str | None = None, site_context: str | None = None,
+    example_masks: list[str] | None = None,
+    mask_categories: list[str] | None = None,
+    example_keywords: list[str] | None = None,
 ) -> str:
     mode_hint = "SEO-продвижения (информационные + коммерческие)" if mode == "seo" else "Яндекс Директ (коммерческие)"
     lines = [f"Сгенерируй ПОЛНЫЙ список базовых масок для {mode_hint}."]
@@ -849,8 +852,20 @@ def _build_masks_prompt(
         lines.append(f"\nСтраницы сайта клиента (структура, услуги, товары):\n{site_context}")
     if competitor_context:
         lines.append(f"\nСтраницы конкурентов (какие услуги/товары продвигают):\n{competitor_context}")
+
+    # Niche template data — proven starting points
+    if example_masks:
+        lines.append(f"\nПримеры масок для этой ниши (используй как отправную точку, дополни своими):\n{json.dumps(example_masks[:40], ensure_ascii=False)}")
+    if mask_categories:
+        lines.append("\nКатегории масок, которые ОБЯЗАТЕЛЬНО нужно покрыть:")
+        for cat in mask_categories:
+            lines.append(f"- {cat}")
+    if example_keywords:
+        lines.append(f"\nПримеры качественных финальных ключей (ориентир по стилю и детальности):\n{json.dumps(example_keywords[:15], ensure_ascii=False)}")
+
     lines.append("""
-Сгенерируй 30–60 масок. Обязательно включи:
+Сгенерируй 30–60 масок. Если выше даны примеры масок — расширь их, добавь недостающие.
+Если примеров нет — сгенерируй с нуля, включи:
 1. Основные продукты/услуги — ВСЕ синонимы и варианты названий
 2. Разновидности по размеру/параметрам (если применимо к нише)
 3. Разновидности по типу/виду/категории
@@ -867,8 +882,34 @@ def _build_masks_prompt(
 
 # ─── Competitor crawling for masks ───────────────────────────────────────────
 
+_STOP_WORDS_RU = frozenset({
+    "и", "в", "на", "с", "по", "для", "не", "от", "из", "к", "что", "это",
+    "как", "но", "все", "или", "при", "так", "же", "уже", "бы", "да", "нет",
+    "вы", "мы", "он", "она", "они", "его", "её", "их", "наш", "ваш", "мой",
+    "свой", "этот", "тот", "весь", "быть", "который", "также", "более",
+    "можно", "если", "когда", "только", "еще", "ещё", "где", "там", "здесь",
+    "очень", "уже", "без", "будет", "был", "была", "были", "есть", "нас",
+    "вас", "них", "ним", "ней", "того", "чем", "чего", "кто", "она",
+})
+
+
+def _extract_frequent_terms(soup, top_n: int = 25) -> list[str]:
+    """Extract most frequent meaningful terms from page body."""
+    import re
+    from collections import Counter
+    body = soup.find("body")
+    if not body:
+        return []
+    for tag in body.find_all(["nav", "footer", "script", "style", "noscript", "header"]):
+        tag.decompose()
+    text = body.get_text(separator=" ", strip=True).lower()
+    words = re.findall(r'[а-яё]{3,}', text)
+    counter = Counter(w for w in words if w not in _STOP_WORDS_RU and len(w) > 3)
+    return [w for w, _ in counter.most_common(top_n)]
+
+
 async def _crawl_competitor_pages(urls: list[str], max_pages_per_site: int = 15) -> str:
-    """Crawl competitor URLs, extract title/H1/H2 for context."""
+    """Crawl competitor URLs, extract title/H1/H2/description/nav/anchors/terms."""
     import httpx
     from bs4 import BeautifulSoup
 
@@ -892,17 +933,43 @@ async def _crawl_competitor_pages(urls: list[str], max_pages_per_site: int = 15)
                 if h2s:
                     lines.append(f"  H2: {'; '.join(h2s)}")
 
-                # Crawl internal links for product/service pages
-                internal = set()
+                # Meta description
+                desc_tag = soup.find("meta", attrs={"name": "description"})
+                if desc_tag and desc_tag.get("content"):
+                    lines.append(f"  Description: {desc_tag['content'][:300]}")
+
+                # Navigation structure
+                for nav in soup.find_all("nav"):
+                    nav_items = [a.get_text(strip=True) for a in nav.find_all("a") if a.get_text(strip=True)]
+                    if nav_items:
+                        lines.append(f"  Навигация: {' | '.join(nav_items[:30])}")
+                        break  # usually first nav is the main one
+
+                # Internal link anchors
                 base = f"{r.url.scheme}://{r.url.host}"
+                anchors: list[str] = []
+                internal_urls: set[str] = set()
                 for a in soup.find_all("a", href=True):
                     href = a["href"]
                     if href.startswith("/") and not href.startswith("//"):
                         href = base + href
-                    if href.startswith(base) and href != str(r.url) and len(internal) < max_pages_per_site:
-                        internal.add(href)
+                    if href.startswith(base) and href != str(r.url):
+                        text = a.get_text(strip=True)
+                        if text and 2 < len(text) < 100:
+                            anchors.append(text)
+                        if len(internal_urls) < max_pages_per_site:
+                            internal_urls.add(href)
+                if anchors:
+                    unique_anchors = list(dict.fromkeys(anchors))[:50]
+                    lines.append(f"  Анкоры: {' | '.join(unique_anchors)}")
 
-                for iurl in list(internal)[:max_pages_per_site]:
+                # Frequent content terms
+                terms = _extract_frequent_terms(BeautifulSoup(r.text, "html.parser"))
+                if terms:
+                    lines.append(f"  Частые термины: {', '.join(terms)}")
+
+                # Crawl internal pages
+                for iurl in list(internal_urls)[:max_pages_per_site]:
                     try:
                         ir = await client.get(iurl)
                         if ir.status_code != 200:
@@ -911,8 +978,13 @@ async def _crawl_competitor_pages(urls: list[str], max_pages_per_site: int = 15)
                         it = (isoup.title.string or "").strip() if isoup.title else ""
                         ih1 = isoup.find("h1")
                         ih1_text = ih1.get_text(strip=True) if ih1 else ""
+                        idesc = isoup.find("meta", attrs={"name": "description"})
+                        idesc_text = (idesc["content"][:200] if idesc and idesc.get("content") else "")
                         if it or ih1_text:
-                            lines.append(f"  Страница: {iurl} | {it} | H1: {ih1_text}")
+                            page_line = f"  Страница: {iurl} | {it} | H1: {ih1_text}"
+                            if idesc_text:
+                                page_line += f" | Desc: {idesc_text}"
+                            lines.append(page_line)
                     except Exception:
                         continue
             except Exception:
@@ -996,6 +1068,13 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         if not brief or not (brief.niche or brief.products):
             raise RuntimeError("Бриф не заполнен. Укажите хотя бы нишу или продукты перед запуском автопилота.")
 
+        # ── Load niche template ───────────────────────────────────────────
+        from app.data.niche_semantic_templates import NICHE_SEMANTIC_TEMPLATES, detect_niche
+        niche_id = detect_niche(brief)
+        niche_tmpl = NICHE_SEMANTIC_TEMPLATES.get(niche_id) if niche_id else None
+        if niche_id:
+            logger.info("Autopilot: detected niche '%s', template loaded", niche_id)
+
         # ── Phase 0: Gather context — competitors + site (0-5%) ───────────
         competitor_ctx = ""
         if brief.competitors_urls:
@@ -1024,6 +1103,9 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             niche=brief.niche, products=brief.products, target_audience=brief.target_audience,
             pains=brief.pains, usp=brief.usp, geo=brief.geo or sp.region, mode=sp.mode.value,
             competitor_context=competitor_ctx or None, site_context=site_ctx,
+            example_masks=niche_tmpl.get("example_masks") if niche_tmpl else None,
+            mask_categories=niche_tmpl.get("mask_categories") if niche_tmpl else None,
+            example_keywords=niche_tmpl.get("example_keywords") if niche_tmpl else None,
         )
         mask_phrases = _parse_json_array(_run_async(claude_m.generate(sys_m, prompt_m)))
         if not mask_phrases:
@@ -1096,6 +1178,11 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         custom_mods = brief.keyword_modifiers if hasattr(brief, "keyword_modifiers") and brief.keyword_modifiers else None
         if custom_mods:
             modifiers = custom_mods
+        elif niche_tmpl:
+            if sp.mode.value == "seo":
+                modifiers = niche_tmpl.get("modifiers_seo", _DEFAULT_SEO_MODIFIERS)
+            else:
+                modifiers = niche_tmpl.get("modifiers_commercial", _DEFAULT_COMMERCIAL_MODIFIERS)
         elif sp.mode.value == "seo":
             modifiers = _DEFAULT_SEO_MODIFIERS
         else:
@@ -1195,6 +1282,16 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         _update_task(task, 75, {"stage": "clean", "stage_label": "Авто-очистка", "saved": saved}, db)
 
         # ── Phase 7: Auto-clean (75-80%) ──────────────────────────────────
+        # Pre-seed niche negative keywords
+        if niche_tmpl and niche_tmpl.get("negative_keywords_base"):
+            existing_mw = {mw.word.lower() for mw in db.scalars(select(MarketingMinusWord).where(MarketingMinusWord.semantic_project_id == sem_id)).all()}
+            now_neg = datetime.now(timezone.utc)
+            for neg in niche_tmpl["negative_keywords_base"]:
+                if neg.lower() not in existing_mw:
+                    db.add(MarketingMinusWord(semantic_project_id=sem_id, word=neg.lower(), note="авто (шаблон ниши)", added_at=now_neg))
+            db.commit()
+            logger.info("Autopilot: seeded %d niche negative keywords", len(niche_tmpl["negative_keywords_base"]))
+
         mw_list = [mw.word.lower() for mw in db.scalars(select(MarketingMinusWord).where(MarketingMinusWord.semantic_project_id == sem_id)).all()]
         act = db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id, SemanticKeyword.is_mask.is_(False), SemanticKeyword.is_excluded.is_(False))).all()
         excl = 0
