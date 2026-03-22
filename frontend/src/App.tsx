@@ -9,6 +9,7 @@ import AdminUsersPage from './pages/AdminUsersPage'
 import PortalPage from './pages/PortalPage'
 import TrashPage from './pages/TrashPage'
 import ServerPage from './pages/ServerPage'
+import DebugPanel from './components/DebugPanel'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.accessToken)
@@ -26,6 +27,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <DebugPanel />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/portal/:token" element={<PortalPage />} />
