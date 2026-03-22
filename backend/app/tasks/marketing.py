@@ -22,6 +22,149 @@ def _run_async(coro):
         return asyncio.run(coro)
 
 
+# ─── Morphological utilities (pymorphy3) ─────────────────────────────────────
+
+def _get_morph():
+    """Lazy-init pymorphy3 MorphAnalyzer (singleton)."""
+    if not hasattr(_get_morph, "_instance"):
+        import pymorphy3
+        _get_morph._instance = pymorphy3.MorphAnalyzer()
+    return _get_morph._instance
+
+
+def _normalize_phrase(phrase: str) -> str:
+    """Normalize phrase to canonical lemmatized form for dedup comparison.
+    E.g. 'купить диваны недорого' → 'купить диван недорого'
+    """
+    import re
+    morph = _get_morph()
+    words = re.findall(r'[а-яёa-z0-9]+', phrase.lower())
+    lemmas = []
+    for w in words:
+        parsed = morph.parse(w)
+        if parsed:
+            lemmas.append(parsed[0].normal_form)
+        else:
+            lemmas.append(w)
+    return " ".join(sorted(lemmas))
+
+
+def _deduplicate_morphological(phrases: list[str]) -> list[str]:
+    """Remove morphological duplicates, keeping the first occurrence.
+    E.g. keeps 'купить диван' and removes 'покупка дивана' (same lemmas).
+    """
+    seen_norm: set[str] = set()
+    result: list[str] = []
+    for phrase in phrases:
+        norm = _normalize_phrase(phrase)
+        if norm not in seen_norm:
+            seen_norm.add(norm)
+            result.append(phrase)
+    return result
+
+
+_GEO_INVARIANT_PREFIXES = frozenset({"санкт", "усть", "гусь", "орехово", "камень"})
+
+
+def _inflect_geo(geo: str) -> str:
+    """Inflect geo name to prepositional case for 'в + город'.
+    E.g. 'Москва' → 'Москве', 'Санкт-Петербург' → 'Санкт-Петербурге'.
+    Handles compound names and invariant prefixes (Санкт-, Усть-).
+    """
+    morph = _get_morph()
+    tokens = geo.split()
+    result = []
+    for token in tokens:
+        parts = token.split("-")
+        if len(parts) > 1:
+            # For hyphenated names, only inflect the last part
+            # (Санкт-Петербург → Санкт-Петербурге, Ростов-на-Дону → Ростове-на-Доне)
+            inflected_parts = []
+            for i, part in enumerate(parts):
+                if part.lower() in _GEO_INVARIANT_PREFIXES or part.lower() in ("на", "де"):
+                    inflected_parts.append(part)
+                else:
+                    parsed = morph.parse(part)
+                    if parsed:
+                        infl = parsed[0].inflect({"loct"})
+                        if infl:
+                            out = infl.word
+                            if part[0].isupper():
+                                out = out[0].upper() + out[1:]
+                            inflected_parts.append(out)
+                        else:
+                            inflected_parts.append(part)
+                    else:
+                        inflected_parts.append(part)
+            result.append("-".join(inflected_parts))
+        else:
+            parsed = morph.parse(token)
+            if parsed:
+                infl = parsed[0].inflect({"loct"})
+                if infl:
+                    out = infl.word
+                    if token[0].isupper():
+                        out = out[0].upper() + out[1:]
+                    result.append(out)
+                else:
+                    result.append(token)
+            else:
+                result.append(token)
+    return " ".join(result)
+
+
+# ─── Competitor keyword extraction from meta tags ────────────────────────────
+
+def _extract_keywords_from_meta(soup) -> list[str]:
+    """Extract candidate keyword phrases from page title, description, H1, H2.
+    Splits on common separators and filters short/stopword-only fragments.
+    """
+    import re
+    fragments: list[str] = []
+
+    # Title — split by common SEO separators
+    if soup.title and soup.title.string:
+        title = soup.title.string.strip()
+        parts = re.split(r'[|—–\-:•·»«/\\]', title)
+        fragments.extend(p.strip() for p in parts if p.strip())
+
+    # Meta description — split into phrases
+    desc_tag = soup.find("meta", attrs={"name": "description"})
+    if desc_tag and desc_tag.get("content"):
+        desc = desc_tag["content"].strip()
+        # Split by sentence separators and commas
+        parts = re.split(r'[.!?,;:—–]', desc)
+        fragments.extend(p.strip() for p in parts if p.strip())
+
+    # H1
+    h1 = soup.find("h1")
+    if h1:
+        fragments.append(h1.get_text(strip=True))
+
+    # H2s
+    for h2 in soup.find_all("h2")[:10]:
+        fragments.append(h2.get_text(strip=True))
+
+    # Meta keywords tag (some sites still have it)
+    kw_tag = soup.find("meta", attrs={"name": "keywords"})
+    if kw_tag and kw_tag.get("content"):
+        fragments.extend(k.strip() for k in kw_tag["content"].split(",") if k.strip())
+
+    # Filter: keep 2-7 word phrases, skip very short or stopword-only
+    result: list[str] = []
+    seen: set[str] = set()
+    for frag in fragments:
+        clean = re.sub(r'[^\w\s-]', '', frag).strip().lower()
+        words = clean.split()
+        if 2 <= len(words) <= 7 and clean not in seen:
+            # Skip if all words are stopwords
+            meaningful = [w for w in words if w not in _STOP_WORDS_RU and len(w) > 2]
+            if meaningful:
+                seen.add(clean)
+                result.append(clean)
+    return result
+
+
 # ─── Expand ───────────────────────────────────────────────────────────────────
 
 _EXPAND_SYSTEM = """Ты — специалист по сбору семантического ядра для Яндекс и Google.
@@ -372,7 +515,11 @@ def task_semantic_expand(
                     task.progress = int(40 + pass_num / max_extra_passes * 10)  # 40→50
                     db.commit()
 
-        unique_phrases = all_phrases  # already deduplicated via `seen`
+        # Morphological deduplication
+        before_morph = len(all_phrases)
+        unique_phrases = _deduplicate_morphological(all_phrases)
+        if before_morph != len(unique_phrases):
+            logger.info("Morphological dedup: %d → %d phrases", before_morph, len(unique_phrases))
 
         logger.info(
             "Total: %d unique phrases (Wordstat suggestions: %d)",
@@ -658,11 +805,9 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
             raise RuntimeError("Нет активных ключей для кластеризации. Выполните шаги 2–4.")
 
         phrases = [kw.phrase for kw in keywords]
-        # Cap at 600 to keep Claude prompt manageable
-        cap = 600
-        if len(phrases) > cap:
-            logger.warning("Capping cluster input from %d to %d phrases", len(phrases), cap)
-            phrases = phrases[:cap]
+        # No hard cap — process all keywords via multi-batch (300 per batch)
+        if len(phrases) > 600:
+            logger.info("Clustering %d phrases in multi-batch mode (300 per batch)", len(phrases))
 
         if task:
             task.progress = 10
@@ -908,12 +1053,20 @@ def _extract_frequent_terms(soup, top_n: int = 25) -> list[str]:
     return [w for w, _ in counter.most_common(top_n)]
 
 
-async def _crawl_competitor_pages(urls: list[str], max_pages_per_site: int = 15) -> str:
-    """Crawl competitor URLs, extract title/H1/H2/description/nav/anchors/terms."""
+async def _crawl_competitor_pages(
+    urls: list[str], max_pages_per_site: int = 15,
+) -> tuple[str, list[str]]:
+    """Crawl competitor URLs, extract title/H1/H2/description/nav/anchors/terms.
+
+    Returns:
+        (context_text, extracted_keywords) — context for Claude + keyword phrases from meta tags.
+    """
     import httpx
     from bs4 import BeautifulSoup
 
     lines: list[str] = []
+    all_extracted_keywords: list[str] = []
+
     async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers={"User-Agent": "SEODirectBot/1.0"}) as client:
         for url in urls[:5]:  # max 5 competitors
             try:
@@ -937,6 +1090,10 @@ async def _crawl_competitor_pages(urls: list[str], max_pages_per_site: int = 15)
                 desc_tag = soup.find("meta", attrs={"name": "description"})
                 if desc_tag and desc_tag.get("content"):
                     lines.append(f"  Description: {desc_tag['content'][:300]}")
+
+                # Extract keyword phrases from meta tags (homepage)
+                homepage_kws = _extract_keywords_from_meta(soup)
+                all_extracted_keywords.extend(homepage_kws)
 
                 # Navigation structure
                 for nav in soup.find_all("nav"):
@@ -985,11 +1142,23 @@ async def _crawl_competitor_pages(urls: list[str], max_pages_per_site: int = 15)
                             if idesc_text:
                                 page_line += f" | Desc: {idesc_text}"
                             lines.append(page_line)
+                        # Extract keywords from internal pages too
+                        page_kws = _extract_keywords_from_meta(isoup)
+                        all_extracted_keywords.extend(page_kws)
                     except Exception:
                         continue
             except Exception:
                 continue
-    return "\n".join(lines) if lines else ""
+
+    # Deduplicate extracted keywords
+    seen: set[str] = set()
+    unique_kws: list[str] = []
+    for kw in all_extracted_keywords:
+        if kw not in seen:
+            seen.add(kw)
+            unique_kws.append(kw)
+
+    return ("\n".join(lines) if lines else "", unique_kws)
 
 
 # ─── Modifiers matrix ────────────────────────────────────────────────────────
@@ -1007,8 +1176,11 @@ _DEFAULT_SEO_MODIFIERS = [
 
 
 def _generate_modifier_matrix(bases: list[str], modifiers: list[str], geo: str | None = None) -> list[str]:
-    """Cross-multiply base phrases with modifiers to get real search queries."""
+    """Cross-multiply base phrases with modifiers to get real search queries.
+    Uses morphological inflection for geo names: 'в Москве' instead of 'в Москва'.
+    """
     result: list[str] = []
+    geo_loct = _inflect_geo(geo) if geo else None  # prepositional case
     for base in bases:
         for mod in modifiers:
             result.append(f"{base} {mod}")
@@ -1017,7 +1189,10 @@ def _generate_modifier_matrix(bases: list[str], modifiers: list[str], geo: str |
         # base + geo without modifier
         if geo:
             result.append(f"{base} {geo}")
-            result.append(f"{base} в {geo}")
+            if geo_loct and geo_loct.lower() != geo.lower():
+                result.append(f"{base} в {geo_loct}")
+            else:
+                result.append(f"{base} в {geo}")
     return result
 
 
@@ -1089,10 +1264,14 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
 
         # ── Phase 0: Gather context — competitors + site (0-5%) ───────────
         competitor_ctx = ""
+        competitor_keywords: list[str] = []
         if brief.competitors_urls:
             try:
-                competitor_ctx = _run_async(_crawl_competitor_pages(brief.competitors_urls))
-                logger.info("Autopilot: competitor context %d chars from %d URLs", len(competitor_ctx), len(brief.competitors_urls))
+                competitor_ctx, competitor_keywords = _run_async(_crawl_competitor_pages(brief.competitors_urls))
+                logger.info(
+                    "Autopilot: competitor context %d chars, %d extracted keywords from %d URLs",
+                    len(competitor_ctx), len(competitor_keywords), len(brief.competitors_urls),
+                )
             except Exception as exc:
                 logger.warning("Autopilot competitor crawl: %s", exc)
 
@@ -1233,13 +1412,25 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         # ── Merge all sources and deduplicate ─────────────────────────────
         seen: set[str] = set(sel)  # masks already saved separately
         uniq: list[str] = []
-        for p in ws_suggestions + matrix_phrases + ai_phrases:
+        # Include competitor-extracted keywords as a source
+        all_sources = ws_suggestions + matrix_phrases + ai_phrases + competitor_keywords
+        for p in all_sources:
             norm = p.strip().lower()
             if norm and norm not in seen and len(norm) < 200:
                 seen.add(norm)
                 uniq.append(norm)
-        logger.info("Autopilot: %d unique keywords after merge (ws=%d, matrix=%d, ai=%d)",
-                     len(uniq), len(ws_suggestions), len(matrix_phrases), len(ai_phrases))
+        logger.info(
+            "Autopilot: %d unique keywords after merge (ws=%d, matrix=%d, ai=%d, competitors=%d)",
+            len(uniq), len(ws_suggestions), len(matrix_phrases), len(ai_phrases), len(competitor_keywords),
+        )
+
+        # Morphological deduplication — remove 'купить диваны' if 'купить диван' exists
+        before_dedup = len(uniq)
+        uniq = _deduplicate_morphological(uniq)
+        if before_dedup != len(uniq):
+            logger.info("Autopilot: morphological dedup removed %d duplicates (%d → %d)",
+                        before_dedup - len(uniq), before_dedup, len(uniq))
+
         if not uniq:
             raise RuntimeError("Не удалось собрать ключевые слова. Проверьте API-ключи.")
         _update_task(task, 50, {"stage": "wordstat_kw", "stage_label": "Частотность ключей", "keywords": len(uniq)}, db)
@@ -1293,7 +1484,7 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         db.commit()
         _update_task(task, 75, {"stage": "clean", "stage_label": "Авто-очистка", "saved": saved}, db)
 
-        # ── Phase 7: Auto-clean (75-80%) ──────────────────────────────────
+        # ── Phase 7: Auto-clean (75-85%) ──────────────────────────────────
         # Pre-seed niche negative keywords
         if niche_tmpl and niche_tmpl.get("negative_keywords_base"):
             existing_mw = {mw.word.lower() for mw in db.scalars(select(MarketingMinusWord).where(MarketingMinusWord.semantic_project_id == sem_id)).all()}
@@ -1307,7 +1498,10 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         mw_list = [mw.word.lower() for mw in db.scalars(select(MarketingMinusWord).where(MarketingMinusWord.semantic_project_id == sem_id)).all()]
         act = db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id, SemanticKeyword.is_mask.is_(False), SemanticKeyword.is_excluded.is_(False))).all()
         excl = 0
+        excl_reasons = {"zero": 0, "long": 0, "minus": 0, "branded": 0, "irrelevant": 0, "morph_dup": 0}
         now_ts2 = datetime.now(timezone.utc)
+
+        # Step 1: Rule-based exclusions (zero freq, long tail, minus words)
         for kw in act:
             r = None
             if (kw.frequency_exact or 0) == 0 and not sp.is_seasonal:
@@ -1323,14 +1517,92 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
                 kw.is_excluded = True
                 kw.excluded_at = now_ts2
                 excl += 1
+                excl_reasons[r] = excl_reasons.get(r, 0) + 1
+
+        db.flush()
+        _update_task(task, 77, {"stage": "clean_rules", "stage_label": "Правила очистки применены", "excluded_rules": excl}, db)
+
+        # Step 2: Morphological dedup among remaining active keywords
+        remaining = db.scalars(select(SemanticKeyword).where(
+            SemanticKeyword.semantic_project_id == sem_id,
+            SemanticKeyword.is_mask.is_(False),
+            SemanticKeyword.is_excluded.is_(False),
+        ).order_by(SemanticKeyword.frequency_exact.desc().nullslast())).all()
+
+        seen_norms: set[str] = set()
+        morph_dup_count = 0
+        for kw in remaining:
+            norm = _normalize_phrase(kw.phrase)
+            if norm in seen_norms:
+                kw.is_excluded = True
+                kw.excluded_at = now_ts2
+                morph_dup_count += 1
+            else:
+                seen_norms.add(norm)
+        excl += morph_dup_count
+        excl_reasons["morph_dup"] = morph_dup_count
+        db.flush()
+        logger.info("Autopilot clean: morphological dedup excluded %d", morph_dup_count)
+
+        # Step 3: Claude-based relevance filtering for borderline keywords
+        # Send a sample of remaining keywords to Claude to detect irrelevant ones
+        still_active = db.scalars(select(SemanticKeyword).where(
+            SemanticKeyword.semantic_project_id == sem_id,
+            SemanticKeyword.is_mask.is_(False),
+            SemanticKeyword.is_excluded.is_(False),
+        )).all()
+        if still_active and (brief.niche or brief.products):
+            # Take up to 500 keywords for Claude review (sorted by lowest frequency)
+            candidates = sorted(still_active, key=lambda k: k.frequency_exact or 0)[:500]
+            candidate_phrases = [k.phrase for k in candidates]
+            niche_desc = brief.niche or brief.products or ""
+            clean_prompt = (
+                f"Проанализируй ключевые слова для бизнеса: «{niche_desc}».\n"
+                f"Продукты/услуги: {brief.products or 'не указаны'}\n"
+                f"Целевая аудитория: {brief.target_audience or 'не указана'}\n\n"
+                f"Ключевые слова ({len(candidate_phrases)} шт.):\n"
+                f"{json.dumps(candidate_phrases, ensure_ascii=False)}\n\n"
+                f"Найди НЕРЕЛЕВАНТНЫЕ запросы, которые НЕ относятся к этому бизнесу.\n"
+                f"Признаки нерелевантности:\n"
+                f"- Запрос про другую тематику/нишу\n"
+                f"- Информационный запрос, не связанный с продуктом (если режим Директ)\n"
+                f"- Запрос про конкурентов (бренды конкурентов)\n"
+                f"- Слишком общий запрос без коммерческого интента\n\n"
+                f"Верни ТОЛЬКО JSON-массив нерелевантных фраз. Если все релевантны — верни []."
+            )
+            try:
+                claude_clean = get_claude_client(db, task_type="semantic_clean")
+                clean_system = "Ты — SEO-специалист. Отвечай строго JSON-массивом строк. Никакого другого текста."
+                raw_clean = _run_async(claude_clean.generate(clean_system, clean_prompt))
+                irrelevant_phrases = set(_parse_json_array(raw_clean))
+                if irrelevant_phrases:
+                    phrase_to_kw_map = {k.phrase: k for k in candidates}
+                    for phrase in irrelevant_phrases:
+                        if phrase in phrase_to_kw_map:
+                            kw_obj = phrase_to_kw_map[phrase]
+                            if not kw_obj.is_excluded:
+                                kw_obj.is_excluded = True
+                                kw_obj.excluded_at = now_ts2
+                                excl += 1
+                                excl_reasons["irrelevant"] = excl_reasons.get("irrelevant", 0) + 1
+                    logger.info("Autopilot clean: Claude flagged %d irrelevant keywords", len(irrelevant_phrases))
+            except LLMBillingError:
+                raise
+            except Exception as exc:
+                logger.warning("Autopilot Claude clean: %s", exc)
+
         sp.pipeline_step = max(sp.pipeline_step, 3)
         db.commit()
-        kept = len(act) - excl
-        _update_task(task, 80, {"stage": "cluster", "stage_label": "Кластеризация", "saved": saved, "excluded": excl, "kept": kept}, db)
+        kept = saved - excl
+        _update_task(task, 85, {
+            "stage": "cluster", "stage_label": "Кластеризация",
+            "saved": saved, "excluded": excl, "kept": kept,
+            "excluded_details": excl_reasons,
+        }, db)
 
-        # ── Phase 6: Cluster (80-95%) ─────────────────────────────────────
+        # ── Phase 8: Cluster (85-95%) ─────────────────────────────────────
         ckws = db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id, SemanticKeyword.is_mask.is_(False), SemanticKeyword.is_excluded.is_(False)).order_by(SemanticKeyword.frequency_exact.desc().nullslast())).all()
-        c_phrases = [k.phrase for k in ckws][:600]
+        c_phrases = [k.phrase for k in ckws]  # no cap — process all via multi-batch
         claude_c = get_claude_client(db, task_type="semantic_cluster")
         sys_c = get_prompt("semantic_cluster", db) or _CLUSTER_SYSTEM
         all_cl: list[dict] = []
@@ -1344,7 +1616,7 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             except Exception as exc:
                 logger.warning("Autopilot cluster: %s", exc)
             if task:
-                task.progress = min(95, int(80 + (i + len(b)) / max(len(c_phrases), 1) * 15))
+                task.progress = min(95, int(85 + (i + len(b)) / max(len(c_phrases), 1) * 10))
                 db.commit()
 
         for oc in db.scalars(select(SemanticCluster).where(SemanticCluster.semantic_project_id == sem_id)).all():
