@@ -469,37 +469,48 @@ def export_copywriter_docx(project_id, db: "Session") -> bytes:
         .where(CrawlSession.project_id == project_id, CrawlSession.status == CrawlStatus.DONE)
         .order_by(CrawlSession.finished_at.desc())
     )
-    if crawl:
-        seo_pages = db.scalars(
-            select(SeoPageMeta).where(SeoPageMeta.crawl_session_id == crawl.id)
-        ).all()
-        if seo_pages:
-            doc.add_heading("Рекомендации по страницам", level=1)
-            doc.add_paragraph(
-                "Для каждой страницы указаны текущие мета-теги и рекомендуемые. "
-                "Напишите тексты с учётом УТП и ключевых запросов."
-            )
-            doc.add_paragraph("")
 
-            for page in seo_pages[:50]:  # limit to 50 pages
-                doc.add_heading(page.page_url, level=2)
-                tbl = doc.add_table(rows=1, cols=3)
-                tbl.style = "Table Grid"
-                hdr = tbl.rows[0].cells
-                hdr[0].text = "Поле"
-                hdr[1].text = "Текущее"
-                hdr[2].text = "Рекомендуемое"
-                for field, current, rec in [
-                    ("Title", page.current_title or "—", page.rec_title or ""),
-                    ("Description", page.current_description or "—", page.rec_description or ""),
-                    ("OG Title", page.og_title or "—", page.rec_og_title or ""),
-                    ("OG Description", page.og_description or "—", page.rec_og_description or ""),
-                ]:
-                    row = tbl.add_row().cells
-                    row[0].text = field
-                    row[1].text = current
-                    row[2].text = rec
-                doc.add_paragraph("")
+    seo_pages = db.scalars(
+        select(SeoPageMeta).where(SeoPageMeta.project_id == project_id)
+    ).all()
+
+    if seo_pages:
+        # Build lookup: url → Page (current crawled data)
+        page_by_url: dict[str, Page] = {}
+        if crawl:
+            crawled_pages = db.scalars(
+                select(Page).where(Page.crawl_session_id == crawl.id)
+            ).all()
+            for cp in crawled_pages:
+                page_by_url[cp.url] = cp
+
+        doc.add_heading("Рекомендации по страницам", level=1)
+        doc.add_paragraph(
+            "Для каждой страницы указаны текущие мета-теги и рекомендуемые. "
+            "Напишите тексты с учётом УТП и ключевых запросов."
+        )
+        doc.add_paragraph("")
+
+        for seo_page in seo_pages[:50]:  # limit to 50 pages
+            doc.add_heading(seo_page.page_url, level=2)
+            crawled = page_by_url.get(seo_page.page_url)
+            tbl = doc.add_table(rows=1, cols=3)
+            tbl.style = "Table Grid"
+            hdr = tbl.rows[0].cells
+            hdr[0].text = "Поле"
+            hdr[1].text = "Текущее"
+            hdr[2].text = "Рекомендуемое"
+            for field, current, rec in [
+                ("Title", (crawled.title if crawled else None) or "—", seo_page.rec_title or ""),
+                ("Description", (crawled.description if crawled else None) or "—", seo_page.rec_description or ""),
+                ("OG Title", (crawled.og_title if crawled else None) or "—", seo_page.rec_og_title or ""),
+                ("OG Description", (crawled.og_description if crawled else None) or "—", seo_page.rec_og_description or ""),
+            ]:
+                row = tbl.add_row().cells
+                row[0].text = field
+                row[1].text = current
+                row[2].text = rec
+            doc.add_paragraph("")
 
     # ── Keywords per group ─────────────────────────────────────────────────────
     campaigns = db.scalars(

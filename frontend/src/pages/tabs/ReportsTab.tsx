@@ -7,6 +7,18 @@ function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
 }
 
+async function downloadFile(url: string, filename: string) {
+  const resp = await api.get(url, { responseType: 'blob' })
+  const blob = new Blob([resp.data])
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(link.href)
+}
+
 function ClientPortalSection({ projectId }: { projectId: string }) {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
@@ -92,7 +104,7 @@ function ClientPortalSection({ projectId }: { projectId: string }) {
               <button onClick={() => copyLink(t.token)}
                 className={cx('text-xs px-2.5 py-1 rounded border shrink-0 transition',
                   copiedToken === t.token ? 'bg-green-100 text-green-700 border-green-300' : 'bg-surface text-muted hover:bg-surface-raised')}>
-                {copiedToken === t.token ? '✅' : '📋 Копировать'}
+                {copiedToken === t.token ? 'Скопировано' : 'Копировать'}
               </button>
               <button onClick={() => { if (confirm('Отозвать ссылку?')) revokeMut.mutate(t.id) }}
                 className="text-xs text-red-500 hover:text-red-700 shrink-0">Отозвать</button>
@@ -100,6 +112,44 @@ function ClientPortalSection({ projectId }: { projectId: string }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function DownloadButton({ url, filename, label, accent }: { url: string; filename: string; label: string; accent?: boolean }) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleClick = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      await downloadFile(url, filename)
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail
+      if (detail) {
+        setError(typeof detail === 'string' ? detail : JSON.stringify(detail))
+      } else {
+        setError('Не удалось скачать файл')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div>
+      <button
+        onClick={handleClick}
+        disabled={loading}
+        className={cx(
+          'block w-full py-2 text-sm rounded-xl transition text-center disabled:opacity-50',
+          accent ? 'bg-accent text-white hover:opacity-90' : 'btn-ghost'
+        )}
+      >
+        {loading ? 'Загрузка...' : label}
+      </button>
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
     </div>
   )
 }
@@ -144,7 +194,7 @@ export default function ReportsTab({ projectId }: { projectId: string }) {
         </div>
         <button onClick={() => generateNowMut.mutate()} disabled={generateNowMut.isPending}
           className="bg-accent text-white px-3 py-1.5 rounded-xl text-sm hover:opacity-90 disabled:opacity-50 shrink-0">
-          {generateNowMut.isPending ? '⏳...' : 'Сгенерировать сейчас'}
+          {generateNowMut.isPending ? '...' : 'Сгенерировать сейчас'}
         </button>
       </div>
 
@@ -164,14 +214,14 @@ export default function ReportsTab({ projectId }: { projectId: string }) {
             >
               {previewLoading ? '...' : 'Просмотр'}
             </button>
-            <a
-              href={`/api/projects/${projectId}/report/html`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex-1 py-2 text-sm bg-accent text-white rounded-xl hover:bg-accent transition text-center"
-            >
-              Скачать
-            </a>
+            <div className="flex-1">
+              <DownloadButton
+                url={`/projects/${projectId}/report/html`}
+                filename="report.html"
+                label="Скачать"
+                accent
+              />
+            </div>
           </div>
         </div>
 
@@ -182,14 +232,11 @@ export default function ReportsTab({ projectId }: { projectId: string }) {
           <p className="text-sm text-muted mb-4">
             Полная стратегия продвижения в текстовом формате для команды.
           </p>
-          <a
-            href={`/api/projects/${projectId}/export/strategy-md`}
-            target="_blank"
-            rel="noreferrer"
-            className="block py-2 text-sm bg-surface-raised text-white rounded-xl hover:bg-surface-raised transition text-center"
-          >
-            Скачать .md
-          </a>
+          <DownloadButton
+            url={`/projects/${projectId}/export/strategy-md`}
+            filename="strategy.md"
+            label="Скачать .md"
+          />
         </div>
 
         {/* Strategy HTML */}
@@ -199,14 +246,11 @@ export default function ReportsTab({ projectId }: { projectId: string }) {
           <p className="text-sm text-muted mb-4">
             Красиво оформленная стратегия в HTML. Открывается в браузере.
           </p>
-          <a
-            href={`/api/projects/${projectId}/export/strategy-html`}
-            target="_blank"
-            rel="noreferrer"
-            className="block py-2 text-sm bg-surface-raised text-white rounded-xl hover:bg-surface-raised transition text-center"
-          >
-            Скачать .html
-          </a>
+          <DownloadButton
+            url={`/projects/${projectId}/export/strategy-html`}
+            filename="strategy.html"
+            label="Скачать .html"
+          />
         </div>
 
         {/* Copywriter brief */}
@@ -216,14 +260,11 @@ export default function ReportsTab({ projectId }: { projectId: string }) {
           <p className="text-sm text-muted mb-4">
             Готовый бриф для внешнего копирайтера с описанием проекта и требований.
           </p>
-          <a
-            href={`/api/projects/${projectId}/export/copywriter-brief`}
-            target="_blank"
-            rel="noreferrer"
-            className="block py-2 text-sm bg-surface-raised text-white rounded-xl hover:bg-surface-raised transition text-center"
-          >
-            Скачать .docx
-          </a>
+          <DownloadButton
+            url={`/projects/${projectId}/export/copywriter-brief`}
+            filename="brief_copywriter.docx"
+            label="Скачать .docx"
+          />
         </div>
       </div>
 
@@ -233,7 +274,7 @@ export default function ReportsTab({ projectId }: { projectId: string }) {
           <div className="bg-surface rounded-xl w-full max-w-4xl h-[80vh] flex flex-col shadow-2xl">
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <span className="font-medium text-sm">Предпросмотр отчёта</span>
-              <button onClick={() => setPreviewHtml(null)} className="text-muted hover:text-primary text-xl leading-none">×</button>
+              <button onClick={() => setPreviewHtml(null)} className="text-muted hover:text-primary text-xl leading-none">&times;</button>
             </div>
             <iframe srcDoc={previewHtml} className="flex-1 rounded-b-xl" title="Report preview" sandbox="allow-same-origin" />
           </div>

@@ -35,6 +35,7 @@ PLAIN_FIELDS = {
     "white_label_agency_name",
     "white_label_logo_url",
     "white_label_primary_color",
+    "brief_templates",
 }
 
 # Per-task LLM settings are stored with prefix llm_{task_id}_{field}

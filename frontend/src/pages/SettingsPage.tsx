@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import { settingsApi, type CrawlerSettings, type AISettings, type UserRecord, type SystemPromptFull } from '../api/settings'
+import { settingsApi, type CrawlerSettings, type AISettings, type UserRecord, type SystemPromptFull, type BriefTemplate, type BriefTemplateData } from '../api/settings'
 import { useAuthStore } from '../store/auth'
 
-type Tab = 'api-keys' | 'crawler' | 'ai' | 'limits' | 'users' | 'prompts' | 'white-label'
+type Tab = 'api-keys' | 'crawler' | 'ai' | 'limits' | 'users' | 'prompts' | 'white-label' | 'brief-templates'
 
 function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
@@ -1054,6 +1054,222 @@ function LimitsTab() {
   )
 }
 
+// ── Brief Templates ─────────────────────────────────────────────────────────
+const EMPTY_TEMPLATE_DATA: BriefTemplateData = {
+  niche: '', price_segment: 'middle', campaign_goal: 'leads',
+  target_audience: '', pains: '', usp: '', keyword_modifiers: [],
+}
+
+function BriefTemplatesTab() {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ['brief-templates'],
+    queryFn: () => settingsApi.getBriefTemplates(),
+  })
+  const [editing, setEditing] = useState<string | null>(null)
+  const [form, setForm] = useState<BriefTemplate | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [createForm, setCreateForm] = useState<BriefTemplate>({ id: '', name: '', icon: '', data: { ...EMPTY_TEMPLATE_DATA } })
+  const [newModifier, setNewModifier] = useState('')
+  const [createModifier, setCreateModifier] = useState('')
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => settingsApi.deleteBriefTemplate(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['brief-templates'] }),
+  })
+  const updateMut = useMutation({
+    mutationFn: ({ id, data: d }: { id: string; data: Partial<BriefTemplate> }) => settingsApi.updateBriefTemplate(id, d),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['brief-templates'] }); setEditing(null); setForm(null) },
+  })
+  const createMut = useMutation({
+    mutationFn: (t: BriefTemplate) => settingsApi.addBriefTemplate(t),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['brief-templates'] }); setShowCreate(false); setCreateForm({ id: '', name: '', icon: '', data: { ...EMPTY_TEMPLATE_DATA } }) },
+    onError: (e: any) => alert(e?.response?.data?.detail || 'Ошибка'),
+  })
+  const resetMut = useMutation({
+    mutationFn: () => settingsApi.resetBriefTemplates(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['brief-templates'] }),
+  })
+
+  if (isLoading) return <Spinner />
+
+  const templates: BriefTemplate[] = data?.templates ?? []
+
+  const renderDataFields = (
+    d: BriefTemplateData,
+    setD: (fn: (prev: BriefTemplateData) => BriefTemplateData) => void,
+    modVal: string,
+    setModVal: (v: string) => void,
+  ) => (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Ниша</Label>
+          <input className="field" value={d.niche} onChange={e => setD(p => ({ ...p, niche: e.target.value }))} />
+        </div>
+        <div>
+          <Label>Ценовой сегмент</Label>
+          <select className="field" value={d.price_segment} onChange={e => setD(p => ({ ...p, price_segment: e.target.value }))}>
+            <option value="low">low</option>
+            <option value="middle">middle</option>
+            <option value="high">high</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <Label>Цель кампании</Label>
+        <input className="field" value={d.campaign_goal} onChange={e => setD(p => ({ ...p, campaign_goal: e.target.value }))} />
+      </div>
+      <div>
+        <Label>Целевая аудитория</Label>
+        <textarea rows={2} className="field" value={d.target_audience} onChange={e => setD(p => ({ ...p, target_audience: e.target.value }))} />
+      </div>
+      <div>
+        <Label>Боли</Label>
+        <textarea rows={2} className="field" value={d.pains} onChange={e => setD(p => ({ ...p, pains: e.target.value }))} />
+      </div>
+      <div>
+        <Label>УТП</Label>
+        <textarea rows={2} className="field" value={d.usp} onChange={e => setD(p => ({ ...p, usp: e.target.value }))} />
+      </div>
+      <div>
+        <Label>Коммерческие модификаторы</Label>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {d.keyword_modifiers.map((m, i) => (
+            <span key={i} className="inline-flex items-center gap-1 bg-surface-raised border rounded-lg px-2 py-1 text-xs">
+              {m}
+              <button onClick={() => setD(p => ({ ...p, keyword_modifiers: p.keyword_modifiers.filter((_, j) => j !== i) }))}
+                className="text-red-400 hover:text-red-600">&times;</button>
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input className="field flex-1" placeholder="Добавить модификатор..." value={modVal}
+            onChange={e => setModVal(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && modVal.trim()) { e.preventDefault(); setD(p => ({ ...p, keyword_modifiers: [...p.keyword_modifiers, modVal.trim()] })); setModVal('') } }} />
+          <button onClick={() => { if (modVal.trim()) { setD(p => ({ ...p, keyword_modifiers: [...p.keyword_modifiers, modVal.trim()] })); setModVal('') } }}
+            className="btn-ghost px-3 text-sm shrink-0">+</button>
+        </div>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted">{templates.length} шаблонов. Используются при заполнении брифа проекта.</p>
+        <div className="flex gap-2">
+          <button onClick={() => { if (confirm('Сбросить все шаблоны к значениям по умолчанию?')) resetMut.mutate() }}
+            className="btn-ghost py-2 px-3 text-xs text-amber-600">Сбросить</button>
+          <button onClick={() => setShowCreate(true)} className="btn-accent py-2 px-4 text-sm">+ Добавить</button>
+        </div>
+      </div>
+
+      {showCreate && (
+        <div className="card-bordered overflow-hidden">
+          <div className="px-5 py-3.5 bg-surface-raised border-b border-[var(--border)]">
+            <h5 className="text-sm font-semibold text-primary">Новый шаблон</h5>
+          </div>
+          <div className="p-5 space-y-3">
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label>ID (латиница)</Label>
+                <input className="field" value={createForm.id} onChange={e => setCreateForm(f => ({ ...f, id: e.target.value.replace(/[^a-z0-9_]/g, '') }))}
+                  placeholder="my_niche" />
+              </div>
+              <div>
+                <Label>Название</Label>
+                <input className="field" value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="Моя ниша" />
+              </div>
+              <div>
+                <Label>Иконка</Label>
+                <input className="field" value={createForm.icon} onChange={e => setCreateForm(f => ({ ...f, icon: e.target.value }))}
+                  placeholder="📦" />
+              </div>
+            </div>
+            {renderDataFields(
+              createForm.data,
+              fn => setCreateForm(f => ({ ...f, data: fn(f.data) })),
+              createModifier,
+              setCreateModifier,
+            )}
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => createMut.mutate(createForm)}
+                disabled={createMut.isPending || !createForm.id || !createForm.name}
+                className="btn-accent">{createMut.isPending ? 'Создание...' : 'Создать'}</button>
+              <button onClick={() => setShowCreate(false)} className="btn-ghost">Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {templates.map(t => {
+          const isEditing = editing === t.id
+          return (
+            <div key={t.id} className="card-bordered overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3.5 bg-surface-raised border-b border-[var(--border)]">
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">{t.icon}</span>
+                  <div>
+                    <h4 className="text-sm font-semibold text-primary">{t.name}</h4>
+                    <p className="text-xs text-muted font-mono">{t.id}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => {
+                    if (isEditing) { setEditing(null); setForm(null) }
+                    else { setEditing(t.id); setForm(JSON.parse(JSON.stringify(t))) }
+                  }} className="btn-ghost py-1.5 px-3 text-xs">
+                    {isEditing ? 'Свернуть' : 'Редактировать'}
+                  </button>
+                  <button onClick={() => { if (confirm(`Удалить шаблон "${t.name}"?`)) deleteMut.mutate(t.id) }}
+                    className="btn-danger py-1 px-2 text-xs rounded-lg">✕</button>
+                </div>
+              </div>
+              {isEditing && form && (
+                <div className="p-5 space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label>Название</Label>
+                      <input className="field" value={form.name} onChange={e => setForm(f => f ? { ...f, name: e.target.value } : f)} />
+                    </div>
+                    <div>
+                      <Label>Иконка</Label>
+                      <input className="field" value={form.icon} onChange={e => setForm(f => f ? { ...f, icon: e.target.value } : f)} />
+                    </div>
+                  </div>
+                  {renderDataFields(
+                    form.data,
+                    fn => setForm(f => f ? { ...f, data: fn(f.data) } : f),
+                    newModifier,
+                    setNewModifier,
+                  )}
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={() => updateMut.mutate({ id: t.id, data: { name: form.name, icon: form.icon, data: form.data } })}
+                      disabled={updateMut.isPending}
+                      className="btn-accent">{updateMut.isPending ? 'Сохранение...' : 'Сохранить'}</button>
+                    <button onClick={() => { setEditing(null); setForm(null) }} className="btn-ghost">Отмена</button>
+                  </div>
+                </div>
+              )}
+              {!isEditing && (
+                <div className="px-5 py-3 text-xs text-muted">
+                  <span>{t.data.niche}</span>
+                  {t.data.keyword_modifiers?.length > 0 && (
+                    <span className="ml-2">| {t.data.keyword_modifiers.length} модификаторов</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const user       = useAuthStore((s) => s.user)
@@ -1069,6 +1285,7 @@ export default function SettingsPage() {
     { key: 'limits',      label: 'Лимиты API',     show: isAdmin },
     { key: 'white-label', label: 'White Label',    show: isAdmin },
     { key: 'users',       label: 'Пользователи',   show: isAdmin },
+    { key: 'brief-templates', label: 'Шаблоны брифов', show: isAdmin },
     { key: 'prompts',     label: 'Промпты',        show: isSuperAdmin },
   ]
   const tabs = allTabs.filter((t) => t.show)
@@ -1090,7 +1307,7 @@ export default function SettingsPage() {
       </div>
 
       <div className={cx(
-        tab === 'api-keys' || tab === 'users' || tab === 'prompts' || tab === 'ai' || tab === 'limits' ? 'max-w-5xl' : 'max-w-2xl'
+        tab === 'api-keys' || tab === 'users' || tab === 'prompts' || tab === 'ai' || tab === 'limits' || tab === 'brief-templates' ? 'max-w-5xl' : 'max-w-2xl'
       )}>
         {tab === 'api-keys'    && <ApiKeysTab />}
         {tab === 'crawler'     && <CrawlerTab />}
@@ -1098,6 +1315,7 @@ export default function SettingsPage() {
         {tab === 'limits'      && <LimitsTab />}
         {tab === 'white-label' && <WhiteLabelTab />}
         {tab === 'users'       && <UsersTab />}
+        {tab === 'brief-templates' && <BriefTemplatesTab />}
         {tab === 'prompts'     && <PromptsTab />}
       </div>
     </div>
