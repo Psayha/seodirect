@@ -146,16 +146,16 @@ class WordstatClient:
     async def get_all_frequencies(
         self, phrases: list[str], regions: list[int] | None = None
     ) -> dict[str, dict]:
-        """Получает частоты Wordstat для каждой фразы.
+        """Получает все 4 типа частот Wordstat для каждой фразы.
 
-        Новый Yandex Cloud Wordstat API не поддерживает операторы
-        ("фраза", "!точная", [порядок]) — доступна только base-частота
-        (totalCount из GetTop).
+        GetTop поддерживает поисковые операторы:
+          - base:   купить диван          (все формы, + доп. слова)
+          - phrase: "купить диван"        (все формы, без доп. слов)
+          - exact:  "!купить !диван"      (точные формы, без доп. слов)
+          - order:  [купить диван]        (точный порядок слов)
 
-        Для обратной совместимости возвращает структуру:
-          {phrase: {base, phrase_freq, exact, order}}
-        где phrase_freq = count точного совпадения из results[] (если есть),
-        exact и order = 0.
+        Для каждой фразы делаем 4 запроса GetTop с разными операторами.
+        Возвращает {phrase: {base, phrase_freq, exact, order}}
         """
         if not phrases:
             return {}
@@ -164,34 +164,45 @@ class WordstatClient:
         errors: list[Exception] = []
         sem = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-        async def _fetch_one(client: httpx.AsyncClient, phrase: str) -> None:
+        async def _fetch_variant(
+            client: httpx.AsyncClient, phrase: str, variant_phrase: str, freq_type: str
+        ) -> tuple[str, str, int]:
+            """Запрашивает totalCount для одного варианта фразы."""
             async with sem:
-                try:
-                    data = await self._get_top(client, phrase, regions, num_phrases=200)
-                    base = int(data.get("totalCount", 0))
+                data = await self._get_top(client, variant_phrase, regions, num_phrases=1)
+                return phrase, freq_type, int(data.get("totalCount", 0))
 
-                    # Ищем точное совпадение фразы в results для phrase_freq
-                    phrase_freq = 0
-                    phrase_lower = phrase.lower().strip()
-                    for item in data.get("results", []):
-                        if item.get("phrase", "").lower().strip() == phrase_lower:
-                            phrase_freq = int(item.get("count", 0))
-                            break
-
-                    results[phrase] = {
-                        "base": base,
-                        "phrase_freq": phrase_freq or base,
-                        "exact": 0,
-                        "order": 0,
-                    }
-                except Exception as exc:
-                    errors.append(exc)
-                    logger.warning(
-                        "Wordstat get_all_frequencies error for '%s': %s", phrase, exc
-                    )
+        async def _fetch_all_for_phrase(
+            client: httpx.AsyncClient, phrase: str
+        ) -> None:
+            words = phrase.strip()
+            exact_words = " ".join(f"!{w}" for w in words.split())
+            variants = [
+                (words, "base"),
+                (f'"{words}"', "phrase_freq"),
+                (f'"{exact_words}"', "exact"),
+                (f"[{words}]", "order"),
+            ]
+            try:
+                tasks = [
+                    _fetch_variant(client, phrase, v, t) for v, t in variants
+                ]
+                variant_results = await asyncio.gather(*tasks)
+                freq_map = {t: count for _, t, count in variant_results}
+                results[phrase] = {
+                    "base": freq_map.get("base", 0),
+                    "phrase_freq": freq_map.get("phrase_freq", 0),
+                    "exact": freq_map.get("exact", 0),
+                    "order": freq_map.get("order", 0),
+                }
+            except Exception as exc:
+                errors.append(exc)
+                logger.warning(
+                    "Wordstat get_all_frequencies error for '%s': %s", phrase, exc
+                )
 
         async with httpx.AsyncClient(timeout=60) as client:
-            await asyncio.gather(*[_fetch_one(client, p) for p in phrases])
+            await asyncio.gather(*[_fetch_all_for_phrase(client, p) for p in phrases])
 
         if errors and len(errors) >= len(phrases):
             raise WordstatError(
