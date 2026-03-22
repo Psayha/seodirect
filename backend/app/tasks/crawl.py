@@ -121,6 +121,17 @@ def run_crawl(self, task_id: str, session_id: str, project_id: str, url: str, se
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
 
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "Парсинг завершён",
+                f"Обработано {len(pages)} страниц",
+            )
+        except Exception:
+            logger.debug("Push notification failed (non-critical)", exc_info=True)
+
     except Exception as exc:
         # Mark as failed
         try:

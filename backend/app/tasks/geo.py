@@ -101,6 +101,17 @@ def task_geo_scan(
             finished_at=datetime.now(tz=timezone.utc),
             result={"scanned": done},
         )
+
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "GEO-сканирование завершено",
+                f"Проверено {done} комбинаций запрос×модель",
+            )
+        except Exception:
+            pass
     except Exception as exc:
         if task:
             _update_task(
@@ -197,6 +208,17 @@ def task_geo_audit(self, task_id: str, project_id: str) -> None:
             finished_at=datetime.now(tz=timezone.utc),
             result={"audit_id": str(audit.id), "score": score},
         )
+
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "GEO-аудит завершён",
+                f"AI Readiness Score: {score}/100",
+            )
+        except Exception:
+            pass
     except Exception as exc:
         if task:
             _update_task(

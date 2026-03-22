@@ -532,6 +532,17 @@ def task_semantic_expand(
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
 
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "Расширение семантики готово",
+                f"Собрано {saved} ключевых слов",
+            )
+        except Exception:
+            pass
+
         return {"status": "success", "saved": saved}
 
     except Exception as e:
@@ -767,6 +778,17 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
             }
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
+
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "Кластеризация готова",
+                f"Создано {saved_clusters} кластеров",
+            )
+        except Exception:
+            pass
 
         return {"status": "success", "clusters": saved_clusters}
 
@@ -1097,6 +1119,18 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
         logger.info("Autopilot done: %d masks -> %d kw -> %d kept -> %d clusters", len(mask_phrases), saved, kept, n_cl)
+
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "Семантика готова",
+                f"Собрано {kept} ключевых слов, {n_cl} кластеров",
+            )
+        except Exception:
+            pass
+
         return {"status": "success", "clusters": n_cl, "kept": kept}
 
     except Exception as e:

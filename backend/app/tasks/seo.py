@@ -216,6 +216,17 @@ H2: {', '.join((page.h2_list or [])[:3])}
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
 
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "Мета-теги готовы",
+                f"Сгенерировано для {generated} страниц",
+            )
+        except Exception:
+            pass
+
         return {"status": "success", "pages_generated": generated}
 
     except Exception as e:
@@ -395,6 +406,17 @@ Description: {page.description or 'нет'}
             task.result = {"pages_generated": generated, "pages_total": len(pages)}
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
+
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "Schema.org готов",
+                f"Сгенерировано для {generated} страниц",
+            )
+        except Exception:
+            pass
 
         return {"status": "success", "pages_generated": generated}
 
