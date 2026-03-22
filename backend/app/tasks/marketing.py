@@ -228,6 +228,8 @@ async def _collect_serp_suggestions(
                 seen.add(s_lower)
                 all_suggestions.append(s_lower)
 
+    import asyncio
+
     for mask in masks:
         # Base query
         ya_base = await _fetch_yandex_suggest(mask, region_id)
@@ -241,11 +243,13 @@ async def _collect_serp_suggestions(
         for letter in _RU_LETTERS:
             ya = await _fetch_yandex_suggest(f"{mask} {letter}", region_id)
             await _add_unique(ya)
+            await asyncio.sleep(0.15)  # throttle to avoid IP bans
 
         # Question modifiers: 'как mask', 'где mask', ...
         for prefix in _QUESTION_PREFIXES:
             ya_q = await _fetch_yandex_suggest(f"{prefix}{mask}", region_id)
             await _add_unique(ya_q)
+            await asyncio.sleep(0.15)
 
     logger.info("SERP suggestions: collected %d unique phrases from %d masks", len(all_suggestions), len(masks))
     return all_suggestions
@@ -272,10 +276,40 @@ async def _extract_content_gap_keywords(
 
     logger = logging.getLogger(__name__)
 
+    def _is_safe_url(url: str) -> bool:
+        """Block SSRF: reject internal IPs, non-http schemes."""
+        import ipaddress
+        from urllib.parse import urlparse
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https"):
+                return False
+            hostname = parsed.hostname or ""
+            if not hostname:
+                return False
+            if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+                return False
+            if hostname.endswith(".internal") or hostname.endswith(".local"):
+                return False
+            if hostname in ("169.254.169.254", "metadata.google.internal"):
+                return False
+            try:
+                ip = ipaddress.ip_address(hostname)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    return False
+            except ValueError:
+                pass
+            return True
+        except Exception:
+            return False
+
     # Crawl competitor internal pages (up to 15 per site, max 3 sites)
     comp_pages: list[dict] = []
     async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers={"User-Agent": "SEODirectBot/1.0"}) as client:
         for url in competitor_urls[:3]:
+            if not _is_safe_url(url):
+                logger.warning("Content gap: blocked unsafe URL %s", url)
+                continue
             try:
                 r = await client.get(url)
                 if r.status_code != 200:
@@ -377,11 +411,7 @@ async def _cluster_via_topvisor(
     )
 
     try:
-        # Step 1: Clear existing keywords
-        await remove_all_keywords(api_key, project_id, user_id)
-        logger.info("Topvisor cluster: cleared old keywords from project %d", project_id)
-
-        # Step 2: Upload new keywords
+        # Step 1: Upload keywords (additive — Topvisor deduplicates automatically)
         result = await add_keywords_to_project(api_key, project_id, phrases, user_id=user_id)
         logger.info("Topvisor cluster: uploaded %d keywords (added=%s)", len(phrases), result)
 
