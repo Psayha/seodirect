@@ -146,7 +146,7 @@ async def check_domain_in_ai_response(
         try:
             from app.services.usage import track_llm_call
             u = data.get("usage", {})
-            track_llm_call("openrouter", tokens_in=u.get("prompt_tokens", 0), tokens_out=u.get("completion_tokens", 0), model=ai_model)
+            track_llm_call("openrouter", tokens_in=u.get("prompt_tokens", 0), tokens_out=u.get("completion_tokens", 0), model=model)
         except Exception:
             pass
     except Exception as exc:
