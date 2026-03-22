@@ -156,7 +156,7 @@ async def test_api_key(
                     "https://searchapi.api.cloud.yandex.net/v2/wordstat/getWordStatReport",
                     json={
                         "folderId": folder_id,
-                        "phrases": ["тест"],
+                        "phrase": "тест",
                         "regionIds": [213],
                     },
                     headers={"Authorization": auth_header},
