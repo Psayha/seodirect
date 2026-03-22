@@ -145,12 +145,19 @@ async def test_api_key(
                 token = get_setting("wordstat_oauth_token", db)
                 if not token:
                     return {"ok": False, "message": "OAuth токен не задан"}
+                # Проверяем через Yandex Direct API v4 (GetWordstatReportList)
                 r = await client.post(
-                    "https://api.wordstat.yandex.net/v1/topRequests",
-                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json;charset=utf-8"},
-                    json={"phrases": ["тест"]},
+                    "https://api.direct.yandex.ru/v4/json/",
+                    headers={"Content-Type": "application/json; charset=utf-8"},
+                    json={"method": "GetWordstatReportList", "token": token, "locale": "ru"},
                 )
                 if r.status_code == 200:
+                    body = r.json()
+                    if "error_code" in body:
+                        err_code = body["error_code"]
+                        if err_code in (53, 152, 201, 202):
+                            return {"ok": False, "message": "Неверный OAuth токен"}
+                        return {"ok": False, "message": f"API ошибка {err_code}: {body.get('error_str', '')}"}
                     return {"ok": True, "message": "Подключено"}
                 if r.status_code in (401, 403):
                     return {"ok": False, "message": "Неверный OAuth токен"}
