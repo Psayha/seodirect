@@ -105,8 +105,21 @@ function ClientPortalSection({ projectId }: { projectId: string }) {
 }
 
 export default function ReportsTab({ projectId }: { projectId: string }) {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
   const qc = useQueryClient()
+
+  const loadPreview = async () => {
+    setPreviewLoading(true)
+    try {
+      const resp = await api.get(`/projects/${projectId}/report/preview`, { responseType: 'text' })
+      setPreviewHtml(typeof resp.data === 'string' ? resp.data : String(resp.data))
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Не удалось загрузить отчёт')
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
 
   const generateNowMut = useMutation({
     mutationFn: () => api.post(`/projects/${projectId}/report/generate`).then(r => r.data),
@@ -145,10 +158,11 @@ export default function ReportsTab({ projectId }: { projectId: string }) {
           </p>
           <div className="flex gap-2">
             <button
-              onClick={() => setPreviewUrl(`/api/projects/${projectId}/report/preview`)}
+              onClick={loadPreview}
+              disabled={previewLoading}
               className="flex-1 py-2 text-sm border rounded-xl hover:bg-surface-raised transition"
             >
-              Просмотр
+              {previewLoading ? '...' : 'Просмотр'}
             </button>
             <a
               href={`/api/projects/${projectId}/report/html`}
@@ -213,15 +227,15 @@ export default function ReportsTab({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      {/* Preview iframe */}
-      {previewUrl && (
+      {/* Preview modal */}
+      {previewHtml && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-surface rounded-xl w-full max-w-4xl h-[80vh] flex flex-col shadow-2xl">
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <span className="font-medium text-sm">Предпросмотр отчёта</span>
-              <button onClick={() => setPreviewUrl(null)} className="text-muted hover:text-primary text-xl leading-none">×</button>
+              <button onClick={() => setPreviewHtml(null)} className="text-muted hover:text-primary text-xl leading-none">×</button>
             </div>
-            <iframe src={previewUrl} className="flex-1 rounded-b-xl" title="Report preview" sandbox="allow-same-origin" />
+            <iframe srcDoc={previewHtml} className="flex-1 rounded-b-xl" title="Report preview" sandbox="allow-same-origin" />
           </div>
         </div>
       )}
