@@ -299,7 +299,7 @@ async def collect_masks(
             fresh = await client.get_all_frequencies(uncached, regions=regions)
         except Exception as exc:
             logger.exception("Wordstat error: %s", exc)
-            raise HTTPException(status_code=502, detail="Wordstat API error")
+            raise HTTPException(status_code=502, detail=f"Wordstat API error: {exc}")
 
         # Save to cache (skip all-zero results — likely API errors)
         now = datetime.now(tz=timezone.utc)
