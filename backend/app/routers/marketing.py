@@ -1702,6 +1702,7 @@ def crawl_competitors(
         raise HTTPException(status_code=422, detail="Нет конкурентов для обхода")
 
     import asyncio
+
     import httpx
     from bs4 import BeautifulSoup
 
