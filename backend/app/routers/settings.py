@@ -162,8 +162,11 @@ async def test_api_key(
                 )
                 if r.status_code == 200:
                     return {"ok": True, "message": "Подключено"}
-                # Для диагностики — полный ответ
-                return {"ok": False, "message": f"HTTP {r.status_code}: {r.text[:500]}"}
+                if r.status_code in (401, 403):
+                    return {"ok": False, "message": f"Нет доступа. Проверьте роли и привязку платёжного аккаунта. ({r.text[:200]})"}
+                if r.status_code == 429:
+                    return {"ok": True, "message": "Подключено (квота ограничена, но ключ валиден)"}
+                return {"ok": False, "message": f"HTTP {r.status_code}: {r.text[:200]}"}
 
             elif service == "metrika":
                 token = get_setting("metrika_oauth_token", db)
