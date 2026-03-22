@@ -31,7 +31,15 @@ def _update_task(db: Session, task: Task, **kwargs) -> None:
 
 # ── GEO Scan ──────────────────────────────────────────────────────────────────
 
-@shared_task(bind=True, name="task_geo_scan")
+@shared_task(
+    bind=True,
+    name="task_geo_scan",
+    autoretry_for=(ConnectionError, OSError),
+    retry_kwargs={"max_retries": 3},
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+)
 def task_geo_scan(
     self,
     task_id: str,
@@ -127,7 +135,15 @@ def task_geo_scan(
 
 # ── GEO Audit ─────────────────────────────────────────────────────────────────
 
-@shared_task(bind=True, name="task_geo_audit")
+@shared_task(
+    bind=True,
+    name="task_geo_audit",
+    autoretry_for=(ConnectionError, OSError),
+    retry_kwargs={"max_retries": 3},
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+)
 def task_geo_audit(self, task_id: str, project_id: str) -> None:
     db: Session = SessionLocal()
     task: Task | None = None

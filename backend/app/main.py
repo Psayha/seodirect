@@ -20,13 +20,29 @@ from app.observability import install_observability
 logger = logging.getLogger("seodirect")
 
 
+def _setup_logging(settings) -> None:
+    """Configure structured JSON logging in production, plain text in dev."""
+    log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    if settings.app_env == "production":
+        from pythonjsonlogger.json import JsonFormatter
+        handler = logging.StreamHandler()
+        handler.setFormatter(JsonFormatter(
+            fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+            rename_fields={"asctime": "timestamp", "levelname": "level"},
+        ))
+        logging.root.handlers = [handler]
+        logging.root.setLevel(log_level)
+    else:
+        logging.basicConfig(
+            level=log_level,
+            format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    _setup_logging(settings)
     logger.info("SEODirect starting up")
 
     # Seed default system prompts if not present

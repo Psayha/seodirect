@@ -26,4 +26,4 @@ RUN mkdir -p /app/static/uploads && chown -R appuser:appuser /app/static
 # Switch to non-root user
 USER appuser
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-w", "2", "--bind", "0.0.0.0:8000"]
