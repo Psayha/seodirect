@@ -3,10 +3,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 
+import httpx
+
 from app.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
@@ -20,6 +25,33 @@ def _run_async(coro):
         return loop.run_until_complete(coro)
     except RuntimeError:
         return asyncio.run(coro)
+
+
+def _ws_call_with_retry(fn, *args, max_retries: int = 3, **kwargs):
+    """Call a Wordstat function with exponential backoff on 429/timeout errors.
+
+    Returns result on success, or raises on final failure.
+    """
+    import time
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            return _run_async(fn(*args, **kwargs))
+        except Exception as exc:
+            last_exc = exc
+            exc_str = str(exc).lower()
+            is_retryable = "429" in exc_str or "quota" in exc_str or "timeout" in exc_str or "rate" in exc_str
+            if is_retryable and attempt < max_retries:
+                delay = 5 * (2 ** attempt)  # 5s, 10s, 20s
+                logger.warning("Wordstat %s (attempt %d/%d), retrying in %ds: %s", fn.__name__, attempt + 1, max_retries + 1, delay, exc)
+                time.sleep(delay)
+            else:
+                raise last_exc from None
+    raise last_exc  # unreachable, but type-safe
+
+
+# Max keywords to save per semantic project (prevents memory/DB explosion)
+_MAX_KEYWORDS_TOTAL = 10_000
 
 
 # ─── Morphological utilities (pymorphy3) ─────────────────────────────────────
@@ -265,8 +297,6 @@ async def _collect_serp_suggestions(
     """
     import asyncio
 
-    import httpx
-
     all_suggestions: list[str] = []
     seen: set[str] = set()
     request_count = 0
@@ -345,13 +375,9 @@ async def _extract_content_gap_keywords(
     Safety: SSRF on every URL + redirect hop, crawl delay 1s, connection limits.
     """
     import asyncio
-    import logging
     import re
 
-    import httpx
     from bs4 import BeautifulSoup
-
-    logger = logging.getLogger(__name__)
 
     # Crawl competitor internal pages (up to 15 per site, max 3 sites)
     comp_pages: list[dict] = []
@@ -464,8 +490,6 @@ async def _cluster_via_topvisor(
 
     Returns list of {"group_id": str, "keywords": [str]} or None if failed/timeout.
     """
-    import logging
-    logger = logging.getLogger(__name__)
 
     from app.services.topvisor import (
         add_keywords_to_project,
@@ -695,12 +719,9 @@ def task_semantic_expand(
                         parts.append(page_info)
                     site_context = "\n".join(parts)
         except Exception:
-            import logging
-            logging.getLogger(__name__).warning("Failed to load crawl data for semantic expand", exc_info=True)
+            logger.warning("Failed to load crawl data for semantic expand", exc_info=True)
 
         # ── Wordstat: collect suggestions (nested + similar) per mask ──────
-        import logging
-        logger = logging.getLogger(__name__)
 
         total_masks = len(mask_phrases)
         all_phrases: list[str] = []
@@ -897,7 +918,7 @@ def task_semantic_expand(
                 for i in range(0, len(uncached), sub_batch):
                     batch = uncached[i : i + sub_batch]
                     try:
-                        fresh = _run_async(wordstat.get_all_frequencies(batch, regions=regions))
+                        fresh = _ws_call_with_retry(wordstat.get_all_frequencies, batch, regions=regions)
                         now = datetime.now(tz=timezone.utc)
                         for phrase, freqs in fresh.items():
                             freq_map[phrase] = freqs
@@ -924,8 +945,7 @@ def task_semantic_expand(
                                     cached_at=now,
                                 ))
                     except Exception as exc:
-                        import logging
-                        logging.getLogger(__name__).warning("Wordstat batch error: %s", exc)
+                        logger.warning("Wordstat batch error: %s", exc)
 
                     if task:
                         task.progress = min(85, int(50 + (i + sub_batch) / len(uncached) * 35))
@@ -1114,7 +1134,6 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
     from app.models.task import Task, TaskStatus  # noqa: PLC0415
     from app.services.claude import get_claude_client  # noqa: PLC0415
 
-    logger = logging.getLogger(__name__)
     db = SessionLocal()
     task = None
     try:
@@ -1439,7 +1458,6 @@ async def _safe_get(
     client: "httpx.AsyncClient", url: str, max_redirects: int = 3,
 ) -> "httpx.Response | None":
     """GET with manual redirect following + SSRF check on each hop."""
-    import httpx
     current_url = url
     for _ in range(max_redirects + 1):
         if not _is_safe_url_crawl(current_url):
@@ -1478,7 +1496,6 @@ async def _crawl_competitor_pages(
     """
     import asyncio
 
-    import httpx
     from bs4 import BeautifulSoup
 
     lines: list[str] = []
@@ -1643,8 +1660,6 @@ def _kw_type_classify(exact: int) -> str | None:
 @celery_app.task(bind=True, name="tasks.marketing.semantic_autopilot", max_retries=0)
 def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id: str, min_freq_exact: int = 0):
     """Full semantic pipeline: brief -> competitors -> masks -> wordstat suggestions -> matrix -> expand -> clean -> cluster."""
-    import logging
-
     from sqlalchemy import select
 
     from app.db.session import SessionLocal
@@ -1655,7 +1670,6 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
     from app.services.settings_service import get_prompt
     from app.services.wordstat import get_wordstat_client
 
-    logger = logging.getLogger(__name__)
     db = SessionLocal()
     task = None
     try:
@@ -1743,7 +1757,7 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         regions = [sp.region_id] if sp.region_id else None
         if wordstat:
             try:
-                mask_freq = _run_async(wordstat.get_all_frequencies(mask_phrases, regions=regions))
+                mask_freq = _ws_call_with_retry(wordstat.get_all_frequencies, mask_phrases, regions=regions)
                 wordstat_ok = bool(mask_freq)
             except Exception as exc:
                 logger.warning("Wordstat masks error: %s", exc)
@@ -1777,7 +1791,7 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         if wordstat:
             for idx, mask in enumerate(sel):
                 try:
-                    sug = _run_async(wordstat.get_suggestions(mask, regions=regions, num_phrases=200))
+                    sug = _ws_call_with_retry(wordstat.get_suggestions, mask, regions=regions, num_phrases=200)
                     nested = sug.get("nested", [])
                     similar = sug.get("similar", [])
                     for item in nested:
@@ -1908,6 +1922,15 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
 
         if not uniq:
             raise RuntimeError("Не удалось собрать ключевые слова. Проверьте API-ключи.")
+
+        # Cap total keywords to prevent memory/DB explosion
+        if len(uniq) > _MAX_KEYWORDS_TOTAL:
+            logger.warning(
+                "Autopilot: capping keywords from %d to %d (sorted by frequency priority)",
+                len(uniq), _MAX_KEYWORDS_TOTAL,
+            )
+            uniq = uniq[:_MAX_KEYWORDS_TOTAL]
+
         _update_task(task, 50, {"stage": "wordstat_kw", "stage_label": "Частотность ключей", "keywords": len(uniq)}, db)
 
         # ── Phase 6: Wordstat for all keywords (50-75%) ──────────────────
@@ -1923,7 +1946,7 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
                 for i in range(0, len(uncached), 250):
                     batch = uncached[i:i + 250]
                     try:
-                        fresh = _run_async(wordstat.get_all_frequencies(batch, regions=regions))
+                        fresh = _ws_call_with_retry(wordstat.get_all_frequencies, batch, regions=regions)
                         now_ts = datetime.now(tz=timezone.utc)
                         for ph, fr in fresh.items():
                             kw_freq[ph] = fr
@@ -2123,50 +2146,42 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             except Exception as exc:
                 logger.warning("Autopilot Topvisor cluster failed: %s, falling back to Claude", exc)
 
-        # Clean old clusters
-        for oc in db.scalars(select(SemanticCluster).where(SemanticCluster.semantic_project_id == sem_id)).all():
-            db.delete(oc)
-        db.flush()
-        for kw in db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id)).all():
-            kw.cluster_name = None
+        # Build cluster assignments into an intermediate dict FIRST,
+        # then apply atomically — so a mid-clustering failure doesn't orphan keywords.
+        # Structure: {cluster_name: {intent, priority, campaign_type, suggested_title, keywords: [phrase]}}
         p2kw = {k.phrase: k for k in ckws}
         p_set = set(c_phrases)
         n_cl = 0
-        unc: set[str] = set(c_phrases)
+        pending_clusters: list[dict] = []  # [{name, intent, priority, ..., keywords: [str]}]
+        assigned: set[str] = set()
 
         if topvisor_groups:
-            # ── Apply Topvisor clusters ─────────────────────────────────────
+            # ── Build Topvisor cluster assignments ──────────────────────────
             _update_task(task, 90, {"stage": "cluster_apply", "stage_label": "Применяем кластеры Topvisor"}, db)
             for group in topvisor_groups:
                 group_kws = [kw for kw in (group.get("keywords") or []) if kw in p_set]
                 if not group_kws:
                     continue
                 cluster_name = f"Кластер {group.get('group_id', n_cl + 1)}"
-                db.add(SemanticCluster(
-                    semantic_project_id=sem_id, name=cluster_name[:255],
-                    intent=None, priority=None,
-                ))
-                db.flush()
-                for p in group_kws:
-                    if p in p2kw:
-                        p2kw[p].cluster_name = cluster_name
-                        unc.discard(p)
+                pending_clusters.append({
+                    "name": cluster_name[:255], "intent": None, "priority": None,
+                    "campaign_type": None, "suggested_title": None,
+                    "keywords": group_kws,
+                })
+                assigned.update(group_kws)
                 n_cl += 1
 
-            # Use Claude to enrich Topvisor clusters with names and intents
+            # Enrich Topvisor clusters with Claude (names, intents) — best-effort
             _update_task(task, 92, {"stage": "cluster_enrich", "stage_label": "ИИ обогащает кластеры (названия, интенты)"}, db)
             try:
+                import re
                 claude_c = get_claude_client(db, task_type="semantic_cluster")
-                existing_clusters = db.scalars(select(SemanticCluster).where(
-                    SemanticCluster.semantic_project_id == sem_id,
-                    SemanticCluster.name != "Прочее",
-                )).all()
-                for cluster in existing_clusters:
-                    cluster_kws = [kw.phrase for kw in ckws if kw.cluster_name == cluster.name][:20]
-                    if not cluster_kws:
+                for cl_data in pending_clusters:
+                    sample_kws = cl_data["keywords"][:20]
+                    if not sample_kws:
                         continue
                     enrich_prompt = (
-                        f"Вот ключевые слова одного кластера:\n{json.dumps(cluster_kws, ensure_ascii=False)}\n\n"
+                        f"Вот ключевые слова одного кластера:\n{json.dumps(sample_kws, ensure_ascii=False)}\n\n"
                         f"Придумай:\n1. Краткое название кластера (2-5 слов)\n"
                         f"2. Интент: коммерческий | информационный | навигационный | общий\n"
                         f"3. Приоритет: высокий | средний | низкий\n\n"
@@ -2177,20 +2192,14 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
                             "Ты — SEO-специалист. Отвечай строго JSON. Никакого другого текста.",
                             enrich_prompt,
                         ))
-                        import re
                         m = re.search(r'\{.*?\}', raw_enrich, re.DOTALL)
                         if m:
                             enrichment = json.loads(m.group())
                             new_name = str(enrichment.get("name", "")).strip()
                             if new_name:
-                                # Update cluster name in keywords too
-                                old_name = cluster.name
-                                cluster.name = new_name[:255]
-                                cluster.intent = (enrichment.get("intent") or "")[:50] or None
-                                cluster.priority = (enrichment.get("priority") or "")[:20] or None
-                                for kw in ckws:
-                                    if kw.cluster_name == old_name:
-                                        kw.cluster_name = new_name[:255]
+                                cl_data["name"] = new_name[:255]
+                                cl_data["intent"] = (enrichment.get("intent") or "")[:50] or None
+                                cl_data["priority"] = (enrichment.get("priority") or "")[:20] or None
                     except Exception:
                         pass  # enrichment is best-effort
             except LLMBillingError:
@@ -2225,22 +2234,38 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
                 kps = [p for p in (cd.get("keywords") or []) if isinstance(p, str) and p in p_set]
                 if not kps:
                     continue
-                raw_title = cd.get("suggested_title")
-                db.add(SemanticCluster(
-                    semantic_project_id=sem_id, name=nm[:255],
-                    intent=(cd.get("intent") or "")[:50] or None,
-                    priority=(cd.get("priority") or "")[:20] or None,
-                    campaign_type=(cd.get("campaign_type") or "")[:50] or None,
-                    suggested_title=raw_title[:255] if raw_title else None,
-                ))
-                db.flush()
-                for p in kps:
-                    if p in p2kw:
-                        p2kw[p].cluster_name = nm
-                        unc.discard(p)
+                pending_clusters.append({
+                    "name": nm[:255],
+                    "intent": (cd.get("intent") or "")[:50] or None,
+                    "priority": (cd.get("priority") or "")[:20] or None,
+                    "campaign_type": (cd.get("campaign_type") or "")[:50] or None,
+                    "suggested_title": (cd.get("suggested_title") or "")[:255] or None,
+                    "keywords": kps,
+                })
+                assigned.update(kps)
                 n_cl += 1
 
+        # ── Atomic apply: delete old → write new clusters + assignments ───
+        # Only now do we touch DB — if we got here, clustering succeeded.
+        for oc in db.scalars(select(SemanticCluster).where(SemanticCluster.semantic_project_id == sem_id)).all():
+            db.delete(oc)
+        db.flush()
+        for kw in db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id)).all():
+            kw.cluster_name = None
+
+        for cl_data in pending_clusters:
+            db.add(SemanticCluster(
+                semantic_project_id=sem_id, name=cl_data["name"],
+                intent=cl_data.get("intent"), priority=cl_data.get("priority"),
+                campaign_type=cl_data.get("campaign_type"),
+                suggested_title=cl_data.get("suggested_title"),
+            ))
+            for p in cl_data["keywords"]:
+                if p in p2kw:
+                    p2kw[p].cluster_name = cl_data["name"]
+
         # Unclustered → "Прочее"
+        unc = p_set - assigned
         if unc:
             db.add(SemanticCluster(semantic_project_id=sem_id, name="Прочее", intent="общий", priority="низкий"))
             for p in unc:
