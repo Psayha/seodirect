@@ -23,6 +23,7 @@ const PATHS = {
   trash:    'M3 6h18 M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6 M10 11v6 M14 11v6 M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2',
   sun:      'M12 1v2 M12 21v2 M4.22 4.22l1.42 1.42 M18.36 18.36l1.42 1.42 M1 12h2 M21 12h2 M4.22 19.78l1.42-1.42 M18.36 5.64l1.42-1.42 M12 5a7 7 0 100 14A7 7 0 0012 5z',
   moon:     'M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z',
+  monitor:  'M2 3h20v14H2z M8 21h8 M12 17v4',
   bell:     'M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 01-3.46 0',
   server:   'M2 5a2 2 0 012-2h16a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2V5z M2 15a2 2 0 012-2h16a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z M6 7h.01 M6 17h.01',
   logout:   'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4 M16 17l5-5-5-5 M21 12H9',
@@ -67,11 +68,14 @@ function NavTooltip({ label, children }: { label: string; children: React.ReactN
 /* ── Sidebar ──────────────────────────────────────────────────────────────── */
 function Sidebar() {
   const { user, logout } = useAuthStore()
-  const { dark, toggle } = useThemeStore()
+  const { mode, dark, cycle } = useThemeStore()
   const { isSupported, isSubscribed, subscribe, unsubscribe } = usePushNotifications()
   const navigate = useNavigate()
   const location = useLocation()
   const [logoutHover, setLogoutHover] = useState(false)
+
+  const themeIcon = mode === 'system' ? PATHS.monitor : dark ? PATHS.sun : PATHS.moon
+  const themeLabel = mode === 'light' ? 'Светлая тема' : mode === 'dark' ? 'Тёмная тема' : 'Системная тема'
 
   const visible = NAV.filter((i) => user && i.roles.includes(user.role))
 
@@ -144,9 +148,9 @@ function Sidebar() {
           </NavTooltip>
         )}
 
-        <NavTooltip label={dark ? 'Светлая тема' : 'Тёмная тема'}>
-          <button onClick={toggle} className="sb-btn w-full" aria-label="Переключить тему">
-            <Icon d={dark ? PATHS.sun : PATHS.moon} size={18} />
+        <NavTooltip label={themeLabel}>
+          <button onClick={cycle} className="sb-btn w-full" aria-label="Переключить тему">
+            <Icon d={themeIcon} size={18} />
           </button>
         </NavTooltip>
 
@@ -170,8 +174,9 @@ function Sidebar() {
 /* ── Root layout ──────────────────────────────────────────────────────────── */
 export default function Layout() {
   const location = useLocation()
-  const { dark, toggle } = useThemeStore()
+  const { mode, dark, cycle } = useThemeStore()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const mobileThemeIcon = mode === 'system' ? PATHS.monitor : dark ? PATHS.sun : PATHS.moon
 
   const currentLabel = NAV.find((i) => location.pathname.startsWith(i.to))?.label ?? 'Главная'
 
@@ -214,11 +219,11 @@ export default function Layout() {
           <span style={{ color: 'var(--text)', fontSize: 13, fontWeight: 600 }}>{currentLabel}</span>
           <div className="ml-auto">
             <button
-              onClick={toggle}
+              onClick={cycle}
               className="p-2 rounded-xl"
               style={{ color: 'var(--muted)' }}
             >
-              <Icon d={dark ? PATHS.sun : PATHS.moon} size={18} />
+              <Icon d={mobileThemeIcon} size={18} />
             </button>
           </div>
         </header>
