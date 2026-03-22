@@ -1,4 +1,5 @@
 """GEO/AEO router — AI visibility tracking and AI-readiness auditing."""
+import logging
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
@@ -19,6 +20,8 @@ from app.models.project import Project
 from app.models.task import Task, TaskStatus, TaskType
 from app.models.user import UserRole
 from app.services import ai_checker
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -149,14 +152,15 @@ def start_geo_scan(
         raise HTTPException(status_code=422, detail="Максимум 50 запросов за один запуск")
 
     task = _create_task(project_id, TaskType.GEO_SCAN, db)
-    from app.tasks.geo import task_geo_scan  # noqa: PLC0415
     try:
+        from app.tasks.geo import task_geo_scan  # noqa: PLC0415
         task_geo_scan.delay(str(task.id), str(project_id), body.keyword_ids, body.models)
     except Exception as exc:
+        logger.exception("Failed to dispatch task_geo_scan for project %s", project_id)
         task.status = TaskStatus.FAILED
         task.error = f"Не удалось запустить задачу: {exc}"
         db.commit()
-        raise HTTPException(status_code=503, detail="Не удалось подключиться к очереди задач. Попробуйте позже.")
+        raise HTTPException(status_code=503, detail=f"Не удалось запустить задачу: {exc}")
     return {"task_id": str(task.id), "status": "pending"}
 
 
@@ -243,14 +247,16 @@ def run_geo_audit(
 ):
     _check_project(project_id, current_user, db)
     task = _create_task(project_id, TaskType.GEO_AUDIT, db)
-    from app.tasks.geo import task_geo_audit  # noqa: PLC0415
     try:
+        from app.tasks.geo import task_geo_audit  # noqa: PLC0415
         task_geo_audit.delay(str(task.id), str(project_id))
     except Exception as exc:
+        logger.exception("Failed to dispatch task_geo_audit for project %s", project_id)
         task.status = TaskStatus.FAILED
         task.error = f"Не удалось запустить задачу: {exc}"
         db.commit()
-        raise HTTPException(status_code=503, detail="Не удалось подключиться к очереди задач. Попробуйте позже.")
+        raise HTTPException(status_code=503, detail=f"Не удалось запустить задачу: {exc}")
+    return {"task_id": str(task.id), "status": "pending"}
     return {"task_id": str(task.id), "status": "pending"}
 
 
