@@ -638,6 +638,7 @@ class AutoCleanStats(BaseModel):
     excluded_zero_freq: int
     excluded_long_tail: int
     excluded_minus_words: int
+    excluded_morph_duplicates: int = 0
     total_excluded: int
     total_kept: int
     snapshot_id: str
@@ -734,9 +735,11 @@ def auto_clean(
     _: Annotated[object, NonViewerRequired],
     db: Annotated[Session, Depends(get_db)],
 ):
-    """Auto-exclude: zero exact frequency, >7 word phrases, minus-word matches.
-    Saves a snapshot before applying so results can be reviewed.
+    """Auto-exclude: zero exact frequency, >7 word phrases, minus-word matches,
+    morphological duplicates. Saves a snapshot before applying so results can be reviewed.
     """
+    from app.tasks.marketing import _normalize_phrase
+
     _check_project_access(project_id, current_user, db)
     sp = _get_sem_project(sem_id, project_id, db)
 
@@ -751,13 +754,13 @@ def auto_clean(
         ).all()
     ]
 
-    # Load all non-mask keywords that aren't already excluded
+    # Load all non-mask keywords that aren't already excluded (sorted by frequency desc for dedup)
     keywords = db.scalars(
         select(SemanticKeyword).where(
             SemanticKeyword.semantic_project_id == sem_id,
             SemanticKeyword.is_mask.is_(False),
             SemanticKeyword.is_excluded.is_(False),
-        )
+        ).order_by(SemanticKeyword.frequency_exact.desc().nullslast())
     ).all()
 
     # Snapshot before cleaning
@@ -766,8 +769,10 @@ def auto_clean(
     excluded_zero = 0
     excluded_long = 0
     excluded_minus = 0
+    excluded_morph = 0
     now = datetime.now(timezone.utc)
 
+    # Step 1: Rule-based exclusions
     for kw in keywords:
         reason: str | None = None
 
@@ -798,18 +803,32 @@ def auto_clean(
             else:
                 excluded_minus += 1
 
+    # Step 2: Morphological dedup among remaining active keywords
+    seen_norms: set[str] = set()
+    for kw in keywords:
+        if kw.is_excluded:
+            continue
+        norm = _normalize_phrase(kw.phrase)
+        if norm in seen_norms:
+            kw.is_excluded = True
+            kw.excluded_at = now
+            excluded_morph += 1
+        else:
+            seen_norms.add(norm)
+
     db.commit()
     db.refresh(snap)
 
-    total_excluded = excluded_zero + excluded_long + excluded_minus
+    total_excluded = excluded_zero + excluded_long + excluded_minus + excluded_morph
     total_kept = len(keywords) - total_excluded
 
-    log_event(project_id, current_user, "semantic_clean", f"Авто-очистка: исключено {total_excluded}, оставлено {total_kept}", db)
+    log_event(project_id, current_user, "semantic_clean", f"Авто-очистка: исключено {total_excluded} (нулевые: {excluded_zero}, длинные: {excluded_long}, минус-слова: {excluded_minus}, дубли: {excluded_morph}), оставлено {total_kept}", db)
 
     return {
         "excluded_zero_freq": excluded_zero,
         "excluded_long_tail": excluded_long,
         "excluded_minus_words": excluded_minus,
+        "excluded_morph_duplicates": excluded_morph,
         "total_excluded": total_excluded,
         "total_kept": total_kept,
         "snapshot_id": str(snap.id),
@@ -1626,6 +1645,7 @@ class CompetitorCrawlResult(BaseModel):
     nav_items: list[str]
     anchors: list[str]
     frequent_terms: list[str]
+    extracted_keywords: list[str] = []
     pages: list[dict]
 
 
@@ -1738,7 +1758,7 @@ def crawl_competitors(
     import httpx
     from bs4 import BeautifulSoup
 
-    from app.tasks.marketing import _extract_frequent_terms
+    from app.tasks.marketing import _extract_frequent_terms, _extract_keywords_from_meta
 
     results: list[dict] = []
 
@@ -1774,6 +1794,9 @@ def crawl_competitors(
 
             terms = _extract_frequent_terms(BeautifulSoup(r.text, "html.parser"))
 
+            # Extract keyword phrases from meta tags
+            extracted_kws = _extract_keywords_from_meta(soup)
+
             # Crawl internal pages (limited)
             internal_urls: set[str] = set()
             for a in soup.find_all("a", href=True):
@@ -1795,13 +1818,20 @@ def crawl_competitors(
                     ih1_text = ih1.get_text(strip=True) if ih1 else ""
                     if it or ih1_text:
                         pages.append({"url": iurl, "title": it, "h1": ih1_text})
+                    # Extract keywords from internal pages too
+                    page_kws = _extract_keywords_from_meta(isoup)
+                    extracted_kws.extend(page_kws)
                 except Exception:
                     continue
+
+            # Deduplicate extracted keywords
+            extracted_kws = list(dict.fromkeys(extracted_kws))
 
             return {
                 "url": url, "title": title, "h1": h1_text, "description": desc,
                 "nav_items": nav_items, "anchors": anchors,
-                "frequent_terms": terms, "pages": pages,
+                "frequent_terms": terms, "extracted_keywords": extracted_kws,
+                "pages": pages,
             }
         except Exception:
             return None
