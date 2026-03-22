@@ -1,12 +1,13 @@
-"""Яндекс Wordstat API client (через Yandex Direct API v4).
+"""Яндекс Wordstat API client.
 
-Wordstat API — часть Yandex Direct API v4.
-URL: https://api.direct.yandex.ru/v4/json/
+Wordstat API: https://api.wordstat.yandex.net
 Методы: CreateNewWordstatReport, GetWordstatReportList,
          GetWordstatReport, DeleteWordstatReport.
 
+Авторизация: OAuth-токен в заголовке Authorization: Bearer <token>.
 API асинхронный: создаём отчёт → поллим статус → забираем → удаляем.
-Лимиты: макс. 10 фраз/отчёт, макс. 5 отчётов одновременно.
+Лимиты: макс. 10 фраз/отчёт, макс. 5 отчётов одновременно,
+         10 запросов/сек, 1000 запросов/сутки.
 """
 import asyncio
 import logging
@@ -32,16 +33,15 @@ class WordstatError(Exception):
 
 
 class WordstatClient:
-    BASE_URL = "https://api.direct.yandex.ru/v4/json/"
+    BASE_URL = "https://api.wordstat.yandex.net"
 
     def __init__(self, oauth_token: str):
         self.token = oauth_token
 
     async def _api_call(self, client: httpx.AsyncClient, method: str, param=None) -> dict:
-        """Вызов Yandex Direct API v4."""
+        """Вызов Yandex Wordstat API."""
         body: dict = {
             "method": method,
-            "token": self.token,
             "locale": "ru",
         }
         if param is not None:
@@ -50,7 +50,10 @@ class WordstatClient:
         resp = await client.post(
             self.BASE_URL,
             json=body,
-            headers={"Content-Type": "application/json; charset=utf-8"},
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "Authorization": f"Bearer {self.token}",
+            },
         )
         resp.raise_for_status()
         data = resp.json()
