@@ -3,7 +3,7 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 
-from celery import shared_task
+from app.celery_app import celery_app
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -31,7 +31,7 @@ def _update_task(db: Session, task: Task, **kwargs) -> None:
 
 # ── GEO Scan ──────────────────────────────────────────────────────────────────
 
-@shared_task(
+@celery_app.task(
     bind=True,
     name="task_geo_scan",
     autoretry_for=(ConnectionError, OSError),
@@ -135,7 +135,7 @@ def task_geo_scan(
 
 # ── GEO Audit ─────────────────────────────────────────────────────────────────
 
-@shared_task(
+@celery_app.task(
     bind=True,
     name="task_geo_audit",
     autoretry_for=(ConnectionError, OSError),
