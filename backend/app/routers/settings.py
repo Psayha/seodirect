@@ -148,26 +148,22 @@ async def test_api_key(
                     return {"ok": False, "message": "API-ключ не задан"}
                 if not folder_id:
                     return {"ok": False, "message": "Folder ID не задан"}
-                # Проверяем через getWordStatReport — лёгкий запрос с одним словом
+                # Проверяем через GetRegionsDistribution — лёгкий запрос
                 auth_header = (
                     f"Bearer {api_key}" if api_key.startswith("t1.") else f"Api-Key {api_key}"
                 )
                 r = await client.post(
-                    "https://searchapi.api.cloud.yandex.net/v2/wordstat/getWordStatReport",
+                    "https://searchapi.api.cloud.yandex.net/v2/wordstat/regions",
                     json={
                         "folderId": folder_id,
-                        "phrases": ["тест"],
-                        "regionIds": [213],
+                        "phrase": "тест",
                     },
                     headers={"Authorization": auth_header},
                 )
                 if r.status_code == 200:
                     return {"ok": True, "message": "Подключено"}
                 if r.status_code in (401, 403):
-                    detail = r.text[:300]
-                    if "folder" in detail.lower() or "permission" in detail.lower():
-                        return {"ok": False, "message": f"Нет доступа к каталогу. Назначьте роль search-api.executor на каталог. ({detail[:150]})"}
-                    return {"ok": False, "message": f"Неверный API-ключ или Folder ID ({detail[:150]})"}
+                    return {"ok": False, "message": f"Нет доступа. Проверьте роли и привязку платёжного аккаунта. ({r.text[:200]})"}
                 if r.status_code == 429:
                     return {"ok": True, "message": "Подключено (квота ограничена, но ключ валиден)"}
                 return {"ok": False, "message": f"HTTP {r.status_code}: {r.text[:200]}"}

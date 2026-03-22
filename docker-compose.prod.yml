@@ -37,6 +37,8 @@ services:
 
   backend:
     image: ghcr.io/psayha/seodirect/backend:latest
+    build:
+      context: ./backend
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -55,6 +57,8 @@ services:
 
   celery:
     image: ghcr.io/psayha/seodirect/backend:latest
+    build:
+      context: ./backend
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -67,6 +71,9 @@ services:
 
   frontend:
     image: ghcr.io/psayha/seodirect/frontend:latest
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:80/ || exit 1"]

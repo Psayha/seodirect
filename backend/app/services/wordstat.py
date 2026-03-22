@@ -212,6 +212,39 @@ class WordstatClient:
             )
         return results
 
+    async def get_suggestions(
+        self,
+        phrase: str,
+        regions: list[int] | None = None,
+        num_phrases: int = 200,
+    ) -> dict:
+        """Возвращает вложенные запросы (results) и похожие (associations) из GetTop.
+
+        Это аналог того, что показывает Wordstat в веб-интерфейсе:
+        - results: «Запросы со словами» (вкладка "Популярные")
+        - associations: «Похожие запросы» (вкладка "Похожие")
+
+        Каждый элемент: {phrase: str, count: int}
+        """
+        nested: list[dict] = []
+        similar: list[dict] = []
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                data = await self._get_top(client, phrase, regions, num_phrases=num_phrases)
+            for item in data.get("results", []):
+                p = item.get("phrase", "").strip().lower()
+                c = int(item.get("count", 0))
+                if p and p != phrase.strip().lower():
+                    nested.append({"phrase": p, "count": c})
+            for item in data.get("associations", []):
+                p = item.get("phrase", "").strip().lower()
+                c = int(item.get("count", 0))
+                if p:
+                    similar.append({"phrase": p, "count": c})
+        except Exception as exc:
+            logger.warning("Wordstat get_suggestions error for '%s': %s", phrase, exc)
+        return {"nested": nested, "similar": similar}
+
     async def get_dynamics(
         self, phrase: str, regions: list[int] | None = None
     ) -> list[dict]:
