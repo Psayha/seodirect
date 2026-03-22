@@ -88,6 +88,7 @@ def create_app() -> FastAPI:
     from app.routers.geo import router as geo_router
     from app.routers.history import router as history_router
     from app.routers.images import router as images_router
+    from app.routers.limits import router as limits_router
     from app.routers.marketing import router as marketing_router
     from app.routers.mediaplan import router as mediaplan_router
     from app.routers.og import router as og_router
@@ -129,6 +130,7 @@ def create_app() -> FastAPI:
     app.include_router(direct_analysis_router, prefix="/api", tags=["direct"])
     app.include_router(marketing_router, prefix="/api", tags=["marketing"])
     app.include_router(images_router, prefix="/api", tags=["images"])
+    app.include_router(limits_router, prefix="/api/settings", tags=["limits"])
     app.include_router(server_router, prefix="/api", tags=["server"])
 
     # Serve uploaded images as static files at /uploads/...

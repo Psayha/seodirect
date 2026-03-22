@@ -19,6 +19,12 @@ async def get_cwv(url: str, api_key: Optional[str] = None, strategy: str = "mobi
         r.raise_for_status()
         data = r.json()
 
+    try:
+        from app.services.usage import track_call
+        track_call("pagespeed")
+    except Exception:
+        pass
+
     lhp = data.get("lighthouseResult", {}).get("audits", {})
     categories = data.get("lighthouseResult", {}).get("categories", {})
 

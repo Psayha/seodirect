@@ -10,6 +10,17 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.topvisor.com/v2/json"
 
 
+async def _post(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
+    """Wrapper around client.post that tracks API usage."""
+    resp = await client.post(url, **kwargs)
+    try:
+        from app.services.usage import track_call
+        track_call("topvisor")
+    except Exception:
+        pass
+    return resp
+
+
 def _headers(api_key: str, user_id: str = "") -> dict:
     headers = {
         "Authorization": f"bearer {api_key}",
@@ -26,7 +37,7 @@ async def check_connection(api_key: str, user_id: str = "") -> dict:
     body = {"fields": ["id", "name"]}
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(endpoint, headers=_headers(api_key, user_id), json=body)
+            r = await _post(client,endpoint, headers=_headers(api_key, user_id), json=body)
     except httpx.TimeoutException:
         return {"ok": False, "message": "Таймаут соединения с Topvisor API", "projects_count": 0}
     except httpx.ConnectError:
@@ -57,7 +68,7 @@ async def list_projects(api_key: str, user_id: str = "") -> list[dict]:
     """Return list of Topvisor projects [{id, name, site, ...}]."""
     body = {"fields": ["id", "name", "site", "searchers"]}
     async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.post(
+        r = await _post(client,
             f"{BASE_URL}/get/projects_2/projects",
             headers=_headers(api_key, user_id),
             json=body,
@@ -84,7 +95,7 @@ async def get_positions(
     Each item: {keyword, position, date, url}
     """
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(
+        r = await _post(client,
             f"{BASE_URL}/get/positions_2/history",
             headers=_headers(api_key, user_id),
             json={
@@ -113,7 +124,7 @@ async def get_keyword_volumes(api_key: str, project_id: int, phrases: list[str],
         return {}
 
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(
+        r = await _post(client,
             f"{BASE_URL}/get/keywords_2/forecast",
             headers=_headers(api_key, user_id),
             json={
@@ -155,7 +166,7 @@ async def get_snapshots(
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(
+        r = await _post(client,
             f"{BASE_URL}/get/snapshots_2/history",
             headers=_headers(api_key, user_id),
             json=body,
@@ -175,7 +186,7 @@ async def get_positions_summary(
 ) -> dict:
     """Return positions summary: avg position, visibility, TOP distribution."""
     async with httpx.AsyncClient(timeout=20) as client:
-        r = await client.post(
+        r = await _post(client,
             f"{BASE_URL}/get/positions_2/summary",
             headers=_headers(api_key, user_id),
             json={
@@ -208,7 +219,7 @@ async def get_competitors(
     Each item: {domain, avg_position, keywords_count, top3, top10}
     """
     async with httpx.AsyncClient(timeout=20) as client:
-        r = await client.post(
+        r = await _post(client,
             f"{BASE_URL}/get/snapshots_2/competitors",
             headers=_headers(api_key, user_id),
             json={
@@ -233,7 +244,7 @@ async def get_competitors(
 async def trigger_positions_check(api_key: str, project_id: int, user_id: str = "") -> dict:
     """Trigger an on-demand positions check for a Topvisor project."""
     async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.post(
+        r = await _post(client,
             f"{BASE_URL}/edit/positions_2/checker/go",
             headers=_headers(api_key, user_id),
             json={"project_id": project_id},
@@ -250,7 +261,7 @@ async def trigger_positions_check(api_key: str, project_id: int, user_id: str = 
 async def start_cluster_task(api_key: str, project_id: int, user_id: str = "") -> dict:
     """Start a Topvisor clustering task (by TOP-10) for a project."""
     async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.post(
+        r = await _post(client,
             f"{BASE_URL}/add/keywords_2/claster/task",
             headers=_headers(api_key, user_id),
             json={"project_id": project_id},
@@ -267,7 +278,7 @@ async def start_cluster_task(api_key: str, project_id: int, user_id: str = "") -
 async def get_cluster_percent(api_key: str, project_id: int, user_id: str = "") -> int:
     """Return clustering completion percentage (0-100)."""
     async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.post(
+        r = await _post(client,
             f"{BASE_URL}/get/keywords_2/claster/percent",
             headers=_headers(api_key, user_id),
             json={"project_id": project_id},
@@ -284,7 +295,7 @@ async def get_project_keywords(api_key: str, project_id: int, user_id: str = "")
     Each item: {name, group_id}
     """
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(
+        r = await _post(client,
             f"{BASE_URL}/get/keywords_2/keywords",
             headers=_headers(api_key, user_id),
             json={
