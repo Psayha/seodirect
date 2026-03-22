@@ -29,6 +29,14 @@ class EventType(str, enum.Enum):
     EXPORT_DOWNLOADED = "export_downloaded"
     MEDIAPLAN_UPDATED = "mediaplan_updated"
     MONTHLY_REPORT_GENERATED = "monthly_report_generated"
+    SEMANTIC_CREATED = "semantic_created"
+    SEMANTIC_DELETED = "semantic_deleted"
+    SEMANTIC_AUTOPILOT = "semantic_autopilot"
+    SEMANTIC_MASKS_COLLECTED = "semantic_masks_collected"
+    SEMANTIC_EXPAND = "semantic_expand"
+    SEMANTIC_CLEAN = "semantic_clean"
+    SEMANTIC_CLUSTER = "semantic_cluster"
+    SEMANTIC_EXPORT = "semantic_export"
 
 
 class ProjectEvent(Base):

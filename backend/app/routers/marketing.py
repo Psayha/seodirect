@@ -29,6 +29,7 @@ from app.models.marketing import (
 from app.models.project import Project
 from app.models.task import Task, TaskStatus, TaskType
 from app.models.user import UserRole
+from app.routers.history import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,7 @@ def create_or_get_semantic_project(
     db.add(sp)
     db.commit()
     db.refresh(sp)
+    log_event(project_id, current_user, "semantic_created", f"Создано семантическое ядро «{sp.name}» ({body.mode})", db)
     return sp
 
 
@@ -232,8 +234,10 @@ def delete_semantic_project(
     db.execute(sa_delete(SemanticCluster).where(SemanticCluster.semantic_project_id == sem_id))
     db.execute(sa_delete(CleaningSnapshot).where(CleaningSnapshot.semantic_project_id == sem_id))
     db.execute(sa_delete(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id))
+    sp_name = sp.name
     db.delete(sp)
     db.commit()
+    log_event(project_id, current_user, "semantic_deleted", f"Удалено семантическое ядро «{sp_name}»", db)
 
 
 # ─── Mask Collection ───────────────────────────────────────────────────────────
@@ -392,6 +396,7 @@ async def collect_masks(
     db.commit()
     for kw in result_keywords:
         db.refresh(kw)
+    log_event(project_id, current_user, "semantic_masks_collected", f"Собрано {len(result_keywords)} масок", db)
     return result_keywords
 
 
@@ -535,6 +540,7 @@ def start_autopilot(
         min_freq_exact=body.min_freq_exact,
     )
 
+    log_event(project_id, current_user, "semantic_autopilot", "Запущен автопилот семантического ядра", db)
     return {"task_id": str(task.id), "status": "pending"}
 
 
@@ -797,6 +803,8 @@ def auto_clean(
 
     total_excluded = excluded_zero + excluded_long + excluded_minus
     total_kept = len(keywords) - total_excluded
+
+    log_event(project_id, current_user, "semantic_clean", f"Авто-очистка: исключено {total_excluded}, оставлено {total_kept}", db)
 
     return {
         "excluded_zero_freq": excluded_zero,
@@ -1109,6 +1117,7 @@ def start_cluster(
         project_id=str(project_id),
     )
 
+    log_event(project_id, current_user, "semantic_cluster", "Запущена кластеризация семантического ядра", db)
     return {"task_id": str(task.id), "status": "pending"}
 
 
@@ -1224,7 +1233,7 @@ def _load_export_data(sem_id: uuid.UUID, db: Session) -> tuple[list, list]:
             SemanticKeyword.is_mask.is_(False),
         )
         .order_by(
-            SemanticKeyword.cluster_name.nullslast(),
+            SemanticKeyword.cluster_name.asc().nullslast(),
             SemanticKeyword.frequency_exact.desc().nullslast(),
         )
     ).all()
@@ -1291,7 +1300,7 @@ def _build_xlsx(sp: SemanticProject, keywords: list, clusters: list) -> bytes:
     # ── Sheet 2: Кластеры ─────────────────────────────────────────────────────
     ws2 = wb.create_sheet("Кластеры")
     cluster_hdrs = ["Кластер", "Интент", "Приоритет", "Кол-во ключей"]
-    if sp.mode.value == "direct":
+    if str(sp.mode.value if hasattr(sp.mode, 'value') else sp.mode) == "direct":
         cluster_hdrs += ["Тип кампании", "Заголовок объявления"]
     for ci, col in enumerate(cluster_hdrs, 1):
         cell = ws2.cell(row=1, column=ci, value=col)
@@ -1306,7 +1315,7 @@ def _build_xlsx(sp: SemanticProject, keywords: list, clusters: list) -> bytes:
 
     for ri, c in enumerate(clusters, 2):
         row = [c.name, c.intent or "", c.priority or "", cluster_count.get(c.name, 0)]
-        if sp.mode.value == "direct":
+        if str(sp.mode.value if hasattr(sp.mode, 'value') else sp.mode) == "direct":
             row += [c.campaign_type or "", c.suggested_title or ""]
         for ci, v in enumerate(row, 1):
             ws2.cell(row=ri, column=ci, value=v)
@@ -1315,7 +1324,7 @@ def _build_xlsx(sp: SemanticProject, keywords: list, clusters: list) -> bytes:
         ws2.column_dimensions[get_column_letter(ci)].width = w
 
     # ── Sheet 3 (Direct mode): Кампании ──────────────────────────────────────
-    if sp.mode.value == "direct":
+    if str(sp.mode.value if hasattr(sp.mode, 'value') else sp.mode) == "direct":
         ws3 = wb.create_sheet("Кампании")
         dir_hdrs = ["Кластер", "Тип кампании", "Заголовок", "Ключевые слова (через запятую)"]
         for ci, col in enumerate(dir_hdrs, 1):
@@ -1392,27 +1401,34 @@ def export_semantic_core(
 
     safe_name = _safe_filename(sp.name)
 
-    if fmt == "xlsx":
-        content = _build_xlsx(sp, keywords, clusters)
+    try:
+        if fmt == "xlsx":
+            content = _build_xlsx(sp, keywords, clusters)
+            log_event(project_id, current_user, "semantic_export", f"Экспорт СЯ ({len(keywords)} слов, XLSX)", db)
+            return Response(
+                content=content,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="{safe_name}.xlsx"'},
+            )
+        if fmt == "csv":
+            content = _build_csv(keywords)
+            log_event(project_id, current_user, "semantic_export", f"Экспорт СЯ ({len(keywords)} слов, CSV)", db)
+            return Response(
+                content=content,
+                media_type="text/csv; charset=utf-8-sig",
+                headers={"Content-Disposition": f'attachment; filename="{safe_name}.csv"'},
+            )
+        # txt
+        content = _build_txt(keywords)
+        log_event(project_id, current_user, "semantic_export", f"Экспорт СЯ ({len(keywords)} слов, TXT)", db)
         return Response(
             content=content,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{safe_name}.xlsx"'},
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.txt"'},
         )
-    if fmt == "csv":
-        content = _build_csv(keywords)
-        return Response(
-            content=content,
-            media_type="text/csv; charset=utf-8-sig",
-            headers={"Content-Disposition": f'attachment; filename="{safe_name}.csv"'},
-        )
-    # txt
-    content = _build_txt(keywords)
-    return Response(
-        content=content,
-        media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}.txt"'},
-    )
+    except Exception:
+        logger.exception("Export failed for sem_id=%s fmt=%s", sem_id, fmt)
+        raise
 
 
 # ─── Niche Semantic Templates ────────────────────────────────────────────────

@@ -150,7 +150,13 @@ def start_geo_scan(
 
     task = _create_task(project_id, TaskType.GEO_SCAN, db)
     from app.tasks.geo import task_geo_scan  # noqa: PLC0415
-    task_geo_scan.delay(str(task.id), str(project_id), body.keyword_ids, body.models)
+    try:
+        task_geo_scan.delay(str(task.id), str(project_id), body.keyword_ids, body.models)
+    except Exception as exc:
+        task.status = TaskStatus.FAILED
+        task.error = f"Не удалось запустить задачу: {exc}"
+        db.commit()
+        raise HTTPException(status_code=503, detail="Не удалось подключиться к очереди задач. Попробуйте позже.")
     return {"task_id": str(task.id), "status": "pending"}
 
 
@@ -238,7 +244,13 @@ def run_geo_audit(
     _check_project(project_id, current_user, db)
     task = _create_task(project_id, TaskType.GEO_AUDIT, db)
     from app.tasks.geo import task_geo_audit  # noqa: PLC0415
-    task_geo_audit.delay(str(task.id), str(project_id))
+    try:
+        task_geo_audit.delay(str(task.id), str(project_id))
+    except Exception as exc:
+        task.status = TaskStatus.FAILED
+        task.error = f"Не удалось запустить задачу: {exc}"
+        db.commit()
+        raise HTTPException(status_code=503, detail="Не удалось подключиться к очереди задач. Попробуйте позже.")
     return {"task_id": str(task.id), "status": "pending"}
 
 
