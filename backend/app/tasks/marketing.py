@@ -775,10 +775,12 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         # ── Phase 2: Wordstat for masks (10-20%) ──────────────────────────
         wordstat = get_wordstat_client(db)
         mask_freq: dict[str, dict] = {}
+        wordstat_ok = False
         if wordstat:
             try:
                 regions = [sp.region_id] if sp.region_id else None
                 mask_freq = _run_async(wordstat.get_all_frequencies(mask_phrases, regions=regions))
+                wordstat_ok = bool(mask_freq)
             except Exception as exc:
                 logger.warning("Wordstat masks error: %s", exc)
 
@@ -794,7 +796,7 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
                 frequency_base=f.get("base"), frequency_phrase=f.get("phrase_freq"),
                 frequency_exact=f.get("exact"), frequency_order=f.get("order"),
                 kw_type=_kw_type_classify(exact), source="wordstat",
-                is_mask=True, mask_selected=exact > 0 or not wordstat,
+                is_mask=True, mask_selected=exact > 0 or not wordstat_ok,
             ))
         sp.pipeline_step = max(sp.pipeline_step, 1)
         db.commit()
