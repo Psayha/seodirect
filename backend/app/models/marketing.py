@@ -110,7 +110,7 @@ class SemanticCluster(Base, TimestampMixin):
     priority: Mapped[str | None] = mapped_column(String(20), nullable=True)
     campaign_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # search | rsa (Direct mode)
     related_cluster_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    suggested_title: Mapped[str | None] = mapped_column(String(35), nullable=True)
+    suggested_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     suggested_description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 

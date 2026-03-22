@@ -734,13 +734,14 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
             if not cluster_kw_phrases:
                 continue
 
+            raw_st = cluster_data.get("suggested_title")
             cluster = SemanticCluster(
                 semantic_project_id=sem_id,
-                name=name,
-                intent=cluster_data.get("intent"),
-                priority=cluster_data.get("priority"),
-                campaign_type=cluster_data.get("campaign_type"),
-                suggested_title=cluster_data.get("suggested_title"),
+                name=name[:255],
+                intent=(cluster_data.get("intent") or "")[:50] or None,
+                priority=(cluster_data.get("priority") or "")[:20] or None,
+                campaign_type=(cluster_data.get("campaign_type") or "")[:50] or None,
+                suggested_title=raw_st[:255] if raw_st else None,
             )
             db.add(cluster)
             db.flush()  # get cluster.id
@@ -1091,7 +1092,14 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             kps = [p for p in (cd.get("keywords") or []) if isinstance(p, str) and p in p_set]
             if not kps:
                 continue
-            db.add(SemanticCluster(semantic_project_id=sem_id, name=nm, intent=cd.get("intent"), priority=cd.get("priority"), campaign_type=cd.get("campaign_type"), suggested_title=cd.get("suggested_title")))
+            raw_title = cd.get("suggested_title")
+            db.add(SemanticCluster(
+                semantic_project_id=sem_id, name=nm[:255],
+                intent=(cd.get("intent") or "")[:50] or None,
+                priority=(cd.get("priority") or "")[:20] or None,
+                campaign_type=(cd.get("campaign_type") or "")[:50] or None,
+                suggested_title=raw_title[:255] if raw_title else None,
+            ))
             db.flush()
             for p in kps:
                 if p in p2kw:
