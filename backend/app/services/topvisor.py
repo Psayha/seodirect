@@ -311,6 +311,94 @@ async def get_project_keywords(api_key: str, project_id: int, user_id: str = "")
     return data.get("result") or []
 
 
+async def add_keywords_to_project(
+    api_key: str, project_id: int, phrases: list[str], group_id: int = 0, user_id: str = "",
+) -> dict:
+    """Add keywords to a Topvisor project. Returns {added: int, existing: int}.
+
+    Topvisor API: POST /add/keywords_2/keywords
+    Accepts up to 1000 keywords per request.
+    """
+    if not phrases:
+        return {"added": 0, "existing": 0}
+    total_added = 0
+    total_existing = 0
+    batch_size = 1000
+    async with httpx.AsyncClient(timeout=60) as client:
+        for i in range(0, len(phrases), batch_size):
+            batch = phrases[i : i + batch_size]
+            body: dict = {
+                "project_id": project_id,
+                "keywords": [{"name": p} for p in batch],
+            }
+            if group_id:
+                body["group_id"] = group_id
+            r = await _post(
+                client,
+                f"{BASE_URL}/add/keywords_2/keywords",
+                headers=_headers(api_key, user_id),
+                json=body,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if not data.get("errors"):
+                    result = data.get("result", {})
+                    total_added += result.get("added", 0) if isinstance(result, dict) else len(batch)
+                    total_existing += result.get("existing", 0) if isinstance(result, dict) else 0
+                else:
+                    logger.warning("Topvisor add_keywords error: %s", data["errors"])
+            else:
+                logger.warning("Topvisor add_keywords HTTP %s", r.status_code)
+    return {"added": total_added, "existing": total_existing}
+
+
+async def remove_all_keywords(api_key: str, project_id: int, user_id: str = "") -> bool:
+    """Remove all keywords from a Topvisor project before re-uploading."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await _post(
+            client,
+            f"{BASE_URL}/del/keywords_2/keywords",
+            headers=_headers(api_key, user_id),
+            json={"project_id": project_id, "remove_all": True},
+        )
+    return r.status_code == 200
+
+
+async def get_cluster_groups(api_key: str, project_id: int, user_id: str = "") -> list[dict]:
+    """Return clustering groups: [{id, name, keywords: [{name}]}].
+
+    Topvisor API: GET keywords with group info after clustering is done.
+    """
+    keywords = await get_project_keywords(api_key, project_id, user_id)
+    if not keywords:
+        return []
+    # Group keywords by group_id
+    groups: dict[str, list[str]] = {}
+    for kw in keywords:
+        gid = str(kw.get("group_id") or "0")
+        groups.setdefault(gid, []).append(kw.get("name", ""))
+    return [{"group_id": gid, "keywords": kws} for gid, kws in groups.items()]
+
+
+async def wait_for_clustering(
+    api_key: str, project_id: int, user_id: str = "",
+    timeout_seconds: int = 300, poll_interval: int = 5,
+) -> bool:
+    """Poll clustering progress until done or timeout. Returns True if completed."""
+    import asyncio
+    elapsed = 0
+    while elapsed < timeout_seconds:
+        percent = await get_cluster_percent(api_key, project_id, user_id)
+        if percent == 100:
+            return True
+        if percent == -1:
+            # No active task — might have finished already
+            return True
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
+    return False
+
+
 def get_topvisor_client_key(db) -> str | None:
     """Return Topvisor API key from settings, or None."""
     from app.services.settings_service import get_setting
