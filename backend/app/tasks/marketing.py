@@ -444,7 +444,7 @@ def task_semantic_expand(
                         logging.getLogger(__name__).warning("Wordstat batch error: %s", exc)
 
                     if task:
-                        task.progress = int(50 + (i + sub_batch) / len(uncached) * 35)
+                        task.progress = min(85, int(50 + (i + sub_batch) / len(uncached) * 35))
                         db.commit()
 
             # Fill freq_map from cache for cached phrases
@@ -693,7 +693,7 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
                 logger.warning("Claude cluster error for batch %d: %s", i, exc)
 
             if task:
-                task.progress = int(10 + (i + batch_size) / len(phrases) * 70)
+                task.progress = min(80, int(10 + (i + batch_size) / len(phrases) * 70))
                 db.commit()
 
         if task:
@@ -1009,7 +1009,7 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
                     except Exception as exc:
                         logger.warning("WS batch: %s", exc)
                     if task:
-                        task.progress = int(55 + (i + 250) / max(len(uncached), 1) * 20)
+                        task.progress = min(75, int(55 + (i + 250) / max(len(uncached), 1) * 20))
                         db.commit()
             for ph in uniq:
                 if ph not in kw_freq and ph in cached:
@@ -1073,7 +1073,7 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             except Exception as exc:
                 logger.warning("Autopilot cluster: %s", exc)
             if task:
-                task.progress = int(80 + (i + 300) / max(len(c_phrases), 1) * 15)
+                task.progress = min(95, int(80 + (i + len(b)) / max(len(c_phrases), 1) * 15))
                 db.commit()
 
         for oc in db.scalars(select(SemanticCluster).where(SemanticCluster.semantic_project_id == sem_id)).all():
