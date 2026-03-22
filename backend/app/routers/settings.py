@@ -37,8 +37,8 @@ SERVICES = {
         "label": "OpenRouter (LLM провайдер)",
     },
     "wordstat": {
-        "keys": ["wordstat_oauth_token"],
-        "label": "Яндекс Wordstat",
+        "keys": ["wordstat_api_key", "wordstat_folder_id"],
+        "label": "Яндекс Wordstat (Yandex Cloud)",
     },
     "topvisor": {
         "keys": ["topvisor_api_key", "topvisor_user_id"],
@@ -142,25 +142,27 @@ async def test_api_key(
                 return {"ok": False, "message": f"HTTP {r.status_code}"}
 
             elif service == "wordstat":
-                token = get_setting("wordstat_oauth_token", db)
-                if not token:
-                    return {"ok": False, "message": "OAuth токен не задан"}
-                # Проверяем через Yandex Direct API v4 (GetWordstatReportList)
+                api_key = get_setting("wordstat_api_key", db) or get_setting("wordstat_oauth_token", db)
+                folder_id = get_setting("wordstat_folder_id", db)
+                if not api_key:
+                    return {"ok": False, "message": "API-ключ не задан"}
+                if not folder_id:
+                    return {"ok": False, "message": "Folder ID не задан"}
+                # Проверяем через Yandex Cloud Wordstat API (GetRegionsTree — лёгкий запрос)
+                auth_header = (
+                    f"Bearer {api_key}" if api_key.startswith("t1.") else f"Api-Key {api_key}"
+                )
                 r = await client.post(
-                    "https://api.direct.yandex.ru/v4/json/",
-                    headers={"Content-Type": "application/json; charset=utf-8"},
-                    json={"method": "GetWordstatReportList", "token": token, "locale": "ru"},
+                    "https://searchapi.api.cloud.yandex.net/v2/wordstat/getRegionsTree",
+                    json={"folderId": folder_id},
+                    headers={"Authorization": auth_header},
                 )
                 if r.status_code == 200:
-                    body = r.json()
-                    if "error_code" in body:
-                        err_code = body["error_code"]
-                        if err_code in (53, 152, 201, 202):
-                            return {"ok": False, "message": "Неверный OAuth токен"}
-                        return {"ok": False, "message": f"API ошибка {err_code}: {body.get('error_str', '')}"}
                     return {"ok": True, "message": "Подключено"}
                 if r.status_code in (401, 403):
-                    return {"ok": False, "message": "Неверный OAuth токен"}
+                    return {"ok": False, "message": "Неверный API-ключ или Folder ID"}
+                if r.status_code == 429:
+                    return {"ok": False, "message": "Превышена квота API"}
                 return {"ok": False, "message": f"HTTP {r.status_code}"}
 
             elif service == "metrika":

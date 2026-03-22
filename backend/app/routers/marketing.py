@@ -292,14 +292,14 @@ async def collect_masks(
         if not client:
             raise HTTPException(
                 status_code=503,
-                detail="Wordstat API token not configured. Add it in Settings → API keys.",
+                detail="Wordstat API key or folder ID not configured. Add them in Settings → API keys.",
             )
         regions = [sp.region_id] if sp.region_id else None
         try:
             fresh = await client.get_all_frequencies(uncached, regions=regions)
         except Exception as exc:
             logger.exception("Wordstat error: %s", exc)
-            raise HTTPException(status_code=502, detail="Wordstat API error")
+            raise HTTPException(status_code=502, detail=f"Wordstat API error: {exc}")
 
         # Save to cache (skip all-zero results — likely API errors)
         now = datetime.now(tz=timezone.utc)
