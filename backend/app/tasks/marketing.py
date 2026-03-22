@@ -165,6 +165,248 @@ def _extract_keywords_from_meta(soup) -> list[str]:
     return result
 
 
+# ─── SERP parsing: autocomplete + related searches ──────────────────────────
+
+async def _fetch_yandex_suggest(query: str, region_id: int | None = None) -> list[str]:
+    """Fetch Yandex autocomplete suggestions for a query.
+    Free API, no key needed. Returns up to 10 suggestions per query.
+    """
+    import httpx
+    params = {"part": query, "lr": str(region_id or 213)}
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get("https://suggest.yandex.ru/suggest-ya.cgi", params=params)
+            if r.status_code == 200:
+                data = r.json()
+                # Format: [query, [suggestion1, suggestion2, ...]]
+                if isinstance(data, list) and len(data) > 1:
+                    return [s for s in data[1] if isinstance(s, str)]
+    except Exception:
+        pass
+    return []
+
+
+async def _fetch_google_suggest(query: str, lang: str = "ru", country: str = "ru") -> list[str]:
+    """Fetch Google autocomplete suggestions. Free, no key needed."""
+    import httpx
+    params = {"q": query, "client": "firefox", "hl": lang, "gl": country}
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get("https://suggestqueries.google.com/complete/search", params=params)
+            if r.status_code == 200:
+                data = r.json()
+                if isinstance(data, list) and len(data) > 1:
+                    return [s for s in data[1] if isinstance(s, str)]
+    except Exception:
+        pass
+    return []
+
+
+async def _collect_serp_suggestions(
+    masks: list[str],
+    region_id: int | None = None,
+    use_google: bool = True,
+) -> list[str]:
+    """Collect autocomplete suggestions from Yandex + Google for all masks.
+
+    Applies alphabet modifier technique: 'mask a', 'mask b', ... 'mask я'
+    to extract more long-tail queries.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    all_suggestions: list[str] = []
+    seen: set[str] = set()
+
+    # Russian alphabet modifiers for deep autocomplete mining
+    _RU_LETTERS = "абвгдежзиклмнопрстуфхцчшщэюя"
+    _QUESTION_PREFIXES = ["как ", "где ", "какой ", "сколько ", "что ", "почему ", "зачем "]
+
+    async def _add_unique(suggestions: list[str]):
+        for s in suggestions:
+            s_lower = s.strip().lower()
+            if s_lower and s_lower not in seen and len(s_lower) < 200:
+                seen.add(s_lower)
+                all_suggestions.append(s_lower)
+
+    for mask in masks:
+        # Base query
+        ya_base = await _fetch_yandex_suggest(mask, region_id)
+        await _add_unique(ya_base)
+
+        if use_google:
+            g_base = await _fetch_google_suggest(mask)
+            await _add_unique(g_base)
+
+        # Alphabet mining: 'mask а', 'mask б', ...
+        for letter in _RU_LETTERS:
+            ya = await _fetch_yandex_suggest(f"{mask} {letter}", region_id)
+            await _add_unique(ya)
+
+        # Question modifiers: 'как mask', 'где mask', ...
+        for prefix in _QUESTION_PREFIXES:
+            ya_q = await _fetch_yandex_suggest(f"{prefix}{mask}", region_id)
+            await _add_unique(ya_q)
+
+    logger.info("SERP suggestions: collected %d unique phrases from %d masks", len(all_suggestions), len(masks))
+    return all_suggestions
+
+
+# ─── Content Gap integration for autopilot ────────────────────────────────────
+
+async def _extract_content_gap_keywords(
+    competitor_urls: list[str],
+    client_pages: list[dict],
+    brief_niche: str | None,
+    db,
+) -> list[str]:
+    """Run a lightweight content gap analysis and extract keyword candidates.
+
+    Crawls competitor pages, compares with client pages, asks Claude
+    to generate keyword phrases for missing topics.
+    """
+    import logging
+    import re
+
+    import httpx
+    from bs4 import BeautifulSoup
+
+    logger = logging.getLogger(__name__)
+
+    # Crawl competitor internal pages (up to 15 per site, max 3 sites)
+    comp_pages: list[dict] = []
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers={"User-Agent": "SEODirectBot/1.0"}) as client:
+        for url in competitor_urls[:3]:
+            try:
+                r = await client.get(url)
+                if r.status_code != 200:
+                    continue
+                soup = BeautifulSoup(r.text, "html.parser")
+                title = (soup.title.string or "").strip() if soup.title else ""
+                h1 = soup.find("h1")
+                h1_text = h1.get_text(strip=True) if h1 else ""
+                comp_pages.append({"url": url, "title": title, "h1": h1_text})
+
+                # Crawl internal pages
+                base = f"{r.url.scheme}://{r.url.host}"
+                internal: set[str] = set()
+                for a in soup.find_all("a", href=True):
+                    href = a["href"]
+                    if href.startswith("/") and not href.startswith("//"):
+                        href = base + href
+                    if href.startswith(base) and href != str(r.url):
+                        internal.add(href.split("?")[0].split("#")[0])
+
+                for iurl in list(internal)[:15]:
+                    try:
+                        ir = await client.get(iurl)
+                        if ir.status_code != 200:
+                            continue
+                        isoup = BeautifulSoup(ir.text, "html.parser")
+                        it = (isoup.title.string or "").strip() if isoup.title else ""
+                        ih1 = isoup.find("h1")
+                        ih1_t = ih1.get_text(strip=True) if ih1 else ""
+                        if it or ih1_t:
+                            comp_pages.append({"url": iurl, "title": it, "h1": ih1_t})
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+
+    if not comp_pages:
+        return []
+
+    # Ask Claude to extract keyword phrases from gaps
+    from app.services.claude import get_claude_client
+
+    try:
+        claude = get_claude_client(db, task_type="semantic_content_gap")
+    except Exception:
+        logger.warning("Claude not available for content gap keyword extraction")
+        return []
+
+    client_list = "\n".join(f"- {p['url']}: {p.get('title', '')} | {p.get('h1', '')}" for p in client_pages[:30])
+    comp_list = "\n".join(f"- {p['url']}: {p.get('title', '')} | {p.get('h1', '')}" for p in comp_pages[:50])
+
+    prompt = f"""Ниша: {brief_niche or 'не указана'}
+
+Страницы клиента:
+{client_list or 'Нет данных'}
+
+Страницы конкурентов:
+{comp_list}
+
+Найди темы/разделы, которые есть у конкурентов, но отсутствуют у клиента.
+Для каждой найденной темы сгенерируй 3-5 поисковых запросов (ключевых фраз), по которым пользователи ищут эту тему.
+
+Верни ТОЛЬКО JSON-массив строк — плоский список ключевых фраз.
+Пример: ["ремонт кухни под ключ", "дизайн-проект кухни", "кухня на заказ цена"]"""
+
+    system = "Ты — SEO-аналитик. Извлекай ключевые фразы из контентных пробелов. Отвечай строго JSON-массивом строк."
+    try:
+        raw = await claude.generate(system, prompt)
+        keywords = _parse_json_array(raw)
+        logger.info("Content gap: extracted %d keyword candidates", len(keywords))
+        return keywords
+    except Exception as exc:
+        logger.warning("Content gap keyword extraction failed: %s", exc)
+        return []
+
+
+# ─── Topvisor clustering integration ─────────────────────────────────────────
+
+async def _cluster_via_topvisor(
+    phrases: list[str],
+    project_id: int,
+    api_key: str,
+    user_id: str = "",
+    timeout_seconds: int = 300,
+) -> list[dict] | None:
+    """Upload keywords to Topvisor, run SERP-based clustering, return groups.
+
+    Returns list of {"group_id": str, "keywords": [str]} or None if failed/timeout.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    from app.services.topvisor import (
+        add_keywords_to_project,
+        get_cluster_groups,
+        remove_all_keywords,
+        start_cluster_task,
+        wait_for_clustering,
+    )
+
+    try:
+        # Step 1: Clear existing keywords
+        await remove_all_keywords(api_key, project_id, user_id)
+        logger.info("Topvisor cluster: cleared old keywords from project %d", project_id)
+
+        # Step 2: Upload new keywords
+        result = await add_keywords_to_project(api_key, project_id, phrases, user_id=user_id)
+        logger.info("Topvisor cluster: uploaded %d keywords (added=%s)", len(phrases), result)
+
+        # Step 3: Start clustering task
+        start_result = await start_cluster_task(api_key, project_id, user_id)
+        if not start_result.get("ok"):
+            logger.warning("Topvisor cluster: failed to start — %s", start_result.get("message"))
+            return None
+
+        # Step 4: Wait for completion
+        done = await wait_for_clustering(api_key, project_id, user_id, timeout_seconds=timeout_seconds)
+        if not done:
+            logger.warning("Topvisor cluster: timed out after %ds", timeout_seconds)
+            return None
+
+        # Step 5: Get cluster groups
+        groups = await get_cluster_groups(api_key, project_id, user_id)
+        logger.info("Topvisor cluster: got %d groups", len(groups))
+        return groups
+
+    except Exception as exc:
+        logger.warning("Topvisor clustering failed: %s", exc)
+        return None
+
+
 # ─── Expand ───────────────────────────────────────────────────────────────────
 
 _EXPAND_SYSTEM = """Ты — специалист по сбору семантического ядра для Яндекс и Google.
@@ -1364,6 +1606,17 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
                     db.commit()
         logger.info("Autopilot: %d raw suggestions from Wordstat", len(ws_suggestions))
 
+        # ── Phase 3b: SERP autocomplete (Yandex + Google suggest) ─────────
+        _update_task(task, 33, {"stage": "serp_suggest", "stage_label": "Сбор подсказок из поисковой выдачи (Яндекс + Google)"}, db)
+        serp_suggestions: list[str] = []
+        try:
+            serp_suggestions = _run_async(
+                _collect_serp_suggestions(sel, region_id=sp.region_id, use_google=True)
+            )
+            logger.info("Autopilot: %d phrases from SERP autocomplete", len(serp_suggestions))
+        except Exception as exc:
+            logger.warning("Autopilot SERP suggest: %s", exc)
+
         # ── Phase 4: Modifier matrix (35-37%) ────────────────────────────
         _update_task(task, 35, {"stage": "matrix", "stage_label": "Генерация матрицы базис × модификатор", "suggestions": len(ws_suggestions)}, db)
         custom_mods = brief.keyword_modifiers if hasattr(brief, "keyword_modifiers") and brief.keyword_modifiers else None
@@ -1409,19 +1662,51 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
                 db.commit()
         logger.info("Autopilot: %d phrases from AI expand", len(ai_phrases))
 
+        # ── Phase 5b: Content Gap keywords (competitor topics we're missing) ──
+        content_gap_kws: list[str] = []
+        if brief.competitors_urls:
+            _update_task(task, 49, {"stage": "content_gap", "stage_label": "Контентные пробелы → ключи"}, db)
+            try:
+                # Build client pages list from crawl data
+                client_pages_for_gap: list[dict] = []
+                if site_ctx:
+                    from app.models.crawl import CrawlSession, CrawlStatus, Page
+                    cr = db.scalar(select(CrawlSession).where(
+                        CrawlSession.project_id == uuid.UUID(project_id),
+                        CrawlSession.status == CrawlStatus.DONE,
+                    ).order_by(CrawlSession.finished_at.desc()))
+                    if cr:
+                        cpages = db.scalars(select(Page).where(
+                            Page.crawl_session_id == cr.id,
+                            Page.status_code == 200,
+                        ).limit(50)).all()
+                        client_pages_for_gap = [{"url": p.url, "title": p.title, "h1": p.h1} for p in cpages]
+                content_gap_kws = _run_async(
+                    _extract_content_gap_keywords(
+                        brief.competitors_urls, client_pages_for_gap,
+                        brief.niche or brief.products, db,
+                    )
+                )
+                logger.info("Autopilot: %d keywords from content gap analysis", len(content_gap_kws))
+            except LLMBillingError:
+                raise
+            except Exception as exc:
+                logger.warning("Autopilot content gap: %s", exc)
+
         # ── Merge all sources and deduplicate ─────────────────────────────
         seen: set[str] = set(sel)  # masks already saved separately
         uniq: list[str] = []
-        # Include competitor-extracted keywords as a source
-        all_sources = ws_suggestions + matrix_phrases + ai_phrases + competitor_keywords
+        # Include all keyword sources
+        all_sources = ws_suggestions + serp_suggestions + matrix_phrases + ai_phrases + competitor_keywords + content_gap_kws
         for p in all_sources:
             norm = p.strip().lower()
             if norm and norm not in seen and len(norm) < 200:
                 seen.add(norm)
                 uniq.append(norm)
         logger.info(
-            "Autopilot: %d unique keywords after merge (ws=%d, matrix=%d, ai=%d, competitors=%d)",
-            len(uniq), len(ws_suggestions), len(matrix_phrases), len(ai_phrases), len(competitor_keywords),
+            "Autopilot: %d unique keywords after merge (ws=%d, serp=%d, matrix=%d, ai=%d, competitors=%d, content_gap=%d)",
+            len(uniq), len(ws_suggestions), len(serp_suggestions), len(matrix_phrases),
+            len(ai_phrases), len(competitor_keywords), len(content_gap_kws),
         )
 
         # Morphological deduplication — remove 'купить диваны' if 'купить диван' exists
@@ -1472,12 +1757,29 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             db.delete(kw)
         db.flush()
         saved = 0
+        # Precompute source sets for fast lookup
+        _ws_set = {s.strip().lower() for s in ws_suggestions}
+        _serp_set = {s.strip().lower() for s in serp_suggestions}
+        _matrix_set = {m.strip().lower() for m in matrix_phrases}
+        _comp_set = {c.strip().lower() for c in competitor_keywords}
+        _gap_set = {g.strip().lower() for g in content_gap_kws}
         for ph in uniq:
             f = kw_freq.get(ph, {"base": 0, "phrase_freq": 0, "exact": 0, "order": 0})
             ex = f.get("exact", 0) or 0
             if wordstat and min_freq_exact > 0 and ex < min_freq_exact:
                 continue
-            source = "wordstat" if ph in {s.strip().lower() for s in ws_suggestions} else "matrix" if ph in {m.strip().lower() for m in matrix_phrases} else "claude"
+            if ph in _ws_set:
+                source = "wordstat"
+            elif ph in _serp_set:
+                source = "serp"
+            elif ph in _matrix_set:
+                source = "matrix"
+            elif ph in _comp_set:
+                source = "competitor"
+            elif ph in _gap_set:
+                source = "content_gap"
+            else:
+                source = "claude"
             db.add(SemanticKeyword(semantic_project_id=sem_id, phrase=ph, frequency_base=f.get("base"), frequency_phrase=f.get("phrase_freq"), frequency_exact=f.get("exact"), frequency_order=f.get("order"), kw_type=_kw_type_classify(ex), source=source, is_mask=False, mask_selected=False))
             saved += 1
         sp.pipeline_step = max(sp.pipeline_step, 2)
@@ -1601,53 +1903,154 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         }, db)
 
         # ── Phase 8: Cluster (85-95%) ─────────────────────────────────────
+        # Strategy: Topvisor SERP-overlap clustering (primary) → Claude (fallback)
         ckws = db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id, SemanticKeyword.is_mask.is_(False), SemanticKeyword.is_excluded.is_(False)).order_by(SemanticKeyword.frequency_exact.desc().nullslast())).all()
         c_phrases = [k.phrase for k in ckws]  # no cap — process all via multi-batch
-        claude_c = get_claude_client(db, task_type="semantic_cluster")
-        sys_c = get_prompt("semantic_cluster", db) or _CLUSTER_SYSTEM
-        all_cl: list[dict] = []
-        p_set = set(c_phrases)
-        for i in range(0, len(c_phrases), 300):
-            b = c_phrases[i:i + 300]
-            try:
-                all_cl.extend(_parse_cluster_json(_run_async(claude_c.generate(sys_c, _build_cluster_prompt(phrases=b, mode=sp.mode.value, target_clusters=max(3, len(b) // 12), region=sp.region)))))
-            except LLMBillingError:
-                raise
-            except Exception as exc:
-                logger.warning("Autopilot cluster: %s", exc)
-            if task:
-                task.progress = min(95, int(85 + (i + len(b)) / max(len(c_phrases), 1) * 10))
-                db.commit()
 
+        # Try Topvisor SERP-based clustering first (gold standard)
+        from app.models.project import Project
+        project_obj = db.get(Project, uuid.UUID(project_id))
+        tv_key = None
+        tv_user_id = ""
+        tv_project_id = None
+        topvisor_groups = None
+
+        if project_obj and project_obj.topvisor_project_id:
+            from app.services.topvisor import get_topvisor_client_key, get_topvisor_user_id
+            tv_key = get_topvisor_client_key(db)
+            tv_user_id = get_topvisor_user_id(db) or ""
+            tv_project_id = project_obj.topvisor_project_id
+
+        if tv_key and tv_project_id and c_phrases:
+            _update_task(task, 86, {"stage": "cluster_topvisor", "stage_label": "Кластеризация через Topvisor (SERP-overlap)"}, db)
+            logger.info("Autopilot: attempting Topvisor SERP-based clustering (%d phrases)", len(c_phrases))
+            try:
+                topvisor_groups = _run_async(
+                    _cluster_via_topvisor(c_phrases, tv_project_id, tv_key, tv_user_id, timeout_seconds=300)
+                )
+                if topvisor_groups:
+                    logger.info("Autopilot: Topvisor returned %d cluster groups", len(topvisor_groups))
+            except Exception as exc:
+                logger.warning("Autopilot Topvisor cluster failed: %s, falling back to Claude", exc)
+
+        # Clean old clusters
         for oc in db.scalars(select(SemanticCluster).where(SemanticCluster.semantic_project_id == sem_id)).all():
             db.delete(oc)
         db.flush()
         for kw in db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id)).all():
             kw.cluster_name = None
         p2kw = {k.phrase: k for k in ckws}
+        p_set = set(c_phrases)
         n_cl = 0
         unc: set[str] = set(c_phrases)
-        for cd in all_cl:
-            nm = str(cd.get("name", "")).strip()
-            if not nm:
-                continue
-            kps = [p for p in (cd.get("keywords") or []) if isinstance(p, str) and p in p_set]
-            if not kps:
-                continue
-            raw_title = cd.get("suggested_title")
-            db.add(SemanticCluster(
-                semantic_project_id=sem_id, name=nm[:255],
-                intent=(cd.get("intent") or "")[:50] or None,
-                priority=(cd.get("priority") or "")[:20] or None,
-                campaign_type=(cd.get("campaign_type") or "")[:50] or None,
-                suggested_title=raw_title[:255] if raw_title else None,
-            ))
-            db.flush()
-            for p in kps:
-                if p in p2kw:
-                    p2kw[p].cluster_name = nm
-                    unc.discard(p)
-            n_cl += 1
+
+        if topvisor_groups:
+            # ── Apply Topvisor clusters ─────────────────────────────────────
+            _update_task(task, 90, {"stage": "cluster_apply", "stage_label": "Применяем кластеры Topvisor"}, db)
+            for group in topvisor_groups:
+                group_kws = [kw for kw in (group.get("keywords") or []) if kw in p_set]
+                if not group_kws:
+                    continue
+                cluster_name = f"Кластер {group.get('group_id', n_cl + 1)}"
+                db.add(SemanticCluster(
+                    semantic_project_id=sem_id, name=cluster_name[:255],
+                    intent=None, priority=None,
+                ))
+                db.flush()
+                for p in group_kws:
+                    if p in p2kw:
+                        p2kw[p].cluster_name = cluster_name
+                        unc.discard(p)
+                n_cl += 1
+
+            # Use Claude to enrich Topvisor clusters with names and intents
+            _update_task(task, 92, {"stage": "cluster_enrich", "stage_label": "ИИ обогащает кластеры (названия, интенты)"}, db)
+            try:
+                claude_c = get_claude_client(db, task_type="semantic_cluster")
+                existing_clusters = db.scalars(select(SemanticCluster).where(
+                    SemanticCluster.semantic_project_id == sem_id,
+                    SemanticCluster.name != "Прочее",
+                )).all()
+                for cluster in existing_clusters:
+                    cluster_kws = [kw.phrase for kw in ckws if kw.cluster_name == cluster.name][:20]
+                    if not cluster_kws:
+                        continue
+                    enrich_prompt = (
+                        f"Вот ключевые слова одного кластера:\n{json.dumps(cluster_kws, ensure_ascii=False)}\n\n"
+                        f"Придумай:\n1. Краткое название кластера (2-5 слов)\n"
+                        f"2. Интент: коммерческий | информационный | навигационный | общий\n"
+                        f"3. Приоритет: высокий | средний | низкий\n\n"
+                        f'Верни JSON: {{"name": "...", "intent": "...", "priority": "..."}}'
+                    )
+                    try:
+                        raw_enrich = _run_async(claude_c.generate(
+                            "Ты — SEO-специалист. Отвечай строго JSON. Никакого другого текста.",
+                            enrich_prompt,
+                        ))
+                        import re
+                        m = re.search(r'\{.*?\}', raw_enrich, re.DOTALL)
+                        if m:
+                            enrichment = json.loads(m.group())
+                            new_name = str(enrichment.get("name", "")).strip()
+                            if new_name:
+                                # Update cluster name in keywords too
+                                old_name = cluster.name
+                                cluster.name = new_name[:255]
+                                cluster.intent = (enrichment.get("intent") or "")[:50] or None
+                                cluster.priority = (enrichment.get("priority") or "")[:20] or None
+                                for kw in ckws:
+                                    if kw.cluster_name == old_name:
+                                        kw.cluster_name = new_name[:255]
+                    except Exception:
+                        pass  # enrichment is best-effort
+            except LLMBillingError:
+                raise
+            except Exception as exc:
+                logger.warning("Autopilot cluster enrichment: %s", exc)
+
+            logger.info("Autopilot: Topvisor clustering done — %d clusters", n_cl)
+        else:
+            # ── Fallback: Claude-based clustering ───────────────────────────
+            _update_task(task, 87, {"stage": "cluster_claude", "stage_label": "Кластеризация через ИИ (Topvisor недоступен)"}, db)
+            logger.info("Autopilot: using Claude clustering (Topvisor unavailable)")
+            claude_c = get_claude_client(db, task_type="semantic_cluster")
+            sys_c = get_prompt("semantic_cluster", db) or _CLUSTER_SYSTEM
+            all_cl: list[dict] = []
+            for i in range(0, len(c_phrases), 300):
+                b = c_phrases[i:i + 300]
+                try:
+                    all_cl.extend(_parse_cluster_json(_run_async(claude_c.generate(sys_c, _build_cluster_prompt(phrases=b, mode=sp.mode.value, target_clusters=max(3, len(b) // 12), region=sp.region)))))
+                except LLMBillingError:
+                    raise
+                except Exception as exc:
+                    logger.warning("Autopilot cluster: %s", exc)
+                if task:
+                    task.progress = min(95, int(85 + (i + len(b)) / max(len(c_phrases), 1) * 10))
+                    db.commit()
+
+            for cd in all_cl:
+                nm = str(cd.get("name", "")).strip()
+                if not nm:
+                    continue
+                kps = [p for p in (cd.get("keywords") or []) if isinstance(p, str) and p in p_set]
+                if not kps:
+                    continue
+                raw_title = cd.get("suggested_title")
+                db.add(SemanticCluster(
+                    semantic_project_id=sem_id, name=nm[:255],
+                    intent=(cd.get("intent") or "")[:50] or None,
+                    priority=(cd.get("priority") or "")[:20] or None,
+                    campaign_type=(cd.get("campaign_type") or "")[:50] or None,
+                    suggested_title=raw_title[:255] if raw_title else None,
+                ))
+                db.flush()
+                for p in kps:
+                    if p in p2kw:
+                        p2kw[p].cluster_name = nm
+                        unc.discard(p)
+                n_cl += 1
+
+        # Unclustered → "Прочее"
         if unc:
             db.add(SemanticCluster(semantic_project_id=sem_id, name="Прочее", intent="общий", priority="низкий"))
             for p in unc:
@@ -1665,6 +2068,15 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
                 "masks": len(mask_phrases), "masks_selected": len(sel),
                 "keywords_generated": len(uniq), "keywords_saved": saved,
                 "excluded": excl, "kept": kept, "clusters": n_cl,
+                "sources": {
+                    "wordstat_suggestions": len(ws_suggestions),
+                    "serp_autocomplete": len(serp_suggestions),
+                    "modifier_matrix": len(matrix_phrases),
+                    "ai_expand": len(ai_phrases),
+                    "competitor_meta": len(competitor_keywords),
+                    "content_gap": len(content_gap_kws),
+                },
+                "cluster_method": "topvisor" if topvisor_groups else "claude",
             }
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
