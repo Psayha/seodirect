@@ -112,11 +112,8 @@ def _parse_json_array(text: str) -> list[str]:
 @celery_app.task(
     bind=True,
     name="tasks.marketing.semantic_expand",
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 2},
-    retry_backoff=True,
-    retry_backoff_max=120,
-    retry_jitter=True,
+    max_retries=2,
+    default_retry_delay=10,
 )
 def task_semantic_expand(
     self,
@@ -259,8 +256,12 @@ def task_semantic_expand(
                 else:
                     mask_errors.append(f"'{mask}': пустой результат парсинга (ответ {len(raw or '')} символов)")
             except Exception as exc:
+                from app.services.claude import LLMBillingError
                 logger.warning("Claude error for mask '%s': %s", mask, exc)
                 mask_errors.append(f"'{mask}': {exc}")
+                # Billing/auth errors won't resolve — stop immediately
+                if isinstance(exc, LLMBillingError):
+                    raise
 
             if task:
                 task.progress = int(10 + (idx + 1) / total_masks * 40)  # 10→50
@@ -429,12 +430,16 @@ def task_semantic_expand(
         return {"status": "success", "saved": saved}
 
     except Exception as e:
+        from app.services.claude import LLMBillingError
         if task:
             task.status = TaskStatus.FAILED
             task.error = str(e)[:1500]
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
-        raise
+        # Don't retry billing/auth errors — they won't resolve on their own
+        if isinstance(e, LLMBillingError):
+            return {"status": "failed", "error": str(e)}
+        raise self.retry(exc=e)
     finally:
         db.close()
 
@@ -496,11 +501,8 @@ def _parse_cluster_json(text: str) -> list[dict]:
 @celery_app.task(
     bind=True,
     name="tasks.marketing.semantic_cluster",
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 2},
-    retry_backoff=True,
-    retry_backoff_max=120,
-    retry_jitter=True,
+    max_retries=2,
+    default_retry_delay=10,
 )
 def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: str):
     import logging  # noqa: PLC0415
@@ -664,11 +666,348 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
         return {"status": "success", "clusters": saved_clusters}
 
     except Exception as e:
+        from app.services.claude import LLMBillingError
         if task:
             task.status = TaskStatus.FAILED
             task.error = str(e)[:1500]
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
+        if isinstance(e, LLMBillingError):
+            return {"status": "failed", "error": str(e)}
+        raise self.retry(exc=e)
+    finally:
+        db.close()
+
+
+# ─── Mask Generation from Brief ──────────────────────────────────────────────
+
+_MASKS_SYSTEM = """Ты — специалист по сбору семантического ядра для Яндекс и Google.
+Твоя задача — на основе описания бизнеса сгенерировать базовые маски (корневые поисковые запросы из 1–3 слов).
+Отвечай строго JSON-массивом строк на русском языке. Никакого другого текста."""
+
+
+def _build_masks_prompt(
+    niche: str | None, products: str | None, target_audience: str | None,
+    pains: str | None, usp: str | None, geo: str | None, mode: str,
+) -> str:
+    mode_hint = "SEO-продвижения (включай информационные и коммерческие)" if mode == "seo" else "Яндекс Директ (только коммерческие)"
+    lines = [f"Сгенерируй базовые маски (корневые поисковые запросы из 1–3 слов) для {mode_hint}."]
+    if niche:
+        lines.append(f"\nНиша: {niche}")
+    if products:
+        lines.append(f"Продукты/услуги: {products}")
+    if target_audience:
+        lines.append(f"Целевая аудитория: {target_audience}")
+    if pains:
+        lines.append(f"Боли аудитории: {pains}")
+    if usp:
+        lines.append(f"УТП: {usp}")
+    if geo:
+        lines.append(f"Регион: {geo}")
+    lines.append("\nСгенерируй 10–20 масок. Каждая маска — 1–3 слова.")
+    lines.append("Включи: основные продукты/услуги, типы запросов (купить, заказать, цена), категории.")
+    if mode == "seo":
+        lines.append("Также включи информационные маски: как выбрать, обзор, плюсы и минусы.")
+    lines.append('\nВерни ТОЛЬКО JSON-массив. Пример: ["купить диван", "диван цена", "мягкая мебель"]')
+    return "\n".join(lines)
+
+
+# ─── Autopilot Task ──────────────────────────────────────────────────────────
+
+def _kw_type_classify(exact: int) -> str | None:
+    if exact >= 1000:
+        return "ВЧ"
+    if exact >= 100:
+        return "СЧ"
+    if exact >= 1:
+        return "НЧ"
+    return None
+
+
+@celery_app.task(bind=True, name="tasks.marketing.semantic_autopilot", max_retries=0)
+def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id: str, min_freq_exact: int = 0):
+    """Full semantic pipeline: brief -> masks -> expand -> clean -> cluster."""
+    import logging
+
+    from sqlalchemy import select
+
+    from app.db.session import SessionLocal
+    from app.models.brief import Brief
+    from app.models.marketing import KeywordCache, MarketingMinusWord, SemanticCluster, SemanticKeyword, SemanticProject
+    from app.models.task import Task, TaskStatus
+    from app.services.claude import LLMBillingError, get_claude_client
+    from app.services.settings_service import get_prompt
+    from app.services.wordstat import get_wordstat_client
+
+    logger = logging.getLogger(__name__)
+    db = SessionLocal()
+    task = None
+    try:
+        task = db.get(Task, uuid.UUID(task_id))
+        if task:
+            task.status = TaskStatus.RUNNING
+            task.progress = 0
+            task.result = {"stage": "masks", "stage_label": "Генерация масок из бриф"}
+            db.commit()
+
+        sem_id = uuid.UUID(sem_project_id)
+        sp = db.get(SemanticProject, sem_id)
+        if not sp:
+            raise RuntimeError(f"SemanticProject {sem_project_id} not found")
+
+        brief = db.scalar(select(Brief).where(Brief.project_id == uuid.UUID(project_id)))
+        if not brief or not (brief.niche or brief.products):
+            raise RuntimeError("Бриф не заполнен. Укажите хотя бы нишу или продукты перед запуском автопилота.")
+
+        # ── Phase 1: Generate masks from brief (0-10%) ────────────────────
+        claude_m = get_claude_client(db, task_type="semantic_masks")
+        sys_m = get_prompt("semantic_masks", db) or _MASKS_SYSTEM
+        prompt_m = _build_masks_prompt(
+            niche=brief.niche, products=brief.products, target_audience=brief.target_audience,
+            pains=brief.pains, usp=brief.usp, geo=brief.geo or sp.region, mode=sp.mode.value,
+        )
+        mask_phrases = _parse_json_array(_run_async(claude_m.generate(sys_m, prompt_m)))
+        if not mask_phrases:
+            raise RuntimeError("ИИ не сгенерировал масок. Заполните бриф подробнее.")
+        logger.info("Autopilot: %d masks from brief", len(mask_phrases))
+        _update_task(task, 10, {"stage": "wordstat_masks", "stage_label": "Частотность масок", "masks": len(mask_phrases)}, db)
+
+        # ── Phase 2: Wordstat for masks (10-20%) ──────────────────────────
+        wordstat = get_wordstat_client(db)
+        mask_freq: dict[str, dict] = {}
+        if wordstat:
+            try:
+                regions = [sp.region_id] if sp.region_id else None
+                mask_freq = _run_async(wordstat.get_all_frequencies(mask_phrases, regions=regions))
+            except Exception as exc:
+                logger.warning("Wordstat masks error: %s", exc)
+
+        # Save masks
+        for m in db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id, SemanticKeyword.is_mask.is_(True))).all():
+            db.delete(m)
+        db.flush()
+        for phrase in mask_phrases:
+            f = mask_freq.get(phrase, {"base": 0, "phrase_freq": 0, "exact": 0, "order": 0})
+            exact = f.get("exact", 0) or 0
+            db.add(SemanticKeyword(
+                semantic_project_id=sem_id, phrase=phrase,
+                frequency_base=f.get("base"), frequency_phrase=f.get("phrase_freq"),
+                frequency_exact=f.get("exact"), frequency_order=f.get("order"),
+                kw_type=_kw_type_classify(exact), source="wordstat",
+                is_mask=True, mask_selected=exact > 0 or not wordstat,
+            ))
+        sp.pipeline_step = max(sp.pipeline_step, 1)
+        db.commit()
+
+        sel = [m.phrase for m in db.scalars(select(SemanticKeyword).where(
+            SemanticKeyword.semantic_project_id == sem_id, SemanticKeyword.is_mask.is_(True), SemanticKeyword.mask_selected.is_(True),
+        )).all()]
+        if not sel:
+            raise RuntimeError("Все маски — нулевая частотность. Проверьте Wordstat-токен или бриф.")
+        _update_task(task, 20, {"stage": "expand", "stage_label": "Расширение", "masks": len(mask_phrases), "masks_selected": len(sel)}, db)
+
+        # ── Phase 3: Expand (20-55%) ──────────────────────────────────────
+        claude_e = get_claude_client(db, task_type="semantic_expand")
+        sys_e = get_prompt("semantic_expand", db) or _EXPAND_SYSTEM
+        bc_parts = [x for x in [
+            f"Ниша: {brief.niche}" if brief.niche else None,
+            f"Продукты: {brief.products}" if brief.products else None,
+            f"Аудитория: {brief.target_audience}" if brief.target_audience else None,
+            f"Боли: {brief.pains}" if brief.pains else None,
+            f"УТП: {brief.usp}" if brief.usp else None,
+        ] if x]
+        brief_ctx = "\n".join(bc_parts) or None
+        mods = brief.keyword_modifiers if hasattr(brief, "keyword_modifiers") and brief.keyword_modifiers else None
+
+        # Site context
+        site_ctx = None
+        try:
+            from app.models.crawl import CrawlSession, CrawlStatus, Page
+            cr = db.scalar(select(CrawlSession).where(CrawlSession.project_id == uuid.UUID(project_id), CrawlSession.status == CrawlStatus.DONE).order_by(CrawlSession.finished_at.desc()))
+            if cr:
+                pages = db.scalars(select(Page).where(Page.crawl_session_id == cr.id, Page.status_code == 200).order_by(Page.word_count.desc()).limit(10)).all()
+                if pages:
+                    site_ctx = "\n".join(f"— {p.url}: {p.title or ''}" + (f" | H1: {p.h1}" if p.h1 else "") for p in pages)
+        except Exception:
+            pass
+
+        all_ph: list[str] = []
+        for idx, mask in enumerate(sel):
+            pr = _build_expand_prompt(mask=mask, mode=sp.mode.value, region=sp.region, brief_context=brief_ctx, modifiers=mods, site_context=site_ctx)
+            try:
+                all_ph.extend(_parse_json_array(_run_async(claude_e.generate(sys_e, pr))))
+            except LLMBillingError:
+                raise
+            except Exception as exc:
+                logger.warning("Autopilot expand '%s': %s", mask, exc)
+            if task:
+                task.progress = int(20 + (idx + 1) / len(sel) * 35)
+                db.commit()
+
+        seen: set[str] = set(sel)
+        uniq = []
+        for p in all_ph:
+            if p not in seen:
+                seen.add(p)
+                uniq.append(p)
+        if not uniq:
+            raise RuntimeError("ИИ не сгенерировал ключей. Проверьте API-ключ OpenRouter.")
+        _update_task(task, 55, {"stage": "wordstat_kw", "stage_label": "Частотность ключей", "keywords": len(uniq)}, db)
+
+        # ── Phase 4: Wordstat for keywords (55-75%) ───────────────────────
+        kw_freq: dict[str, dict] = {}
+        if wordstat and uniq:
+            from datetime import timedelta
+
+            from app.routers.marketing import CACHE_TTL_DAYS
+            cutoff = datetime.now(tz=timezone.utc) - timedelta(days=CACHE_TTL_DAYS)
+            cached = {r.phrase: r for r in db.scalars(select(KeywordCache).where(KeywordCache.phrase.in_(uniq), KeywordCache.region_id == sp.region_id, KeywordCache.cached_at > cutoff)).all()}
+            uncached = [p for p in uniq if p not in cached]
+            if uncached:
+                regions = [sp.region_id] if sp.region_id else None
+                for i in range(0, len(uncached), 250):
+                    batch = uncached[i:i + 250]
+                    try:
+                        fresh = _run_async(wordstat.get_all_frequencies(batch, regions=regions))
+                        now_ts = datetime.now(tz=timezone.utc)
+                        for ph, fr in fresh.items():
+                            kw_freq[ph] = fr
+                            ex = db.scalar(select(KeywordCache).where(KeywordCache.phrase == ph, KeywordCache.region_id == sp.region_id))
+                            if ex:
+                                ex.frequency_base, ex.frequency_phrase, ex.frequency_exact, ex.frequency_order, ex.cached_at = fr["base"], fr["phrase_freq"], fr["exact"], fr["order"], now_ts
+                            else:
+                                db.add(KeywordCache(phrase=ph, region_id=sp.region_id, frequency_base=fr["base"], frequency_phrase=fr["phrase_freq"], frequency_exact=fr["exact"], frequency_order=fr["order"], cached_at=now_ts))
+                    except Exception as exc:
+                        logger.warning("WS batch: %s", exc)
+                    if task:
+                        task.progress = int(55 + (i + 250) / max(len(uncached), 1) * 20)
+                        db.commit()
+            for ph in uniq:
+                if ph not in kw_freq and ph in cached:
+                    c = cached[ph]
+                    kw_freq[ph] = {"base": c.frequency_base or 0, "phrase_freq": c.frequency_phrase or 0, "exact": c.frequency_exact or 0, "order": c.frequency_order or 0}
+
+        # Save keywords
+        for kw in db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id, SemanticKeyword.is_mask.is_(False))).all():
+            db.delete(kw)
+        db.flush()
+        saved = 0
+        for ph in uniq:
+            f = kw_freq.get(ph, {"base": 0, "phrase_freq": 0, "exact": 0, "order": 0})
+            ex = f.get("exact", 0) or 0
+            if wordstat and min_freq_exact > 0 and ex < min_freq_exact:
+                continue
+            db.add(SemanticKeyword(semantic_project_id=sem_id, phrase=ph, frequency_base=f.get("base"), frequency_phrase=f.get("phrase_freq"), frequency_exact=f.get("exact"), frequency_order=f.get("order"), kw_type=_kw_type_classify(ex), source="claude", is_mask=False, mask_selected=False))
+            saved += 1
+        sp.pipeline_step = max(sp.pipeline_step, 2)
+        db.commit()
+        _update_task(task, 75, {"stage": "clean", "stage_label": "Авто-очистка", "saved": saved}, db)
+
+        # ── Phase 5: Auto-clean (75-80%) ──────────────────────────────────
+        mw_list = [mw.word.lower() for mw in db.scalars(select(MarketingMinusWord).where(MarketingMinusWord.semantic_project_id == sem_id)).all()]
+        act = db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id, SemanticKeyword.is_mask.is_(False), SemanticKeyword.is_excluded.is_(False))).all()
+        excl = 0
+        now_ts2 = datetime.now(timezone.utc)
+        for kw in act:
+            r = None
+            if (kw.frequency_exact or 0) == 0 and not sp.is_seasonal:
+                r = "zero"
+            if r is None and len(kw.phrase.split()) > 7:
+                r = "long"
+            if r is None and mw_list:
+                for mw in mw_list:
+                    if mw in kw.phrase.lower().split():
+                        r = "minus"
+                        break
+            if r:
+                kw.is_excluded = True
+                kw.excluded_at = now_ts2
+                excl += 1
+        sp.pipeline_step = max(sp.pipeline_step, 3)
+        db.commit()
+        kept = len(act) - excl
+        _update_task(task, 80, {"stage": "cluster", "stage_label": "Кластеризация", "saved": saved, "excluded": excl, "kept": kept}, db)
+
+        # ── Phase 6: Cluster (80-95%) ─────────────────────────────────────
+        ckws = db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id, SemanticKeyword.is_mask.is_(False), SemanticKeyword.is_excluded.is_(False)).order_by(SemanticKeyword.frequency_exact.desc().nullslast())).all()
+        c_phrases = [k.phrase for k in ckws][:600]
+        claude_c = get_claude_client(db, task_type="semantic_cluster")
+        sys_c = get_prompt("semantic_cluster", db) or _CLUSTER_SYSTEM
+        all_cl: list[dict] = []
+        p_set = set(c_phrases)
+        for i in range(0, len(c_phrases), 300):
+            b = c_phrases[i:i + 300]
+            try:
+                all_cl.extend(_parse_cluster_json(_run_async(claude_c.generate(sys_c, _build_cluster_prompt(phrases=b, mode=sp.mode.value, target_clusters=max(3, len(b) // 12), region=sp.region)))))
+            except LLMBillingError:
+                raise
+            except Exception as exc:
+                logger.warning("Autopilot cluster: %s", exc)
+            if task:
+                task.progress = int(80 + (i + 300) / max(len(c_phrases), 1) * 15)
+                db.commit()
+
+        for oc in db.scalars(select(SemanticCluster).where(SemanticCluster.semantic_project_id == sem_id)).all():
+            db.delete(oc)
+        db.flush()
+        for kw in db.scalars(select(SemanticKeyword).where(SemanticKeyword.semantic_project_id == sem_id)).all():
+            kw.cluster_name = None
+        p2kw = {k.phrase: k for k in ckws}
+        n_cl = 0
+        unc: set[str] = set(c_phrases)
+        for cd in all_cl:
+            nm = str(cd.get("name", "")).strip()
+            if not nm:
+                continue
+            kps = [p for p in (cd.get("keywords") or []) if isinstance(p, str) and p in p_set]
+            if not kps:
+                continue
+            db.add(SemanticCluster(semantic_project_id=sem_id, name=nm, intent=cd.get("intent"), priority=cd.get("priority"), campaign_type=cd.get("campaign_type"), suggested_title=cd.get("suggested_title")))
+            db.flush()
+            for p in kps:
+                if p in p2kw:
+                    p2kw[p].cluster_name = nm
+                    unc.discard(p)
+            n_cl += 1
+        if unc:
+            db.add(SemanticCluster(semantic_project_id=sem_id, name="Прочее", intent="общий", priority="низкий"))
+            for p in unc:
+                if p in p2kw:
+                    p2kw[p].cluster_name = "Прочее"
+        sp.pipeline_step = max(sp.pipeline_step, 4)
+        db.commit()
+
+        # ── Done ──────────────────────────────────────────────────────────
+        if task:
+            task.status = TaskStatus.SUCCESS
+            task.progress = 100
+            task.result = {
+                "stage": "done", "stage_label": "Готово",
+                "masks": len(mask_phrases), "masks_selected": len(sel),
+                "keywords_generated": len(uniq), "keywords_saved": saved,
+                "excluded": excl, "kept": kept, "clusters": n_cl,
+            }
+            task.finished_at = datetime.now(timezone.utc)
+            db.commit()
+        logger.info("Autopilot done: %d masks -> %d kw -> %d kept -> %d clusters", len(mask_phrases), saved, kept, n_cl)
+        return {"status": "success", "clusters": n_cl, "kept": kept}
+
+    except Exception as e:
+        from app.services.claude import LLMBillingError as _BE
+        if task:
+            task.status = TaskStatus.FAILED
+            task.error = str(e)[:1500]
+            task.finished_at = datetime.now(timezone.utc)
+            db.commit()
+        if isinstance(e, _BE):
+            return {"status": "failed", "error": str(e)}
         raise
     finally:
         db.close()
+
+
+def _update_task(task, progress: int, result: dict, db) -> None:
+    if task:
+        task.progress = progress
+        task.result = result
+        db.commit()

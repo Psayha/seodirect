@@ -5,6 +5,11 @@ from typing import AsyncGenerator
 
 import httpx
 
+
+class LLMBillingError(RuntimeError):
+    """Non-retryable error: billing, auth, or forbidden."""
+    pass
+
 # ── LLM Task Registry ────────────────────────────────────────────────────────
 # Every place in the codebase that calls an LLM is registered here.
 # Each task can have its own model, temperature, max_tokens configured via settings.
@@ -113,6 +118,14 @@ LLM_TASKS: dict[str, dict] = {
         "default_temperature": 0.5,
         "default_max_tokens": 4000,
         "description": "Автоматический анализ и улучшение полей брифа",
+    },
+    "semantic_masks": {
+        "label": "Генерация масок из бриф",
+        "group": "marketing",
+        "default_model": "anthropic/claude-sonnet-4-20250514",
+        "default_temperature": 0.7,
+        "default_max_tokens": 4000,
+        "description": "Генерация базовых масок семантического ядра из данных бриф",
     },
     "semantic_expand": {
         "label": "Расширение семантики",
@@ -229,9 +242,25 @@ class LLMClient:
                         await asyncio.sleep(2**attempt)
                         continue
                 except httpx.HTTPStatusError as e:
-                    if e.response.status_code in (429, 529):
+                    status = e.response.status_code
+                    if status in (429, 529):
                         await asyncio.sleep(2**attempt * 2)
                         continue
+                    if status == 402:
+                        raise LLMBillingError(
+                            "Недостаточно средств на OpenRouter. "
+                            "Пополните баланс на openrouter.ai/credits."
+                        ) from e
+                    if status == 401:
+                        raise LLMBillingError(
+                            "Неверный API-ключ OpenRouter. "
+                            "Проверьте ключ в Настройки → API-ключи."
+                        ) from e
+                    if status == 403:
+                        raise LLMBillingError(
+                            f"Доступ к модели {self.model} запрещён. "
+                            "Проверьте модель в настройках OpenRouter."
+                        ) from e
                     raise
         raise RuntimeError(f"LLM API unavailable after 3 attempts: {last_error}")
 

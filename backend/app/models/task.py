@@ -20,6 +20,7 @@ class TaskType(str, enum.Enum):
     GENERATE_SCHEMA_BULK = "generate_schema_bulk"
     SEMANTIC_EXPAND = "semantic_expand"
     SEMANTIC_CLUSTER = "semantic_cluster"
+    SEMANTIC_AUTOPILOT = "semantic_autopilot"
     GEO_SCAN = "geo_scan"
     GEO_AUDIT = "geo_audit"
 

@@ -92,6 +92,15 @@ export const marketingApi = {
   delete: (projectId: string, semId: string): Promise<void> =>
     api.delete(`/projects/${projectId}/marketing/semantic/${semId}`).then(() => undefined),
 
+  // ── Autopilot ──────────────────────────────────────────────────────────────
+
+  autopilot: (
+    projectId: string,
+    semId: string,
+    data: { min_freq_exact: number }
+  ): Promise<{ task_id: string; status: string }> =>
+    api.post(`/projects/${projectId}/marketing/semantic/${semId}/autopilot`, data).then((r) => r.data),
+
   // ── Masks ───────────────────────────────────────────────────────────────────
 
   expand: (

@@ -7,6 +7,118 @@ function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
 }
 
+// ─── Legend / Glossary ───────────────────────────────────────────────────────
+
+function Legend({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="bg-page border border-[var(--border)] rounded-2xl shadow-xl max-w-2xl w-full mx-4 max-h-[85vh] overflow-y-auto p-6 space-y-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-primary">Справочник: семантическое ядро</h2>
+          <button onClick={onClose} className="text-muted hover:text-primary text-xl leading-none">&times;</button>
+        </div>
+
+        {/* Частотности */}
+        <section>
+          <h3 className="text-sm font-semibold text-primary mb-2">Частотности Wordstat</h3>
+          <div className="text-xs text-muted space-y-2">
+            <div className="grid grid-cols-[60px_1fr] gap-x-3 items-start">
+              <span className="font-mono font-bold text-primary">WS</span>
+              <span>
+                <b>Базовая частота.</b> Сколько раз в месяц искали <i>любые запросы</i>, содержащие эти слова
+                в любых формах. Например, для «каркасный дом» сюда попадёт и «купить каркасный дом», и «проект каркасного дома».
+                Всегда самое большое число.
+              </span>
+            </div>
+            <div className="grid grid-cols-[60px_1fr] gap-x-3 items-start">
+              <span className="font-mono font-bold text-primary">«WS»</span>
+              <span>
+                <b>Фразовая частота.</b> Только запросы из <i>этих слов</i> (в любых формах), без дополнительных.
+                «каркасного дома» — да, «купить каркасный дом» — нет.
+              </span>
+            </div>
+            <div className="grid grid-cols-[60px_1fr] gap-x-3 items-start">
+              <span className="font-mono font-bold text-primary">«!WS»</span>
+              <span>
+                <b>Точная частота.</b> Только <i>точная форма</i> слов, без дополнений.
+                «каркасный дом» — да, «каркасного дома» — нет.
+                <b> Главный показатель реального спроса.</b>
+              </span>
+            </div>
+            <div className="grid grid-cols-[60px_1fr] gap-x-3 items-start">
+              <span className="font-mono font-bold text-primary">[WS]</span>
+              <span>
+                <b>Порядок слов.</b> Только в точном порядке. «каркасный дом» — да, «дом каркасный» — нет.
+              </span>
+            </div>
+          </div>
+        </section>
+
+        {/* Типы */}
+        <section>
+          <h3 className="text-sm font-semibold text-primary mb-2">Типы ключей (по точной частоте «!WS»)</h3>
+          <div className="text-xs space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 w-8 text-center">ВЧ</span>
+              <span className="text-muted"><b>Высокочастотный</b> — «!WS» ≥ 1 000. Популярный, высокая конкуренция, дорогой клик</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 w-8 text-center">СЧ</span>
+              <span className="text-muted"><b>Среднечастотный</b> — «!WS» 100–999. Баланс спроса и конкуренции</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 w-8 text-center">НЧ</span>
+              <span className="text-muted"><b>Низкочастотный</b> — «!WS» 1–99. Мало ищут, но дешёвый и точный трафик</span>
+            </div>
+          </div>
+        </section>
+
+        {/* Флаги */}
+        <section>
+          <h3 className="text-sm font-semibold text-primary mb-2">Флаги ключей</h3>
+          <div className="text-xs text-muted space-y-1">
+            <p><b>Б</b> — <b>Бренд.</b> Содержит название бренда (вашего или общего)</p>
+            <p><b>К</b> — <b>Конкурент.</b> Содержит бренд конкурента</p>
+            <p><b>С</b> — <b>Сезонный.</b> Спрос зависит от времени года</p>
+            <p><b>Г</b> — <b>Гео.</b> Привязан к региону («в Москве», «СПб»)</p>
+          </div>
+        </section>
+
+        {/* Интенты */}
+        <section>
+          <h3 className="text-sm font-semibold text-primary mb-2">Интенты (намерение пользователя)</h3>
+          <div className="text-xs text-muted space-y-1">
+            <p><b>Коммерческий</b> — хочет купить/заказать. «купить каркасный дом», «каркасный дом цена»</p>
+            <p><b>Информационный</b> — хочет узнать. «плюсы каркасного дома», «как утеплить»</p>
+            <p><b>Навигационный</b> — ищет конкретный сайт. «пестово каркасные дома официальный»</p>
+            <p><b>Общий</b> — неясное намерение. «каркасный дом»</p>
+          </div>
+        </section>
+
+        {/* Шаги */}
+        <section>
+          <h3 className="text-sm font-semibold text-primary mb-2">Шаги сбора семантики</h3>
+          <div className="text-xs text-muted space-y-1.5">
+            <p><b>1. Проект</b> — выбираете режим (SEO или Директ) и регион</p>
+            <p><b>2. Маски</b> — вводите базовые фразы вашей ниши (1–2 слова). Wordstat показывает частотность</p>
+            <p><b>3. Расширение</b> — ИИ генерирует 60–100 поисковых запросов на каждую маску, учитывая бриф и данные сайта. Wordstat собирает частоты</p>
+            <p><b>4. Очистка</b> — убираете мусор: нулевые запросы, слишком длинные, с минус-словами. Расставляете флаги и интенты</p>
+            <p><b>5. Кластеры</b> — ИИ группирует ключи по смыслу. Для Директа предлагает тип кампании и заголовок</p>
+            <p><b>6. Экспорт</b> — скачиваете результат в Excel, CSV или TXT</p>
+          </div>
+        </section>
+
+        <div className="text-center pt-2">
+          <button onClick={onClose} className="btn-primary px-6 py-1.5 text-sm">Понятно</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Stepper ──────────────────────────────────────────────────────────────────
 
 const STEPS = [
@@ -1333,6 +1445,198 @@ function LockedStep({ label, requiredStep }: { label: string; requiredStep: numb
   )
 }
 
+// ─── Autopilot or Manual Choice ──────────────────────────────────────────────
+
+const AUTOPILOT_STAGES: Record<string, string> = {
+  masks: 'Генерация масок из бриф...',
+  wordstat_masks: 'Сбор частотности масок...',
+  expand: 'Расширение семантики (ИИ)...',
+  wordstat_kw: 'Сбор частотности ключей...',
+  wordstat_expand: 'Сбор частотности ключей...',
+  clean: 'Авто-очистка...',
+  cluster: 'Кластеризация (ИИ)...',
+  done: 'Готово!',
+}
+
+function AutopilotOrManual({
+  projectId,
+  sp,
+  onManual,
+  onAutopilotDone,
+}: {
+  projectId: string
+  sp: SemanticProject
+  onManual: () => void
+  onAutopilotDone: () => void
+}) {
+  const qc = useQueryClient()
+  const [taskId, setTaskId] = useState<string | null>(null)
+  const [taskResult, setTaskResult] = useState<TaskResult | null>(null)
+  const [taskError, setTaskError] = useState('')
+  const [minFreq, setMinFreq] = useState(0)
+
+  const autopilotMut = useMutation({
+    mutationFn: () => marketingApi.autopilot(projectId, sp.id, { min_freq_exact: minFreq }),
+    onSuccess: (d) => { setTaskId(d.task_id); setTaskError('') },
+    onError: (e: any) => setTaskError(e?.response?.data?.detail || 'Ошибка запуска'),
+  })
+
+  const { data: taskLive } = useQuery({
+    queryKey: ['task', taskId],
+    queryFn: () => tasksApi.get(taskId!),
+    enabled: !!taskId,
+    refetchInterval: 2000,
+  })
+
+  useEffect(() => {
+    if (!taskLive || !taskId) return
+    if (taskLive.status === 'success' || taskLive.status === 'failed') {
+      setTaskResult(taskLive)
+      setTaskId(null)
+      if (taskLive.status === 'success') {
+        onAutopilotDone()
+      }
+    }
+  }, [taskLive?.status])
+
+  const progress = taskLive?.progress ?? 0
+  const stageName = AUTOPILOT_STAGES[(taskLive?.result as any)?.stage] || ''
+  const isRunning = !!taskId
+
+  // If autopilot already completed (pipeline_step >= 4), show result
+  if (sp.pipeline_step >= 4 && !isRunning && !taskResult) {
+    return (
+      <div className="space-y-4">
+        <h3 className="font-semibold text-base">Проект готов</h3>
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="bg-surface-raised rounded-xl p-3 space-y-1">
+            <p className="text-xs text-muted">Режим</p>
+            <p className="font-medium">{sp.mode === 'seo' ? 'SEO' : 'Яндекс Директ'}</p>
+          </div>
+          {sp.region && (
+            <div className="bg-surface-raised rounded-xl p-3 space-y-1">
+              <p className="text-xs text-muted">Регион</p>
+              <p className="font-medium">{sp.region}</p>
+            </div>
+          )}
+        </div>
+        <p className="text-sm text-muted">Семантическое ядро собрано. Перейдите к очистке для модерации или к экспорту.</p>
+        <div className="flex gap-2">
+          <button onClick={onManual} className="btn-ghost px-4 py-1.5 text-sm border border-[var(--border)] rounded-xl">
+            Ручной режим (маски)
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Running state
+  if (isRunning) {
+    return (
+      <div className="space-y-4">
+        <h3 className="font-semibold text-base">Автопилот работает</h3>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm text-accent">
+            <span className="w-4 h-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+            <span>{stageName || `Обработка... ${progress}%`}</span>
+          </div>
+          <div className="w-full bg-[var(--border)] rounded-full h-2.5 overflow-hidden">
+            <div className="bg-accent h-2.5 rounded-full transition-all duration-700" style={{ width: `${progress}%` }} />
+          </div>
+          <p className="text-xs text-muted">{progress}% — не закрывайте страницу</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Error state
+  if (taskResult?.status === 'failed') {
+    return (
+      <div className="space-y-4">
+        <h3 className="font-semibold text-base">Автопилот</h3>
+        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-xl p-3 text-sm text-red-700 dark:text-red-400">
+          {taskResult.error || 'Неизвестная ошибка'}
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => { setTaskResult(null); autopilotMut.mutate() }} className="btn-primary px-4 py-1.5 text-sm">
+            Повторить
+          </button>
+          <button onClick={onManual} className="btn-ghost px-4 py-1.5 text-sm border border-[var(--border)] rounded-xl">
+            Ручной режим
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Initial choice
+  return (
+    <div className="space-y-5">
+      <h3 className="font-semibold text-base">Шаг 1 — Как собрать семантику?</h3>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Autopilot card */}
+        <div className="border-2 border-accent/30 rounded-2xl p-5 space-y-3 bg-[var(--accent-subtle)]">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">&#9889;</span>
+            <h4 className="font-semibold text-primary">Автопилот</h4>
+          </div>
+          <p className="text-xs text-muted leading-relaxed">
+            ИИ автоматически сгенерирует маски из бриф, расширит семантику, соберёт частотность, очистит от мусора и сгруппирует в кластеры. Вам останется только проверить результат.
+          </p>
+          <p className="text-[11px] text-muted">Требуется: заполненный бриф + API-ключ OpenRouter</p>
+
+          <div>
+            <label className="block text-[11px] text-muted mb-1">Мин. точная частотность (0 = не фильтровать)</label>
+            <input
+              type="number" min={0} className="field w-24 text-sm"
+              value={minFreq} onChange={(e) => setMinFreq(Number(e.target.value))}
+            />
+          </div>
+
+          <button
+            onClick={() => autopilotMut.mutate()}
+            disabled={autopilotMut.isPending}
+            className="btn-primary px-5 py-2 text-sm w-full"
+          >
+            {autopilotMut.isPending ? 'Запуск...' : 'Запустить автопилот'}
+          </button>
+          {taskError && <p className="text-xs text-red-500">{taskError}</p>}
+        </div>
+
+        {/* Manual card */}
+        <div className="border border-[var(--border)] rounded-2xl p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">&#9997;</span>
+            <h4 className="font-semibold text-primary">Ручной режим</h4>
+          </div>
+          <p className="text-xs text-muted leading-relaxed">
+            Вы сами вводите маски, контролируете каждый шаг: какие маски расширять, какие ключи оставить, как кластеризовать.
+          </p>
+          <p className="text-[11px] text-muted">Для опытных специалистов или нестандартных ниш</p>
+
+          <div className="grid grid-cols-2 gap-2 text-xs text-muted mt-2">
+            <div className="bg-surface-raised rounded-lg p-2">
+              <p className="font-medium text-primary">{sp.name}</p>
+              <p>{sp.mode === 'seo' ? 'SEO' : 'Директ'}{sp.region ? ` · ${sp.region}` : ''}</p>
+            </div>
+            <div className="bg-surface-raised rounded-lg p-2">
+              <p className="font-medium text-primary">{sp.is_seasonal ? 'Сезонный' : 'Не сезонный'}</p>
+            </div>
+          </div>
+
+          <button
+            onClick={onManual}
+            className="btn-ghost px-5 py-2 text-sm w-full border border-[var(--border)] rounded-xl hover:bg-surface-raised"
+          >
+            Начать вручную
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function MarketingTab({ projectId }: { projectId: string }) {
@@ -1340,6 +1644,7 @@ export default function MarketingTab({ projectId }: { projectId: string }) {
   const [activeMode, setActiveMode] = useState<SemanticMode>('seo')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [activeStep, setActiveStep] = useState(1)
+  const [showLegend, setShowLegend] = useState(false)
 
   const { data: semProjects, isLoading } = useQuery({
     queryKey: ['sem-projects', projectId],
@@ -1446,7 +1751,7 @@ export default function MarketingTab({ projectId }: { projectId: string }) {
           <Stepper step={Math.max(pipelineStep, activeStep - 1)} />
 
           {/* Step navigation pills */}
-          <div className="flex gap-1 flex-wrap">
+          <div className="flex gap-1 flex-wrap items-center">
             {STEPS.map((s, i) => {
               // current step and all previous are unlocked; next step is accessible to navigate to
               const unlocked = i <= pipelineStep + 1
@@ -1468,39 +1773,29 @@ export default function MarketingTab({ projectId }: { projectId: string }) {
                 </button>
               )
             })}
+            <div className="flex-1" />
+            <button
+              onClick={() => setShowLegend(true)}
+              className="px-3 py-1 text-xs rounded-full border border-[var(--border)] text-muted hover:text-primary transition"
+              title="Справочник терминов"
+            >
+              ? Справочник
+            </button>
           </div>
 
           <div className="bg-surface border border-[var(--border)] rounded-2xl p-5">
             {activeStep === 1 && (
-              <div className="space-y-3">
-                <h3 className="font-semibold text-base">Шаг 1 — Проект создан</h3>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="bg-surface-raised rounded-xl p-3 space-y-1">
-                    <p className="text-xs text-muted">Название</p>
-                    <p className="font-medium">{sp.name}</p>
-                  </div>
-                  <div className="bg-surface-raised rounded-xl p-3 space-y-1">
-                    <p className="text-xs text-muted">Режим</p>
-                    <p className="font-medium">{sp.mode === 'seo' ? 'SEO-продвижение' : 'Яндекс Директ'}</p>
-                  </div>
-                  {sp.region && (
-                    <div className="bg-surface-raised rounded-xl p-3 space-y-1">
-                      <p className="text-xs text-muted">Регион</p>
-                      <p className="font-medium">{sp.region}</p>
-                    </div>
-                  )}
-                  <div className="bg-surface-raised rounded-xl p-3 space-y-1">
-                    <p className="text-xs text-muted">Сезонный</p>
-                    <p className="font-medium">{sp.is_seasonal ? 'Да' : 'Нет'}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setActiveStep(2)}
-                  className="btn-primary px-4 py-1.5 text-sm mt-2"
-                >
-                  Перейти к сбору масок →
-                </button>
-              </div>
+              <AutopilotOrManual
+                projectId={projectId}
+                sp={sp}
+                onManual={() => setActiveStep(2)}
+                onAutopilotDone={() => {
+                  qc.invalidateQueries({ queryKey: ['sem-projects', projectId] })
+                  qc.invalidateQueries({ queryKey: ['sem-keywords', projectId, sp.id] })
+                  qc.invalidateQueries({ queryKey: ['clusters', projectId, sp.id] })
+                  setActiveStep(4) // go to Cleaning for moderation
+                }}
+              />
             )}
 
             {activeStep === 2 && (
@@ -1566,6 +1861,9 @@ export default function MarketingTab({ projectId }: { projectId: string }) {
           onCreated={handleCreated}
         />
       )}
+
+      {/* ── Legend modal ────────────────────────────────────────────────────── */}
+      {showLegend && <Legend onClose={() => setShowLegend(false)} />}
     </div>
   )
 }
