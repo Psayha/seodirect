@@ -461,16 +461,79 @@ def list_keywords(
     return {"items": items, "total": total, "page": page, "per_page": per_page}
 
 
-# ─── Semantic Expansion ───────────────────────────────────────────────────────
+# ─── Autopilot ────────────────────────────────────────────────────────────────
 
-class ExpandRequest(BaseModel):
-    min_freq_exact: int = Field(0, ge=0, description="Минимальная точная частотность (0 = не фильтровать)")
-    use_brief: bool = Field(True, description="Использовать контекст бриф при генерации")
+class AutopilotRequest(BaseModel):
+    min_freq_exact: int = Field(0, ge=0, description="Минимальная точная частотность")
 
 
 class TaskResponse(BaseModel):
     task_id: str
     status: str
+
+
+@router.post(
+    "/projects/{project_id}/marketing/semantic/{sem_id}/autopilot",
+    response_model=TaskResponse,
+    status_code=202,
+)
+def start_autopilot(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    body: AutopilotRequest,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Launch full autopilot: brief -> masks -> expand -> clean -> cluster."""
+    _check_project_access(project_id, current_user, db)
+    _get_sem_project(sem_id, project_id, db)
+
+    # Check brief exists
+    from app.models.brief import Brief
+    brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
+    if not brief or not (brief.niche or brief.products):
+        raise HTTPException(status_code=422, detail="Заполните бриф (ниша или продукты) перед запуском автопилота.")
+
+    # Check no running autopilot/expand/cluster
+    running = db.scalar(
+        select(Task).where(
+            Task.project_id == project_id,
+            Task.type.in_([TaskType.SEMANTIC_AUTOPILOT, TaskType.SEMANTIC_EXPAND, TaskType.SEMANTIC_CLUSTER]),
+            Task.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING]),
+        )
+    )
+    if running:
+        raise HTTPException(status_code=409, detail="Задача уже запущена. Дождитесь завершения.")
+
+    now = datetime.now(timezone.utc)
+    task = Task(
+        project_id=project_id,
+        type=TaskType.SEMANTIC_AUTOPILOT,
+        status=TaskStatus.PENDING,
+        progress=0,
+        created_at=now,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    from app.tasks.marketing import task_semantic_autopilot
+    task_semantic_autopilot.delay(
+        task_id=str(task.id),
+        sem_project_id=str(sem_id),
+        project_id=str(project_id),
+        min_freq_exact=body.min_freq_exact,
+    )
+
+    return {"task_id": str(task.id), "status": "pending"}
+
+
+# ─── Semantic Expansion ───────────────────────────────────────────────────────
+
+class ExpandRequest(BaseModel):
+    min_freq_exact: int = Field(0, ge=0, description="Минимальная точная частотность (0 = не фильтровать)")
+    use_brief: bool = Field(True, description="Использовать контекст бриф при генерации")
 
 
 @router.post(

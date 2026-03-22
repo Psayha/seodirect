@@ -119,6 +119,14 @@ LLM_TASKS: dict[str, dict] = {
         "default_max_tokens": 4000,
         "description": "Автоматический анализ и улучшение полей брифа",
     },
+    "semantic_masks": {
+        "label": "Генерация масок из бриф",
+        "group": "marketing",
+        "default_model": "anthropic/claude-sonnet-4-20250514",
+        "default_temperature": 0.7,
+        "default_max_tokens": 4000,
+        "description": "Генерация базовых масок семантического ядра из данных бриф",
+    },
     "semantic_expand": {
         "label": "Расширение семантики",
         "group": "marketing",
