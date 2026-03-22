@@ -148,16 +148,16 @@ async def test_api_key(
                     return {"ok": False, "message": "API-ключ не задан"}
                 if not folder_id:
                     return {"ok": False, "message": "Folder ID не задан"}
-                # Проверяем через topRequests — гарантированно рабочий эндпоинт
+                # Проверяем через getWordStatReport — лёгкий запрос с одним словом
                 auth_header = (
                     f"Bearer {api_key}" if api_key.startswith("t1.") else f"Api-Key {api_key}"
                 )
                 r = await client.post(
-                    "https://searchapi.api.cloud.yandex.net/v2/wordstat/topRequests",
+                    "https://searchapi.api.cloud.yandex.net/v2/wordstat/getWordStatReport",
                     json={
                         "folderId": folder_id,
+                        "phrases": ["тест"],
                         "regionIds": [213],
-                        "limit": 1,
                     },
                     headers={"Authorization": auth_header},
                 )
