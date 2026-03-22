@@ -1483,6 +1483,14 @@ function AutopilotOrManual({
   const [taskError, setTaskError] = useState('')
   const [minFreq, setMinFreq] = useState(0)
 
+  // Restore running task on mount (survives page reload / tab switch)
+  useEffect(() => {
+    if (taskId || taskResult) return
+    tasksApi.active(projectId, 'semantic_autopilot').then((t) => {
+      if (t?.id) setTaskId(t.id)
+    }).catch(() => {})
+  }, [projectId])
+
   const autopilotMut = useMutation({
     mutationFn: () => marketingApi.autopilot(projectId, sp.id, { min_freq_exact: minFreq }),
     onSuccess: (d) => { setTaskId(d.task_id); setTaskError('') },
@@ -1551,7 +1559,7 @@ function AutopilotOrManual({
           <div className="w-full bg-[var(--border)] rounded-full h-2.5 overflow-hidden">
             <div className="bg-accent h-2.5 rounded-full transition-all duration-700" style={{ width: `${progress}%` }} />
           </div>
-          <p className="text-xs text-muted">{progress}% — не закрывайте страницу</p>
+          <p className="text-xs text-muted">{progress}% — задача выполняется на сервере, можно переключаться</p>
         </div>
       </div>
     )
