@@ -1414,3 +1414,386 @@ def export_semantic_core(
         headers={"Content-Disposition": f'attachment; filename="{safe_name}.txt"'},
     )
 
+
+# ─── Niche Semantic Templates ────────────────────────────────────────────────
+
+class NicheTemplateListItem(BaseModel):
+    id: str
+    name: str
+    masks_count: int
+    categories_count: int
+
+
+class NicheTemplateResponse(BaseModel):
+    id: str
+    example_masks: list[str]
+    mask_categories: list[str]
+    example_keywords: list[str]
+    negative_keywords_base: list[str]
+    modifiers_commercial: list[str]
+    modifiers_seo: list[str]
+
+
+class NicheTemplateUpdate(BaseModel):
+    example_masks: list[str] | None = None
+    mask_categories: list[str] | None = None
+    example_keywords: list[str] | None = None
+    negative_keywords_base: list[str] | None = None
+    modifiers_commercial: list[str] | None = None
+    modifiers_seo: list[str] | None = None
+
+
+_NICHE_NAMES: dict[str, str] = {
+    "ecommerce": "Интернет-магазин",
+    "services_local": "Локальные услуги",
+    "b2b_saas": "B2B / SaaS",
+    "real_estate": "Недвижимость",
+    "education": "Образование / Курсы",
+    "medicine": "Медицина / Клиники",
+    "auto": "Авто / Автосервис",
+    "beauty": "Красота / Салоны",
+    "construction": "Строительство домов",
+}
+
+
+def _load_niche_templates() -> dict:
+    """Load templates from static data, merge with DB overrides."""
+    from app.data.niche_semantic_templates import NICHE_SEMANTIC_TEMPLATES
+    return NICHE_SEMANTIC_TEMPLATES
+
+
+@router.get("/marketing/niche-templates", response_model=list[NicheTemplateListItem])
+def list_niche_templates(current_user: CurrentUser):
+    """List available niche semantic templates."""
+    templates = _load_niche_templates()
+    result = []
+    for niche_id, tmpl in templates.items():
+        result.append(NicheTemplateListItem(
+            id=niche_id,
+            name=_NICHE_NAMES.get(niche_id, niche_id),
+            masks_count=len(tmpl.get("example_masks", [])),
+            categories_count=len(tmpl.get("mask_categories", [])),
+        ))
+    return result
+
+
+@router.get("/marketing/niche-templates/{niche_id}", response_model=NicheTemplateResponse)
+def get_niche_template(niche_id: str, current_user: CurrentUser):
+    """Get full niche template data."""
+    templates = _load_niche_templates()
+    tmpl = templates.get(niche_id)
+    if not tmpl:
+        raise HTTPException(status_code=404, detail="Шаблон ниши не найден")
+    return NicheTemplateResponse(
+        id=niche_id,
+        example_masks=tmpl.get("example_masks", []),
+        mask_categories=tmpl.get("mask_categories", []),
+        example_keywords=tmpl.get("example_keywords", []),
+        negative_keywords_base=tmpl.get("negative_keywords_base", []),
+        modifiers_commercial=tmpl.get("modifiers_commercial", []),
+        modifiers_seo=tmpl.get("modifiers_seo", []),
+    )
+
+
+@router.put(
+    "/projects/{project_id}/marketing/semantic/{sem_id}/niche-template",
+    response_model=NicheTemplateResponse,
+)
+def save_niche_template_override(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    body: NicheTemplateUpdate,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Save per-project niche template overrides. Stored in SemanticProject.config JSON."""
+    _check_project_access(project_id, current_user, db)
+    sp = _get_sem_project(sem_id, project_id, db)
+
+    config = sp.config or {}
+    override = {}
+    for field in ("example_masks", "mask_categories", "example_keywords",
+                  "negative_keywords_base", "modifiers_commercial", "modifiers_seo"):
+        val = getattr(body, field, None)
+        if val is not None:
+            override[field] = val
+    config["niche_template_override"] = override
+    sp.config = config
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(sp, "config")
+    db.commit()
+
+    return NicheTemplateResponse(
+        id="custom",
+        example_masks=override.get("example_masks", []),
+        mask_categories=override.get("mask_categories", []),
+        example_keywords=override.get("example_keywords", []),
+        negative_keywords_base=override.get("negative_keywords_base", []),
+        modifiers_commercial=override.get("modifiers_commercial", []),
+        modifiers_seo=override.get("modifiers_seo", []),
+    )
+
+
+@router.get(
+    "/projects/{project_id}/marketing/semantic/{sem_id}/niche-template",
+    response_model=NicheTemplateResponse,
+)
+def get_project_niche_template(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Get effective niche template for this project (auto-detected + overrides)."""
+    _check_project_access(project_id, current_user, db)
+    sp = _get_sem_project(sem_id, project_id, db)
+
+    from app.data.niche_semantic_templates import NICHE_SEMANTIC_TEMPLATES, detect_niche
+    from app.models.brief import Brief
+
+    # Auto-detect niche
+    brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
+    niche_id = detect_niche(brief) if brief else None
+    base = dict(NICHE_SEMANTIC_TEMPLATES.get(niche_id, {})) if niche_id else {}
+
+    # Apply overrides from sp.config
+    config = sp.config or {}
+    override = config.get("niche_template_override", {})
+    for field in ("example_masks", "mask_categories", "example_keywords",
+                  "negative_keywords_base", "modifiers_commercial", "modifiers_seo"):
+        if field in override:
+            base[field] = override[field]
+
+    return NicheTemplateResponse(
+        id=niche_id or "custom",
+        example_masks=base.get("example_masks", []),
+        mask_categories=base.get("mask_categories", []),
+        example_keywords=base.get("example_keywords", []),
+        negative_keywords_base=base.get("negative_keywords_base", []),
+        modifiers_commercial=base.get("modifiers_commercial", []),
+        modifiers_seo=base.get("modifiers_seo", []),
+    )
+
+
+# ─── Competitors ──────────────────────────────────────────────────────────────
+
+class CompetitorUrl(BaseModel):
+    url: str = Field(..., min_length=1, max_length=2000)
+
+
+class CompetitorListResponse(BaseModel):
+    urls: list[str]
+
+
+class CompetitorCrawlResult(BaseModel):
+    url: str
+    title: str
+    h1: str
+    description: str
+    nav_items: list[str]
+    anchors: list[str]
+    frequent_terms: list[str]
+    pages: list[dict]
+
+
+@router.get(
+    "/projects/{project_id}/marketing/semantic/{sem_id}/competitors",
+    response_model=CompetitorListResponse,
+)
+def list_competitors(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Get competitor URLs from brief."""
+    _check_project_access(project_id, current_user, db)
+    _get_sem_project(sem_id, project_id, db)
+
+    from app.models.brief import Brief
+    brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
+    urls = brief.competitors_urls if brief and brief.competitors_urls else []
+    return CompetitorListResponse(urls=urls)
+
+
+@router.post(
+    "/projects/{project_id}/marketing/semantic/{sem_id}/competitors",
+    response_model=CompetitorListResponse,
+    status_code=201,
+)
+def add_competitor(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    body: CompetitorUrl,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Add a competitor URL to brief.competitors_urls."""
+    _check_project_access(project_id, current_user, db)
+    _get_sem_project(sem_id, project_id, db)
+
+    from app.models.brief import Brief
+    brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
+    if not brief:
+        raise HTTPException(status_code=422, detail="Бриф не заполнен")
+
+    urls = list(brief.competitors_urls or [])
+    normalized = body.url.strip().rstrip("/")
+    if normalized not in [u.rstrip("/") for u in urls]:
+        urls.append(body.url.strip())
+        brief.competitors_urls = urls
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(brief, "competitors_urls")
+        db.commit()
+    return CompetitorListResponse(urls=brief.competitors_urls or [])
+
+
+@router.delete(
+    "/projects/{project_id}/marketing/semantic/{sem_id}/competitors",
+    response_model=CompetitorListResponse,
+)
+def remove_competitor(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    body: CompetitorUrl,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Remove a competitor URL from brief.competitors_urls."""
+    _check_project_access(project_id, current_user, db)
+    _get_sem_project(sem_id, project_id, db)
+
+    from app.models.brief import Brief
+    brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
+    if not brief:
+        raise HTTPException(status_code=422, detail="Бриф не заполнен")
+
+    urls = list(brief.competitors_urls or [])
+    normalized = body.url.strip().rstrip("/")
+    urls = [u for u in urls if u.rstrip("/") != normalized]
+    brief.competitors_urls = urls
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(brief, "competitors_urls")
+    db.commit()
+    return CompetitorListResponse(urls=urls)
+
+
+@router.post(
+    "/projects/{project_id}/marketing/semantic/{sem_id}/competitors/crawl",
+    response_model=list[CompetitorCrawlResult],
+)
+def crawl_competitors(
+    project_id: uuid.UUID,
+    sem_id: uuid.UUID,
+    current_user: CurrentUser,
+    _: Annotated[object, NonViewerRequired],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Crawl all competitor URLs and return structured extraction results."""
+    _check_project_access(project_id, current_user, db)
+    sp = _get_sem_project(sem_id, project_id, db)
+
+    from app.models.brief import Brief
+    brief = db.scalar(select(Brief).where(Brief.project_id == project_id))
+    if not brief or not brief.competitors_urls:
+        raise HTTPException(status_code=422, detail="Нет конкурентов для обхода")
+
+    import asyncio
+    import httpx
+    from bs4 import BeautifulSoup
+
+    from app.tasks.marketing import _extract_frequent_terms
+
+    results: list[dict] = []
+
+    async def _crawl_one(client: httpx.AsyncClient, url: str) -> dict | None:
+        try:
+            r = await client.get(url)
+            if r.status_code != 200:
+                return None
+            soup = BeautifulSoup(r.text, "html.parser")
+            title = (soup.title.string or "").strip() if soup.title else ""
+            h1 = soup.find("h1")
+            h1_text = h1.get_text(strip=True) if h1 else ""
+            desc_tag = soup.find("meta", attrs={"name": "description"})
+            desc = desc_tag["content"][:300] if desc_tag and desc_tag.get("content") else ""
+
+            nav_items: list[str] = []
+            for nav in soup.find_all("nav"):
+                nav_items = [a.get_text(strip=True) for a in nav.find_all("a") if a.get_text(strip=True)][:30]
+                if nav_items:
+                    break
+
+            base = f"{r.url.scheme}://{r.url.host}"
+            anchors: list[str] = []
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if href.startswith("/") and not href.startswith("//"):
+                    href = base + href
+                if href.startswith(base):
+                    text = a.get_text(strip=True)
+                    if text and 2 < len(text) < 100:
+                        anchors.append(text)
+            anchors = list(dict.fromkeys(anchors))[:50]
+
+            terms = _extract_frequent_terms(BeautifulSoup(r.text, "html.parser"))
+
+            # Crawl internal pages (limited)
+            internal_urls: set[str] = set()
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if href.startswith("/") and not href.startswith("//"):
+                    href = base + href
+                if href.startswith(base) and href != str(r.url) and len(internal_urls) < 10:
+                    internal_urls.add(href)
+
+            pages: list[dict] = []
+            for iurl in list(internal_urls)[:10]:
+                try:
+                    ir = await client.get(iurl)
+                    if ir.status_code != 200:
+                        continue
+                    isoup = BeautifulSoup(ir.text, "html.parser")
+                    it = (isoup.title.string or "").strip() if isoup.title else ""
+                    ih1 = isoup.find("h1")
+                    ih1_text = ih1.get_text(strip=True) if ih1 else ""
+                    if it or ih1_text:
+                        pages.append({"url": iurl, "title": it, "h1": ih1_text})
+                except Exception:
+                    continue
+
+            return {
+                "url": url, "title": title, "h1": h1_text, "description": desc,
+                "nav_items": nav_items, "anchors": anchors,
+                "frequent_terms": terms, "pages": pages,
+            }
+        except Exception:
+            return None
+
+    async def _run():
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers={"User-Agent": "SEODirectBot/1.0"}) as client:
+            tasks = [_crawl_one(client, url) for url in brief.competitors_urls[:5]]
+            return await asyncio.gather(*tasks)
+
+    loop = asyncio.new_event_loop()
+    try:
+        raw = loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+    results = [r for r in raw if r]
+
+    # Save crawl results in sp.config for later use
+    config = sp.config or {}
+    config["competitor_crawl"] = results
+    config["competitor_crawl_at"] = datetime.now(timezone.utc).isoformat()
+    sp.config = config
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(sp, "config")
+    db.commit()
+
+    return results
+

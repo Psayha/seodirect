@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { marketingApi, SemanticMode, SemanticProject, SemanticKeyword } from '../../api/marketing'
+import { marketingApi, SemanticMode, SemanticProject, SemanticKeyword, NicheTemplate, NicheTemplateListItem, CompetitorCrawlResult } from '../../api/marketing'
 import { tasksApi, TaskResult } from '../../api/tasks'
 
 function cx(...args: (string | false | null | undefined)[]) {
@@ -1453,6 +1453,416 @@ function LockedStep({ label, requiredStep }: { label: string; requiredStep: numb
   )
 }
 
+// ─── Niche Template Editor ───────────────────────────────────────────────────
+
+function NicheTemplateEditor({
+  projectId,
+  sp,
+}: {
+  projectId: string
+  sp: SemanticProject
+}) {
+  const qc = useQueryClient()
+  const [expanded, setExpanded] = useState(false)
+  const [editField, setEditField] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const [selectedNiche, setSelectedNiche] = useState<string | null>(null)
+
+  const { data: nicheList } = useQuery({
+    queryKey: ['niche-templates'],
+    queryFn: () => marketingApi.listNicheTemplates(),
+  })
+
+  const { data: projectTmpl, refetch: refetchTmpl } = useQuery({
+    queryKey: ['project-niche-template', projectId, sp.id],
+    queryFn: () => marketingApi.getProjectNicheTemplate(projectId, sp.id),
+  })
+
+  const { data: previewTmpl } = useQuery({
+    queryKey: ['niche-template', selectedNiche],
+    queryFn: () => marketingApi.getNicheTemplate(selectedNiche!),
+    enabled: !!selectedNiche,
+  })
+
+  const saveMut = useMutation({
+    mutationFn: (data: Partial<Omit<NicheTemplate, 'id'>>) =>
+      marketingApi.saveNicheTemplateOverride(projectId, sp.id, data),
+    onSuccess: () => {
+      refetchTmpl()
+      setEditField(null)
+    },
+  })
+
+  const applyNicheMut = useMutation({
+    mutationFn: (nicheId: string) =>
+      marketingApi.getNicheTemplate(nicheId).then((tmpl) =>
+        marketingApi.saveNicheTemplateOverride(projectId, sp.id, {
+          example_masks: tmpl.example_masks,
+          mask_categories: tmpl.mask_categories,
+          example_keywords: tmpl.example_keywords,
+          negative_keywords_base: tmpl.negative_keywords_base,
+          modifiers_commercial: tmpl.modifiers_commercial,
+          modifiers_seo: tmpl.modifiers_seo,
+        })
+      ),
+    onSuccess: () => {
+      refetchTmpl()
+      setSelectedNiche(null)
+    },
+  })
+
+  const tmpl = projectTmpl
+
+  const FIELD_LABELS: Record<string, string> = {
+    example_masks: 'Маски (примеры)',
+    mask_categories: 'Категории масок',
+    example_keywords: 'Примеры ключей',
+    negative_keywords_base: 'Минус-слова (базовые)',
+    modifiers_commercial: 'Модификаторы (коммерция)',
+    modifiers_seo: 'Модификаторы (SEO)',
+  }
+
+  const startEdit = (field: string) => {
+    if (!tmpl) return
+    const val = (tmpl as any)[field] as string[]
+    setEditField(field)
+    setEditValue(val.join('\n'))
+  }
+
+  const saveEdit = () => {
+    if (!editField) return
+    const lines = editValue
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+    saveMut.mutate({ [editField]: lines })
+  }
+
+  return (
+    <div className="border border-[var(--border)] rounded-xl">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-primary hover:bg-surface-raised rounded-xl transition-colors"
+      >
+        <span>
+          Шаблон ниши{' '}
+          {tmpl && tmpl.id !== 'custom' && (
+            <span className="text-xs text-muted font-normal ml-1">
+              (авто: {nicheList?.find((n) => n.id === tmpl.id)?.name || tmpl.id})
+            </span>
+          )}
+        </span>
+        <span className="text-muted">{expanded ? '\u25B2' : '\u25BC'}</span>
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 space-y-4">
+          {/* Niche selector */}
+          <div className="flex flex-wrap gap-2">
+            {nicheList?.map((n) => (
+              <button
+                key={n.id}
+                onClick={() => {
+                  setSelectedNiche(n.id)
+                }}
+                className={cx(
+                  'text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                  tmpl?.id === n.id
+                    ? 'border-accent bg-[var(--accent-subtle)] text-accent'
+                    : 'border-[var(--border)] hover:bg-surface-raised text-muted'
+                )}
+              >
+                {n.name}
+                <span className="ml-1 opacity-60">({n.masks_count})</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Apply confirmation */}
+          {selectedNiche && selectedNiche !== tmpl?.id && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-muted">Применить шаблон «{nicheList?.find((n) => n.id === selectedNiche)?.name}»?</span>
+              <button
+                onClick={() => applyNicheMut.mutate(selectedNiche)}
+                disabled={applyNicheMut.isPending}
+                className="btn-primary px-3 py-1 text-xs"
+              >
+                {applyNicheMut.isPending ? '...' : 'Применить'}
+              </button>
+              <button onClick={() => setSelectedNiche(null)} className="text-muted hover:text-primary text-xs">
+                Отмена
+              </button>
+            </div>
+          )}
+
+          {/* Preview template selected from list */}
+          {selectedNiche && previewTmpl && selectedNiche !== tmpl?.id && (
+            <div className="bg-surface-raised rounded-lg p-3 text-xs space-y-2 max-h-48 overflow-y-auto">
+              <p className="font-medium text-primary">Предпросмотр шаблона</p>
+              <p><span className="text-muted">Маски:</span> {previewTmpl.example_masks.slice(0, 10).join(', ')}...</p>
+              <p><span className="text-muted">Категории:</span> {previewTmpl.mask_categories.join('; ')}</p>
+              <p><span className="text-muted">Модификаторы:</span> {previewTmpl.modifiers_commercial.join(', ')}</p>
+            </div>
+          )}
+
+          {/* Edit fields */}
+          {tmpl && (
+            <div className="space-y-3">
+              {Object.entries(FIELD_LABELS).map(([field, label]) => {
+                const items = (tmpl as any)[field] as string[]
+                const isEditing = editField === field
+                return (
+                  <div key={field} className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-muted">{label} ({items.length})</span>
+                      {!isEditing ? (
+                        <button onClick={() => startEdit(field)} className="text-[11px] text-accent hover:underline">
+                          Редактировать
+                        </button>
+                      ) : (
+                        <div className="flex gap-1">
+                          <button
+                            onClick={saveEdit}
+                            disabled={saveMut.isPending}
+                            className="text-[11px] text-accent hover:underline"
+                          >
+                            {saveMut.isPending ? '...' : 'Сохранить'}
+                          </button>
+                          <button onClick={() => setEditField(null)} className="text-[11px] text-muted hover:underline">
+                            Отмена
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {isEditing ? (
+                      <textarea
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        className="field w-full text-xs min-h-[80px] font-mono"
+                        placeholder="По одному значению на строку..."
+                      />
+                    ) : (
+                      <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                        {items.length > 0 ? (
+                          items.map((item, i) => (
+                            <span key={i} className="text-[11px] bg-surface-raised px-2 py-0.5 rounded text-muted">
+                              {item}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[11px] text-muted italic">Не задано</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Competitor Manager ──────────────────────────────────────────────────────
+
+function CompetitorManager({
+  projectId,
+  sp,
+}: {
+  projectId: string
+  sp: SemanticProject
+}) {
+  const qc = useQueryClient()
+  const [expanded, setExpanded] = useState(false)
+  const [newUrl, setNewUrl] = useState('')
+  const [crawlResults, setCrawlResults] = useState<CompetitorCrawlResult[] | null>(null)
+  const [expandedResult, setExpandedResult] = useState<string | null>(null)
+
+  const { data: competitorsData, refetch } = useQuery({
+    queryKey: ['competitors', projectId, sp.id],
+    queryFn: () => marketingApi.getCompetitors(projectId, sp.id),
+  })
+
+  const addMut = useMutation({
+    mutationFn: (url: string) => marketingApi.addCompetitor(projectId, sp.id, url),
+    onSuccess: () => {
+      refetch()
+      setNewUrl('')
+    },
+  })
+
+  const removeMut = useMutation({
+    mutationFn: (url: string) => marketingApi.removeCompetitor(projectId, sp.id, url),
+    onSuccess: () => refetch(),
+  })
+
+  const crawlMut = useMutation({
+    mutationFn: () => marketingApi.crawlCompetitors(projectId, sp.id),
+    onSuccess: (data) => setCrawlResults(data),
+  })
+
+  const urls = competitorsData?.urls || []
+
+  const handleAdd = () => {
+    const trimmed = newUrl.trim()
+    if (!trimmed) return
+    if (!trimmed.startsWith('http')) {
+      addMut.mutate('https://' + trimmed)
+    } else {
+      addMut.mutate(trimmed)
+    }
+  }
+
+  return (
+    <div className="border border-[var(--border)] rounded-xl">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-primary hover:bg-surface-raised rounded-xl transition-colors"
+      >
+        <span>
+          Конкуренты{' '}
+          <span className="text-xs text-muted font-normal ml-1">({urls.length})</span>
+        </span>
+        <span className="text-muted">{expanded ? '\u25B2' : '\u25BC'}</span>
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3">
+          {/* List of competitors */}
+          {urls.length > 0 && (
+            <div className="space-y-1">
+              {urls.map((url) => (
+                <div key={url} className="flex items-center gap-2 group">
+                  <span className="text-xs text-muted truncate flex-1" title={url}>
+                    {url}
+                  </span>
+                  <button
+                    onClick={() => removeMut.mutate(url)}
+                    disabled={removeMut.isPending}
+                    className="text-xs text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add new */}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newUrl}
+              onChange={(e) => setNewUrl(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              placeholder="https://competitor.ru"
+              className="field flex-1 text-xs"
+            />
+            <button
+              onClick={handleAdd}
+              disabled={addMut.isPending || !newUrl.trim()}
+              className="btn-ghost px-3 py-1 text-xs border border-[var(--border)] rounded-lg"
+            >
+              +
+            </button>
+          </div>
+
+          {/* Crawl button */}
+          {urls.length > 0 && (
+            <button
+              onClick={() => crawlMut.mutate()}
+              disabled={crawlMut.isPending}
+              className="btn-primary px-4 py-1.5 text-xs w-full"
+            >
+              {crawlMut.isPending ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  Парсинг конкурентов...
+                </span>
+              ) : (
+                'Обойти конкурентов (парсинг)'
+              )}
+            </button>
+          )}
+
+          {/* Crawl results */}
+          {crawlResults && crawlResults.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-primary">Результаты парсинга</p>
+              {crawlResults.map((cr) => (
+                <div key={cr.url} className="border border-[var(--border)] rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setExpandedResult(expandedResult === cr.url ? null : cr.url)}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised transition-colors"
+                  >
+                    <span className="text-xs font-medium text-primary truncate flex-1">{cr.title || cr.url}</span>
+                    <span className="text-[10px] text-muted">{expandedResult === cr.url ? '\u25B2' : '\u25BC'}</span>
+                  </button>
+
+                  {expandedResult === cr.url && (
+                    <div className="px-3 pb-3 space-y-2 text-xs">
+                      {cr.h1 && (
+                        <p><span className="text-muted">H1:</span> {cr.h1}</p>
+                      )}
+                      {cr.description && (
+                        <p><span className="text-muted">Description:</span> {cr.description}</p>
+                      )}
+                      {cr.nav_items.length > 0 && (
+                        <div>
+                          <span className="text-muted">Навигация:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {cr.nav_items.map((item, i) => (
+                              <span key={i} className="bg-surface-raised px-2 py-0.5 rounded text-[11px]">{item}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {cr.anchors.length > 0 && (
+                        <div>
+                          <span className="text-muted">Анкоры ссылок ({cr.anchors.length}):</span>
+                          <div className="flex flex-wrap gap-1 mt-1 max-h-20 overflow-y-auto">
+                            {cr.anchors.map((a, i) => (
+                              <span key={i} className="bg-surface-raised px-2 py-0.5 rounded text-[11px]">{a}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {cr.frequent_terms.length > 0 && (
+                        <div>
+                          <span className="text-muted">Частые термины:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {cr.frequent_terms.map((t, i) => (
+                              <span key={i} className="bg-blue-50 dark:bg-blue-950/20 px-2 py-0.5 rounded text-[11px] text-blue-700 dark:text-blue-300">{t}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {cr.pages.length > 0 && (
+                        <div>
+                          <span className="text-muted">Внутренние страницы ({cr.pages.length}):</span>
+                          <div className="mt-1 space-y-0.5 max-h-32 overflow-y-auto">
+                            {cr.pages.map((p, i) => (
+                              <p key={i} className="text-[11px] text-muted truncate">
+                                {p.title || p.h1 || p.url}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Autopilot or Manual Choice ──────────────────────────────────────────────
 
 const AUTOPILOT_STAGES: Record<string, string> = {
@@ -1592,6 +2002,12 @@ function AutopilotOrManual({
   return (
     <div className="space-y-5">
       <h3 className="font-semibold text-base">Шаг 1 — Как собрать семантику?</h3>
+
+      {/* Niche template + Competitors — collapsible panels */}
+      <div className="space-y-2">
+        <NicheTemplateEditor projectId={projectId} sp={sp} />
+        <CompetitorManager projectId={projectId} sp={sp} />
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Autopilot card */}

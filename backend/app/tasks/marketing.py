@@ -1068,12 +1068,24 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
         if not brief or not (brief.niche or brief.products):
             raise RuntimeError("Бриф не заполнен. Укажите хотя бы нишу или продукты перед запуском автопилота.")
 
-        # ── Load niche template ───────────────────────────────────────────
+        # ── Load niche template (auto-detect + per-project overrides) ────
         from app.data.niche_semantic_templates import NICHE_SEMANTIC_TEMPLATES, detect_niche
         niche_id = detect_niche(brief)
-        niche_tmpl = NICHE_SEMANTIC_TEMPLATES.get(niche_id) if niche_id else None
+        niche_tmpl = dict(NICHE_SEMANTIC_TEMPLATES.get(niche_id, {})) if niche_id else None
+        # Apply per-project overrides from sp.config
+        sp_config = sp.config or {}
+        override = sp_config.get("niche_template_override", {})
+        if override:
+            if niche_tmpl is None:
+                niche_tmpl = {}
+            for field in ("example_masks", "mask_categories", "example_keywords",
+                          "negative_keywords_base", "modifiers_commercial", "modifiers_seo"):
+                if field in override and override[field]:
+                    niche_tmpl[field] = override[field]
+        if niche_tmpl and not any(niche_tmpl.values()):
+            niche_tmpl = None
         if niche_id:
-            logger.info("Autopilot: detected niche '%s', template loaded", niche_id)
+            logger.info("Autopilot: detected niche '%s', template loaded (override=%s)", niche_id, bool(override))
 
         # ── Phase 0: Gather context — competitors + site (0-5%) ───────────
         competitor_ctx = ""
