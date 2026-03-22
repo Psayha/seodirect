@@ -190,11 +190,12 @@ def get_html_report(
     project = _check_project_access(project_id, current_user, db)
     html = _build_report_data(project, project_id, db)
 
-    safe_name = project.name.replace(" ", "_")[:50]
+    from app.routers.export import _content_disposition, _safe_filename
+    safe_name = _safe_filename(project.name)
     return Response(
         content=html.encode("utf-8"),
         media_type="text/html; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="report_{safe_name}.html"'},
+        headers={"Content-Disposition": _content_disposition(f"report_{safe_name}.html")},
     )
 
 

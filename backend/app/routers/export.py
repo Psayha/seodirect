@@ -41,6 +41,14 @@ def _safe_filename(name: str) -> str:
     return safe[:50] or "project"
 
 
+def _content_disposition(filename: str) -> str:
+    """Build Content-Disposition header safe for non-ASCII filenames (RFC 6266)."""
+    from urllib.parse import quote
+    ascii_name = filename.encode("ascii", "ignore").decode("ascii") or "file"
+    utf8_name = quote(filename)
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{utf8_name}'
+
+
 @router.get("/projects/{project_id}/export/mediaplan-xlsx")
 def download_mediaplan_xlsx(
     project_id: uuid.UUID,
@@ -60,7 +68,7 @@ def download_mediaplan_xlsx(
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _content_disposition(filename)},
     )
 
 
@@ -99,7 +107,7 @@ def download_direct_xls(
     return Response(
         content=data,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _content_disposition(filename)},
     )
 
 
@@ -123,7 +131,7 @@ def download_strategy_md(
     return Response(
         content=md_text.encode("utf-8"),
         media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _content_disposition(filename)},
     )
 
 @router.get("/projects/{project_id}/export/copywriter-brief")
@@ -145,7 +153,7 @@ def download_copywriter_brief(
     return Response(
         content=docx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _content_disposition(filename)},
     )
 
 
@@ -168,5 +176,5 @@ def download_strategy_html(
     return Response(
         content=html.encode("utf-8"),
         media_type="text/html; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _content_disposition(filename)},
     )

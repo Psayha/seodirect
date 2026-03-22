@@ -1459,7 +1459,7 @@ class NicheTemplateUpdate(BaseModel):
     modifiers_seo: list[str] | None = None
 
 
-_NICHE_NAMES: dict[str, str] = {
+_NICHE_NAMES_FALLBACK: dict[str, str] = {
     "ecommerce": "Интернет-магазин",
     "services_local": "Локальные услуги",
     "b2b_saas": "B2B / SaaS",
@@ -1478,15 +1478,31 @@ def _load_niche_templates() -> dict:
     return NICHE_SEMANTIC_TEMPLATES
 
 
+def _get_niche_names(db) -> dict[str, str]:
+    """Get niche display names from unified brief templates (DB or defaults)."""
+    from app.routers.brief_templates import _get_templates
+    templates = _get_templates(db)
+    names = {t["id"]: t["name"] for t in templates}
+    # Merge with fallback for niches that exist in semantic but not in brief templates
+    for niche_id, name in _NICHE_NAMES_FALLBACK.items():
+        if niche_id not in names:
+            names[niche_id] = name
+    return names
+
+
 @router.get("/marketing/niche-templates", response_model=list[NicheTemplateListItem])
-def list_niche_templates(current_user: CurrentUser):
+def list_niche_templates(
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
     """List available niche semantic templates."""
     templates = _load_niche_templates()
+    niche_names = _get_niche_names(db)
     result = []
     for niche_id, tmpl in templates.items():
         result.append(NicheTemplateListItem(
             id=niche_id,
-            name=_NICHE_NAMES.get(niche_id, niche_id),
+            name=niche_names.get(niche_id, niche_id),
             masks_count=len(tmpl.get("example_masks", [])),
             categories_count=len(tmpl.get("mask_categories", [])),
         ))
