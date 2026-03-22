@@ -57,6 +57,13 @@ class WordstatClient:
             json=body,
             headers=self._auth_headers(),
         )
+        # Track API call
+        try:
+            from app.services.usage import track_call
+            track_call("wordstat")
+        except Exception:
+            pass
+
         if resp.status_code == 429:
             raise WordstatError(429, "Quota limit exceeded", resp.text)
         if resp.status_code == 503:

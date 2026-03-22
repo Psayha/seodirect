@@ -215,6 +215,26 @@ class LLMClient:
                 "LLM response truncated (finish_reason=length, model=%s, max_tokens=%d, content_len=%d)",
                 self.model, self.max_tokens, len(content),
             )
+
+        # Track usage from OpenRouter response
+        usage = data.get("usage", {})
+        if usage:
+            try:
+                from app.services.usage import track_llm_call
+                tokens_in = usage.get("prompt_tokens", 0)
+                tokens_out = usage.get("completion_tokens", 0)
+                # OpenRouter may include cost in generation stats
+                cost_cents = 0.0
+                track_llm_call(
+                    "openrouter",
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    cost_cents=cost_cents,
+                    model=self.model,
+                )
+            except Exception:
+                pass
+
         return content
 
     async def generate(self, system_prompt: str, user_message: str) -> str:

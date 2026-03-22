@@ -46,7 +46,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    command: gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 2 --bind 0.0.0.0:8000 --graceful-timeout 30 --timeout 120
     healthcheck:
       test: ["CMD", "curl", "-f", "--max-time", "5", "http://localhost:8000/api/health"]
       interval: 30s
@@ -66,8 +66,22 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.celery_app worker -l warning -c 4 --max-memory-per-child=300000
-    mem_limit: 1536m
+    command: celery -A app.celery_app worker -l warning -Q default -c 3 --max-memory-per-child=300000 -n default@%h
+    mem_limit: 1024m
+
+  celery-heavy:
+    image: ghcr.io/psayha/seodirect/backend:latest
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker -l warning -Q heavy -c 2 --max-memory-per-child=400000 -n heavy@%h
+    mem_limit: 1024m
 
   frontend:
     image: ghcr.io/psayha/seodirect/frontend:latest

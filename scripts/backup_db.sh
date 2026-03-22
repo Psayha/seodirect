@@ -41,9 +41,31 @@ fi
 FILESIZE=$(stat -c%s "$BACKUP_FILE" 2>/dev/null || stat -f%z "$BACKUP_FILE" 2>/dev/null || echo "unknown")
 echo "[$(date)] Backup complete: $BACKUP_FILE ($FILESIZE bytes)"
 
+# ── Redis backup ────────────────────────────────────────────────────────────
+REDIS_BACKUP_FILE="$BACKUP_DIR/redis_${TIMESTAMP}.rdb"
+REDIS_PASSWORD="${REDIS_PASSWORD:-}"
+
+echo "[$(date)] Starting Redis backup..."
+if [ -n "$REDIS_PASSWORD" ]; then
+  docker compose -f "$COMPOSE_FILE" exec -T redis redis-cli -a "$REDIS_PASSWORD" --no-auth-warning BGSAVE >/dev/null 2>&1
+  sleep 2
+  docker compose -f "$COMPOSE_FILE" cp redis:/data/dump.rdb "$REDIS_BACKUP_FILE" 2>/dev/null
+else
+  docker compose -f "$COMPOSE_FILE" exec -T redis redis-cli BGSAVE >/dev/null 2>&1
+  sleep 2
+  docker compose -f "$COMPOSE_FILE" cp redis:/data/dump.rdb "$REDIS_BACKUP_FILE" 2>/dev/null
+fi
+
+if [ -f "$REDIS_BACKUP_FILE" ]; then
+  REDIS_SIZE=$(stat -c%s "$REDIS_BACKUP_FILE" 2>/dev/null || stat -f%z "$REDIS_BACKUP_FILE" 2>/dev/null || echo "unknown")
+  echo "[$(date)] Redis backup complete: $REDIS_BACKUP_FILE ($REDIS_SIZE bytes)"
+else
+  echo "[$(date)] Warning: Redis backup failed (non-critical)"
+fi
+
 # Cleanup old backups
 if [ "$KEEP_DAYS" -gt 0 ]; then
-  DELETED=$(find "$BACKUP_DIR" \( -name "seodirect_*.sql.gz" -o -name "seodirect_*.sql.gz.enc" \) -mtime +"$KEEP_DAYS" -delete -print | wc -l)
+  DELETED=$(find "$BACKUP_DIR" \( -name "seodirect_*.sql.gz" -o -name "seodirect_*.sql.gz.enc" -o -name "redis_*.rdb" \) -mtime +"$KEEP_DAYS" -delete -print | wc -l)
   if [ "$DELETED" -gt 0 ]; then
     echo "[$(date)] Removed $DELETED backup(s) older than $KEEP_DAYS days"
   fi

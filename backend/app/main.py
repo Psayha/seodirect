@@ -20,13 +20,29 @@ from app.observability import install_observability
 logger = logging.getLogger("seodirect")
 
 
+def _setup_logging(settings) -> None:
+    """Configure structured JSON logging in production, plain text in dev."""
+    log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    if settings.app_env == "production":
+        from pythonjsonlogger.json import JsonFormatter
+        handler = logging.StreamHandler()
+        handler.setFormatter(JsonFormatter(
+            fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+            rename_fields={"asctime": "timestamp", "levelname": "level"},
+        ))
+        logging.root.handlers = [handler]
+        logging.root.setLevel(log_level)
+    else:
+        logging.basicConfig(
+            level=log_level,
+            format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    _setup_logging(settings)
     logger.info("SEODirect starting up")
 
     # Seed default system prompts if not present
@@ -88,6 +104,7 @@ def create_app() -> FastAPI:
     from app.routers.geo import router as geo_router
     from app.routers.history import router as history_router
     from app.routers.images import router as images_router
+    from app.routers.limits import router as limits_router
     from app.routers.marketing import router as marketing_router
     from app.routers.mediaplan import router as mediaplan_router
     from app.routers.og import router as og_router
@@ -129,6 +146,7 @@ def create_app() -> FastAPI:
     app.include_router(direct_analysis_router, prefix="/api", tags=["direct"])
     app.include_router(marketing_router, prefix="/api", tags=["marketing"])
     app.include_router(images_router, prefix="/api", tags=["images"])
+    app.include_router(limits_router, prefix="/api/settings", tags=["limits"])
     app.include_router(server_router, prefix="/api", tags=["server"])
 
     # Serve uploaded images as static files at /uploads/...

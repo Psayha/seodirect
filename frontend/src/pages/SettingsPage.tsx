@@ -4,7 +4,7 @@ import { api } from '../api/client'
 import { settingsApi, type CrawlerSettings, type AISettings, type UserRecord, type SystemPromptFull } from '../api/settings'
 import { useAuthStore } from '../store/auth'
 
-type Tab = 'api-keys' | 'crawler' | 'ai' | 'users' | 'prompts' | 'white-label'
+type Tab = 'api-keys' | 'crawler' | 'ai' | 'limits' | 'users' | 'prompts' | 'white-label'
 
 function cx(...args: (string | false | null | undefined)[]) {
   return args.filter(Boolean).join(' ')
@@ -895,6 +895,165 @@ function PromptsTab() {
   )
 }
 
+// ── Limits Dashboard ────────────────────────────────────────────────────────
+interface LimitService {
+  service: string
+  label: string
+  configured: boolean
+  daily_limit: number | null
+  rate_limit: string
+  today_calls: number
+  today_tokens: number
+  today_cost: number
+  limit_used_pct: number | null
+}
+
+interface UsageDay {
+  date: string
+  calls: number
+  tokens: number
+  cost: number
+}
+
+interface UsageService {
+  service: string
+  label: string
+  daily_limit: number | null
+  rate_limit: string
+  today: { calls: number; tokens: number; cost: number }
+  period: { calls: number; tokens: number; cost: number; days: number }
+  daily: UsageDay[]
+}
+
+function LimitsTab() {
+  const [days, setDays] = useState(30)
+  const { data: status = [], isLoading: statusLoading } = useQuery<LimitService[]>({
+    queryKey: ['limits-status'],
+    queryFn: () => api.get('/settings/limits/status').then((r) => r.data),
+  })
+  const { data: usage = [], isLoading: usageLoading } = useQuery<UsageService[]>({
+    queryKey: ['limits-usage', days],
+    queryFn: () => api.get(`/settings/limits/usage?days=${days}`).then((r) => r.data),
+  })
+
+  if (statusLoading || usageLoading) return <Spinner />
+
+  // Find max calls in daily data for chart scaling
+  const getMaxCalls = (daily: UsageDay[]) => Math.max(1, ...daily.map((d) => d.calls))
+
+  return (
+    <div className="space-y-6">
+      {/* Status cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {(status as LimitService[]).map((svc) => (
+          <div key={svc.service} className="card-bordered overflow-hidden">
+            <div className="px-5 py-3.5 bg-surface-raised border-b border-[var(--border)] flex items-center justify-between">
+              <h4 className="text-xs font-semibold uppercase tracking-widest text-muted">{svc.label}</h4>
+              <span className={cx(
+                'w-2.5 h-2.5 rounded-full',
+                svc.configured ? 'bg-emerald-500' : 'bg-gray-400'
+              )} title={svc.configured ? 'Подключено' : 'Не настроено'} />
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted">Сегодня</span>
+                <span className="font-mono font-medium text-primary">{svc.today_calls} вызовов</span>
+              </div>
+
+              {svc.today_tokens > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted">Токены</span>
+                  <span className="font-mono text-primary">{svc.today_tokens.toLocaleString()}</span>
+                </div>
+              )}
+
+              {svc.today_cost > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted">Стоимость</span>
+                  <span className="font-mono text-primary">${(svc.today_cost / 100).toFixed(4)}</span>
+                </div>
+              )}
+
+              {svc.daily_limit && (
+                <div>
+                  <div className="flex justify-between text-xs text-muted mb-1">
+                    <span>Лимит: {svc.daily_limit.toLocaleString()}/день</span>
+                    <span>{svc.limit_used_pct ?? 0}%</span>
+                  </div>
+                  <div className="h-2 bg-[var(--surface-raised)] rounded-full overflow-hidden">
+                    <div
+                      className={cx(
+                        'h-full rounded-full transition-all',
+                        (svc.limit_used_pct ?? 0) > 80 ? 'bg-red-500' :
+                        (svc.limit_used_pct ?? 0) > 50 ? 'bg-amber-500' : 'bg-emerald-500'
+                      )}
+                      style={{ width: `${Math.min(svc.limit_used_pct ?? 0, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="text-xs text-muted">
+                Rate limit: {svc.rate_limit}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Usage history */}
+      <Section title="История использования">
+        <div className="flex items-center gap-3 mb-4">
+          <Label>Период:</Label>
+          <select className="field py-1.5 px-3 text-sm w-auto" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+            <option value={7}>7 дней</option>
+            <option value={14}>14 дней</option>
+            <option value={30}>30 дней</option>
+            <option value={60}>60 дней</option>
+            <option value={90}>90 дней</option>
+          </select>
+        </div>
+
+        {(usage as UsageService[]).map((svc) => {
+          const hasUsage = svc.period.calls > 0
+          if (!hasUsage) return null
+          const maxCalls = getMaxCalls(svc.daily)
+          const recentDays = [...svc.daily].reverse()
+
+          return (
+            <div key={svc.service} className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <h5 className="text-sm font-semibold text-primary">{svc.label}</h5>
+                <div className="flex gap-4 text-xs text-muted">
+                  <span>{svc.period.calls.toLocaleString()} вызовов</span>
+                  {svc.period.tokens > 0 && <span>{svc.period.tokens.toLocaleString()} токенов</span>}
+                  {svc.period.cost > 0 && <span>${(svc.period.cost / 100).toFixed(2)}</span>}
+                </div>
+              </div>
+
+              {/* Mini bar chart */}
+              <div className="flex items-end gap-px h-16 bg-[var(--surface-raised)] rounded-lg p-1.5 overflow-hidden">
+                {recentDays.map((d) => (
+                  <div
+                    key={d.date}
+                    className="flex-1 rounded-sm bg-[var(--accent)] opacity-70 hover:opacity-100 transition-opacity min-w-[2px]"
+                    style={{ height: `${Math.max((d.calls / maxCalls) * 100, d.calls > 0 ? 4 : 0)}%` }}
+                    title={`${d.date}: ${d.calls} вызовов`}
+                  />
+                ))}
+              </div>
+            </div>
+          )
+        })}
+
+        {(usage as UsageService[]).every((s) => s.period.calls === 0) && (
+          <p className="text-sm text-muted py-4">Нет данных об использовании за выбранный период</p>
+        )}
+      </Section>
+    </div>
+  )
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const user       = useAuthStore((s) => s.user)
@@ -907,6 +1066,7 @@ export default function SettingsPage() {
     { key: 'api-keys',    label: 'API ключи',     show: true },
     { key: 'crawler',     label: 'Парсер',         show: true },
     { key: 'ai',          label: 'ИИ параметры',   show: true },
+    { key: 'limits',      label: 'Лимиты API',     show: isAdmin },
     { key: 'white-label', label: 'White Label',    show: isAdmin },
     { key: 'users',       label: 'Пользователи',   show: isAdmin },
     { key: 'prompts',     label: 'Промпты',        show: isSuperAdmin },
@@ -930,11 +1090,12 @@ export default function SettingsPage() {
       </div>
 
       <div className={cx(
-        tab === 'api-keys' || tab === 'users' || tab === 'prompts' || tab === 'ai' ? 'max-w-5xl' : 'max-w-2xl'
+        tab === 'api-keys' || tab === 'users' || tab === 'prompts' || tab === 'ai' || tab === 'limits' ? 'max-w-5xl' : 'max-w-2xl'
       )}>
         {tab === 'api-keys'    && <ApiKeysTab />}
         {tab === 'crawler'     && <CrawlerTab />}
         {tab === 'ai'          && <AITab />}
+        {tab === 'limits'      && <LimitsTab />}
         {tab === 'white-label' && <WhiteLabelTab />}
         {tab === 'users'       && <UsersTab />}
         {tab === 'prompts'     && <PromptsTab />}

@@ -444,7 +444,7 @@ def task_semantic_expand(
                         logging.getLogger(__name__).warning("Wordstat batch error: %s", exc)
 
                     if task:
-                        task.progress = int(50 + (i + sub_batch) / len(uncached) * 35)
+                        task.progress = min(85, int(50 + (i + sub_batch) / len(uncached) * 35))
                         db.commit()
 
             # Fill freq_map from cache for cached phrases
@@ -531,6 +531,17 @@ def task_semantic_expand(
             }
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
+
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "Расширение семантики готово",
+                f"Собрано {saved} ключевых слов",
+            )
+        except Exception:
+            pass
 
         return {"status": "success", "saved": saved}
 
@@ -682,7 +693,7 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
                 logger.warning("Claude cluster error for batch %d: %s", i, exc)
 
             if task:
-                task.progress = int(10 + (i + batch_size) / len(phrases) * 70)
+                task.progress = min(80, int(10 + (i + batch_size) / len(phrases) * 70))
                 db.commit()
 
         if task:
@@ -723,13 +734,14 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
             if not cluster_kw_phrases:
                 continue
 
+            raw_st = cluster_data.get("suggested_title")
             cluster = SemanticCluster(
                 semantic_project_id=sem_id,
-                name=name,
-                intent=cluster_data.get("intent"),
-                priority=cluster_data.get("priority"),
-                campaign_type=cluster_data.get("campaign_type"),
-                suggested_title=cluster_data.get("suggested_title"),
+                name=name[:255],
+                intent=(cluster_data.get("intent") or "")[:50] or None,
+                priority=(cluster_data.get("priority") or "")[:20] or None,
+                campaign_type=(cluster_data.get("campaign_type") or "")[:50] or None,
+                suggested_title=raw_st[:255] if raw_st else None,
             )
             db.add(cluster)
             db.flush()  # get cluster.id
@@ -767,6 +779,17 @@ def task_semantic_cluster(self, task_id: str, sem_project_id: str, project_id: s
             }
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
+
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "Кластеризация готова",
+                f"Создано {saved_clusters} кластеров",
+            )
+        except Exception:
+            pass
 
         return {"status": "success", "clusters": saved_clusters}
 
@@ -987,7 +1010,7 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
                     except Exception as exc:
                         logger.warning("WS batch: %s", exc)
                     if task:
-                        task.progress = int(55 + (i + 250) / max(len(uncached), 1) * 20)
+                        task.progress = min(75, int(55 + (i + 250) / max(len(uncached), 1) * 20))
                         db.commit()
             for ph in uniq:
                 if ph not in kw_freq and ph in cached:
@@ -1051,7 +1074,7 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             except Exception as exc:
                 logger.warning("Autopilot cluster: %s", exc)
             if task:
-                task.progress = int(80 + (i + 300) / max(len(c_phrases), 1) * 15)
+                task.progress = min(95, int(80 + (i + len(b)) / max(len(c_phrases), 1) * 15))
                 db.commit()
 
         for oc in db.scalars(select(SemanticCluster).where(SemanticCluster.semantic_project_id == sem_id)).all():
@@ -1069,7 +1092,14 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             kps = [p for p in (cd.get("keywords") or []) if isinstance(p, str) and p in p_set]
             if not kps:
                 continue
-            db.add(SemanticCluster(semantic_project_id=sem_id, name=nm, intent=cd.get("intent"), priority=cd.get("priority"), campaign_type=cd.get("campaign_type"), suggested_title=cd.get("suggested_title")))
+            raw_title = cd.get("suggested_title")
+            db.add(SemanticCluster(
+                semantic_project_id=sem_id, name=nm[:255],
+                intent=(cd.get("intent") or "")[:50] or None,
+                priority=(cd.get("priority") or "")[:20] or None,
+                campaign_type=(cd.get("campaign_type") or "")[:50] or None,
+                suggested_title=raw_title[:255] if raw_title else None,
+            ))
             db.flush()
             for p in kps:
                 if p in p2kw:
@@ -1097,6 +1127,18 @@ def task_semantic_autopilot(self, task_id: str, sem_project_id: str, project_id:
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
         logger.info("Autopilot done: %d masks -> %d kw -> %d kept -> %d clusters", len(mask_phrases), saved, kept, n_cl)
+
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "Семантика готова",
+                f"Собрано {kept} ключевых слов, {n_cl} кластеров",
+            )
+        except Exception:
+            pass
+
         return {"status": "success", "clusters": n_cl, "kept": kept}
 
     except Exception as e:

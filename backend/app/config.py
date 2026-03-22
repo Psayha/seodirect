@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     crawl_user_agent: str = Field(default="SEODirectBot/1.0 (internal)", alias="CRAWL_USER_AGENT")
     crawl_respect_robots: bool = Field(default=True, alias="CRAWL_RESPECT_ROBOTS")
 
+    # VAPID keys for Web Push notifications
+    vapid_private_key: str = Field(default="", alias="VAPID_PRIVATE_KEY")
+    vapid_public_key: str = Field(default="", alias="VAPID_PUBLIC_KEY")
+    vapid_email: str = Field(default="admin@seodirect.ru", alias="VAPID_EMAIL")
+
     @field_validator("secret_key")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:

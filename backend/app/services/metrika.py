@@ -8,6 +8,14 @@ import httpx
 BASE = "https://api-metrika.yandex.net"
 
 
+def _track():
+    try:
+        from app.services.usage import track_call
+        track_call("metrika")
+    except Exception:
+        pass
+
+
 class MetrikaClient:
     def __init__(self, oauth_token: str):
         self.token = oauth_token
@@ -18,6 +26,7 @@ class MetrikaClient:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.get(f"{BASE}/management/v1/counters", headers=self.headers)
             r.raise_for_status()
+            _track()
             data = r.json()
             return [
                 {
@@ -51,6 +60,7 @@ class MetrikaClient:
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.get(f"{BASE}/stat/v1/data", headers=self.headers, params=params)
             r.raise_for_status()
+            _track()
             data = r.json()
 
         totals = data.get("totals", [0, 0, 0, 0, 0])
@@ -88,6 +98,7 @@ class MetrikaClient:
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.get(f"{BASE}/stat/v1/data", headers=self.headers, params=params)
             r.raise_for_status()
+            _track()
             data = r.json()
 
         result = []
@@ -125,6 +136,7 @@ class MetrikaClient:
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.get(f"{BASE}/stat/v1/data", headers=self.headers, params=params)
             r.raise_for_status()
+            _track()
             data = r.json()
 
         result = []
@@ -147,6 +159,7 @@ class MetrikaClient:
                 headers=self.headers,
             )
             r.raise_for_status()
+            _track()
             data = r.json()
         return [
             {"id": g["id"], "name": g.get("name", ""), "type": g.get("type", "")}

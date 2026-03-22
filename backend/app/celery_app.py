@@ -1,6 +1,43 @@
 from celery import Celery
+from kombu import Exchange, Queue
 
 from app.config import get_settings
+
+# Queue definitions
+default_exchange = Exchange("default", type="direct")
+heavy_exchange = Exchange("heavy", type="direct")
+dlx_exchange = Exchange("dlx", type="direct")
+
+TASK_QUEUES = (
+    Queue(
+        "default",
+        default_exchange,
+        routing_key="default",
+        queue_arguments={
+            "x-dead-letter-exchange": "dlx",
+            "x-dead-letter-routing-key": "dead_letter",
+        },
+    ),
+    Queue(
+        "heavy",
+        heavy_exchange,
+        routing_key="heavy",
+        queue_arguments={
+            "x-dead-letter-exchange": "dlx",
+            "x-dead-letter-routing-key": "dead_letter",
+        },
+    ),
+    Queue("dead_letter", dlx_exchange, routing_key="dead_letter"),
+)
+
+# Route long-running tasks to the heavy queue
+TASK_ROUTES = {
+    "tasks.crawl.run_crawl": {"queue": "heavy"},
+    "task_geo_scan": {"queue": "heavy"},
+    "task_geo_audit": {"queue": "heavy"},
+    "tasks.reports.monthly_reports": {"queue": "heavy"},
+    "tasks.seo.generate_schema_bulk": {"queue": "heavy"},
+}
 
 
 def make_celery() -> Celery:
@@ -30,20 +67,16 @@ def make_celery() -> Celery:
         worker_prefetch_multiplier=1,
         task_soft_time_limit=600,
         task_time_limit=900,
+        task_compression="gzip",
         broker_connection_retry_on_startup=True,
         # Reject tasks back to broker if worker dies mid-task (prevents silent loss)
         task_reject_on_worker_lost=True,
-        # Dead letter queue: failed tasks go to a separate queue for inspection
-        task_queues={
-            "celery": {
-                "exchange": "celery",
-                "routing_key": "celery",
-                "queue_arguments": {
-                    "x-dead-letter-exchange": "dlx",
-                    "x-dead-letter-routing-key": "dead_letter",
-                },
-            }
-        },
+        # Queue routing
+        task_queues=TASK_QUEUES,
+        task_default_queue="default",
+        task_default_exchange="default",
+        task_default_routing_key="default",
+        task_routes=TASK_ROUTES,
     )
     return celery
 

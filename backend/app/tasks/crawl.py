@@ -10,7 +10,15 @@ from app.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, name="tasks.crawl.run_crawl")
+@celery_app.task(
+    bind=True,
+    name="tasks.crawl.run_crawl",
+    autoretry_for=(ConnectionError, OSError),
+    retry_kwargs={"max_retries": 2},
+    retry_backoff=True,
+    retry_backoff_max=120,
+    retry_jitter=True,
+)
 def run_crawl(self, task_id: str, session_id: str, project_id: str, url: str, settings_dict: dict):
     """Celery task: crawl a website and save results to DB."""
     from app.crawl.crawler import SiteCrawler
@@ -120,6 +128,17 @@ def run_crawl(self, task_id: str, session_id: str, project_id: str, url: str, se
             }
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
+
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "Парсинг завершён",
+                f"Обработано {len(pages)} страниц",
+            )
+        except Exception:
+            logger.debug("Push notification failed (non-critical)", exc_info=True)
 
     except Exception as exc:
         # Mark as failed

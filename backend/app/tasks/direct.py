@@ -70,6 +70,17 @@ def task_generate_strategy(self, task_id: str, project_id: str):
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
 
+        # Push notification
+        try:
+            from app.services.push import notify_project_owner
+            notify_project_owner(
+                db, uuid.UUID(project_id),
+                "Стратегия готова",
+                "Стратегия Директа сгенерирована",
+            )
+        except Exception:
+            pass
+
         return {"status": "success"}
     except Exception as e:
         if task:
@@ -134,6 +145,23 @@ def task_check_frequencies(self, task_id: str, keyword_ids: list[str]):
             task.result = {"keywords_updated": updated}
             task.finished_at = datetime.now(timezone.utc)
             db.commit()
+
+        # Push notification — need project_id from keyword chain
+        try:
+            if keywords:
+                from app.models.direct import AdGroup, Campaign
+                group = db.get(AdGroup, keywords[0].ad_group_id)
+                if group:
+                    campaign = db.get(Campaign, group.campaign_id)
+                    if campaign:
+                        from app.services.push import notify_project_owner
+                        notify_project_owner(
+                            db, campaign.project_id,
+                            "Частоты обновлены",
+                            f"Обновлено {updated} ключевых слов",
+                        )
+        except Exception:
+            pass
 
         return {"updated": updated}
     except Exception as e:

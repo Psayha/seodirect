@@ -142,6 +142,13 @@ async def check_domain_in_ai_response(
             resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()
+        # Track GEO LLM usage
+        try:
+            from app.services.usage import track_llm_call
+            u = data.get("usage", {})
+            track_llm_call("openrouter", tokens_in=u.get("prompt_tokens", 0), tokens_out=u.get("completion_tokens", 0), model=ai_model)
+        except Exception:
+            pass
     except Exception as exc:
         return {"mentioned": False, "error": str(exc)[:300]}
 
